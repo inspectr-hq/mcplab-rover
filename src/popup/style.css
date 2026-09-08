@@ -59,6 +59,8 @@ button:disabled { background: #63321f; color: var(--button-disabled); cursor: wa
 .response-tray { display: grid; gap: 10px; }
 .result { max-height: 210px; margin: 0; overflow: auto; white-space: pre-wrap; background: var(--surface-raised); border: 1px solid var(--result-border); border-radius: 12px; padding: 12px; color: var(--result-text); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; scrollbar-color: #8b8982 transparent; }
 .copy-button { background: var(--copy-surface); color: var(--text); box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .06); }
+.stop-button { background: #3b2421; color: #ffaaa1; box-shadow: inset 0 0 0 1px rgba(255, 105, 97, .22); }
+.stop-button:hover:not(:disabled) { background: #542b27; }
 .copy-button:hover:not(:disabled) { background: color-mix(in srgb, var(--copy-surface) 84%, var(--text)); }
 
 @keyframes pulse { 0%, 100% { opacity: .45; transform: scale(.85); } 50% { opacity: 1; transform: scale(1); } }

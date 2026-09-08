@@ -18,6 +18,7 @@ const session = document.querySelector<HTMLElement>('#session')!;
 const testName = document.querySelector<HTMLElement>('#test-name')!;
 const prompt = document.querySelector<HTMLPreElement>('#prompt')!;
 const run = document.querySelector<HTMLButtonElement>('#run')!;
+const stop = document.querySelector<HTMLButtonElement>('#stop')!;
 const copyPrompt = document.querySelector<HTMLButtonElement>('#copy-prompt')!;
 const manualAnswer = document.querySelector<HTMLTextAreaElement>('#manual-answer')!;
 const evaluate = document.querySelector<HTMLButtonElement>('#evaluate')!;
@@ -37,6 +38,18 @@ function setConnectionState(state: 'connecting' | 'connected' | 'disconnected', 
   connectionStatus.dataset.state = state;
   connectionDot.title = message;
   connectionStatus.lastElementChild!.textContent = message;
+  window.parent.postMessage({ type: 'ROVER_CONNECTION_STATE', connected: state === 'connected' }, '*');
+}
+
+function reportPanelSize(): void {
+  window.parent.postMessage({
+    type: 'ROVER_PANEL_SIZE',
+    height: Math.ceil(Math.max(shell.scrollHeight, shell.getBoundingClientRect().height))
+  }, '*');
+}
+
+if (window.parent !== window && 'ResizeObserver' in window) {
+  new ResizeObserver(reportPanelSize).observe(shell);
 }
 
 connectionSettings.addEventListener('click', () => {
@@ -78,6 +91,7 @@ function render(state: RoverState | null): void {
   result.hidden = !state?.text;
   openResult.hidden = state?.status !== 'completed';
   reset.hidden = !state || !['completed', 'error'].includes(state.status);
+  stop.hidden = !state || ['completed', 'error'].includes(state.status);
   run.hidden = state?.status !== 'ready';
   copyPrompt.hidden = state?.status !== 'manual';
   manualAnswer.hidden = state?.status !== 'manual';
@@ -157,6 +171,16 @@ run.addEventListener('click', async () => {
   else render(response.state);
 });
 
+stop.addEventListener('click', async () => {
+  stop.disabled = true;
+  status.textContent = 'Stopping Live Test…';
+  await chrome.runtime.sendMessage({ type: 'ROVER_CANCEL' });
+  stop.disabled = false;
+  manualAnswer.value = '';
+  render(null);
+  await loadCatalog(origin.value);
+});
+
 copyPrompt.addEventListener('click', async () => {
   await navigator.clipboard.writeText(current?.prompt ?? '');
   status.textContent = 'Prompt copied. Paste it into your agent.';
@@ -192,4 +216,5 @@ chrome.storage.onChanged.addListener((changes, area) => {
 void chrome.runtime.sendMessage({ type: 'ROVER_GET_STATE' }).then((state: RoverState | null) => {
   if (state) render(state);
   void loadCatalog(state?.origin);
+  reportPanelSize();
 });

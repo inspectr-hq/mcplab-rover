@@ -8,8 +8,12 @@ const ORIGIN_KEY = 'rover.mcplabOrigin';
 chrome.action.onClicked.addListener(async (tab) => {
   if (typeof tab.id !== 'number') return;
   try {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-    await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_TOGGLE_PANEL' });
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_TOGGLE_PANEL' });
+    } catch {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+      await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_TOGGLE_PANEL' });
+    }
   } catch {
     // Chrome internal pages and restricted frames do not allow injection.
   }
@@ -36,8 +40,12 @@ async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
 
 async function detectProvider(tabId: number): Promise<ProviderId | undefined> {
   try {
-    await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
-    return (await chrome.tabs.sendMessage(tabId, { type: 'ROVER_DETECT' })) ?? undefined;
+    try {
+      return (await chrome.tabs.sendMessage(tabId, { type: 'ROVER_DETECT' })) ?? undefined;
+    } catch {
+      await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+      return (await chrome.tabs.sendMessage(tabId, { type: 'ROVER_DETECT' })) ?? undefined;
+    }
   } catch {
     return undefined;
   }

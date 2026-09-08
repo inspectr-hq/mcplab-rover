@@ -29,7 +29,7 @@
         </div>
       </section>
       <section id="catalog" class="stack" aria-label="Live Test catalog" hidden>
-        <label for="search">Test case</label>
+        <label for="search">Evaluation</label>
         <input id="search" type="search" placeholder="Filter test cases" />
         <select id="test-case" size="5" aria-label="Test cases"></select>
         <p id="selection-note" class="muted wrap"></p>
@@ -39,6 +39,7 @@
         <strong id="test-name"></strong>
         <pre id="prompt" class="result"></pre>
         <button id="run" type="button"><span class="run-icon" aria-hidden="true">↗</span><span>Run in active chat</span></button>
+        <button id="stop" type="button" class="stop-button" hidden>Stop Live Test</button>
         <button id="copy-prompt" type="button" class="copy-button" hidden>Copy prompt</button>
         <textarea id="manual-answer" rows="5" placeholder="Paste the agent's final answer" hidden></textarea>
         <button id="evaluate" type="button" hidden>Evaluate answer</button>

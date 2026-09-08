@@ -5,6 +5,10 @@
   "description": "Run a prompt in the active chat tab and capture the completed response.",
   "permissions": ["activeTab", "scripting", "storage", "clipboardWrite"],
   "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "web_accessible_resources": [{
+    "resources": ["rover.html", "rover.js", "assets/*", "icons/*"],
+    "matches": ["<all_urls>"]
+  }],
   "action": {
     "default_title": "Toggle MCPLab Rover",
     "default_icon": {
