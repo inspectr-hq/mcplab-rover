@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "MCPLab Rover",
+  "version": "0.1.0",
+  "description": "Run a prompt in the active chat tab and capture the completed response.",
+  "permissions": ["activeTab", "scripting", "storage", "clipboardWrite"],
+  "action": {
+    "default_title": "MCPLab Rover",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
+}

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MCPLab Rover</title>
+  </head>
+  <body>
+    <main class="shell">
+      <h1>MCPLab Rover</h1>
+      <p id="provider" class="muted">Detecting active chat…</p>
+      <button id="run" type="button">Run smoke test</button>
+      <p id="status" role="status" class="status">Ready</p>
+      <pre id="result" class="result" hidden></pre>
+      <button id="copy" type="button" hidden>Copy response</button>
+    </main>
+    <script type="module" src="/src/popup/main.ts"></script>
+  </body>
+</html>
