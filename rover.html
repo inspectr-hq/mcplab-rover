@@ -8,12 +8,24 @@
   </head>
   <body>
     <main class="shell">
-      <h1><img src="icons/mcplab-favicon.svg" alt="" />MCPLab Rover</h1>
-      <p id="provider" class="muted">Detecting active chat…</p>
-      <button id="run" type="button">Run smoke test</button>
-      <p id="status" role="status" class="status">Ready</p>
-      <pre id="result" class="result" hidden></pre>
-      <button id="copy" type="button" hidden>Copy response</button>
+      <header class="brand-row">
+        <div class="brand-mark"><img src="icons/mcplab-favicon.svg" alt="" /></div>
+        <div class="brand-copy">
+          <h1>MCPLab Rover</h1>
+          <p id="provider" class="muted">Detecting active chat…</p>
+        </div>
+        <span class="notch-dot" aria-hidden="true"></span>
+      </header>
+      <div class="notch-rule" aria-hidden="true"></div>
+      <button id="run" type="button"><span class="run-icon" aria-hidden="true">↗</span><span>Run smoke test</span></button>
+      <div class="status-row">
+        <span class="status-pip" aria-hidden="true"></span>
+        <p id="status" role="status" class="status">Ready</p>
+      </div>
+      <section class="response-tray" aria-label="Captured response">
+        <pre id="result" class="result" hidden></pre>
+        <button id="copy" type="button" class="copy-button" hidden>Copy response</button>
+      </section>
     </main>
     <script type="module" src="/src/popup/main.ts"></script>
   </body>

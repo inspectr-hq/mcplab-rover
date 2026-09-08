@@ -8,11 +8,14 @@ const result = document.querySelector<HTMLPreElement>('#result')!;
 const copy = document.querySelector<HTMLButtonElement>('#copy')!;
 
 function render(state: RunState | null): void {
+  const shell = document.querySelector<HTMLElement>('.shell')!;
   if (!state) {
+    shell.dataset.state = 'ready';
     status.textContent = 'Ready';
     run.disabled = false;
     return;
   }
+  shell.dataset.state = state.status;
   run.disabled = state.status === 'running';
   status.textContent = state.status === 'running' ? 'Waiting for response…' : state.status === 'completed' ? 'Completed' : `Error: ${state.error}`;
   if (state.text) {
