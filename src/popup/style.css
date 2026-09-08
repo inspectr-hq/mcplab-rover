@@ -31,7 +31,8 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 360px; max-width: 390px; background: var(--canvas); color: var(--text); }
+html, body { background: transparent; }
+body { margin: 0; min-width: 360px; max-width: 390px; color: var(--text); }
 .shell { position: relative; min-height: 184px; padding: 16px 16px 15px; display: grid; gap: 11px; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: 20px 8px 20px 20px; box-shadow: 0 12px 28px rgba(29, 35, 43, .14), inset 0 1px 0 rgba(255, 255, 255, .72); }
 .shell::after { content: ""; position: absolute; top: 22px; right: -1px; width: 13px; height: 30px; background: var(--surface); border: 1px solid var(--border); border-left: 0; border-radius: 0 16px 16px 0; transform: translateX(9px); }
 .brand-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
