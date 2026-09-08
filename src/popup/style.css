@@ -31,6 +31,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { background: transparent; }
 body { margin: 0; min-width: 360px; max-width: 390px; color: var(--text); }
 .shell { position: relative; min-height: 184px; padding: 16px 16px 15px; display: grid; gap: 11px; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: 20px 8px 20px 20px; box-shadow: 0 12px 28px rgba(29, 35, 43, .14), inset 0 1px 0 rgba(255, 255, 255, .72); }
@@ -65,6 +66,16 @@ button:disabled { background: #63321f; color: var(--button-disabled); cursor: wa
 .stack { display: grid; gap: 8px; }
 .inline-row { display: flex; gap: 8px; }
 .inline-row > * { flex: 1; }
+.connection-label { display: flex; align-items: center; gap: 8px; }
+.connection-label label { margin-right: 0; }
+.connection-status { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 10px; }
+.connection-status { margin-left: auto; }
+.connection-dot { width: 7px; height: 7px; border-radius: 999px; background: #77736e; }
+.connection-status[data-state="connecting"] .connection-dot { background: #f5a524; animation: pulse 1.25s ease-in-out infinite; }
+.connection-status[data-state="connected"] .connection-dot { background: #42d392; box-shadow: 0 0 8px rgba(66, 211, 146, .7); animation: pulse 1.8s ease-in-out infinite; }
+.connection-status[data-state="disconnected"] .connection-dot { background: #ff6961; }
+.settings-button { width: 22px; height: 22px; padding: 0; border-radius: 7px; background: transparent; color: var(--text-muted); box-shadow: none; font-size: 14px; line-height: 1; }
+.settings-button:hover:not(:disabled) { background: var(--surface-raised); color: var(--text); transform: none; }
 label, strong { color: var(--text-soft); font-size: 11px; font-weight: 700; }
 input, select, textarea {
   width: 100%;

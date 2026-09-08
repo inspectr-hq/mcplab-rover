@@ -5,6 +5,16 @@ import { acceptsContentResult } from './runtime/live-state';
 const STATE_KEY = 'rover.run';
 const ORIGIN_KEY = 'rover.mcplabOrigin';
 
+chrome.action.onClicked.addListener(async (tab) => {
+  if (typeof tab.id !== 'number') return;
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+    await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_TOGGLE_PANEL' });
+  } catch {
+    // Chrome internal pages and restricted frames do not allow injection.
+  }
+});
+
 async function getState(): Promise<RoverState | null> {
   return ((await chrome.storage.session.get(STATE_KEY))[STATE_KEY] as RoverState | undefined) ?? null;
 }

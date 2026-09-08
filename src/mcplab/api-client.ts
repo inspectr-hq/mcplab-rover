@@ -27,7 +27,7 @@ export class McplabApiError extends Error {
 export class McplabClient {
   readonly origin: string;
 
-  constructor(origin: string, private readonly fetcher: typeof fetch = fetch) {
+  constructor(origin: string, private readonly fetcher: typeof fetch = globalThis.fetch.bind(globalThis)) {
     this.origin = normalizeMcplabOrigin(origin);
   }
 
@@ -64,10 +64,15 @@ export class McplabClient {
     try {
       response = await this.fetcher(`${this.origin}${path}`, {
         ...init,
-        headers: { accept: 'application/json', 'content-type': 'application/json', ...init.headers }
+        headers: {
+          accept: 'application/json',
+          ...(init.body ? { 'content-type': 'application/json' } : {}),
+          ...init.headers
+        }
       });
-    } catch {
-      throw new McplabApiError(`Could not connect to MCPLab at ${this.origin}.`);
+    } catch (error) {
+      const detail = error instanceof Error && error.message ? ` (${error.message})` : '';
+      throw new McplabApiError(`Could not connect to MCPLab at ${this.origin}.${detail}`);
     }
     const value = await response.json().catch(() => null) as { error?: unknown } | null;
     if (!response.ok) {

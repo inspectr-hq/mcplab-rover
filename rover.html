@@ -18,9 +18,13 @@
       </header>
       <div class="notch-rule" aria-hidden="true"></div>
       <section id="connection" class="stack" aria-label="MCPLab connection">
-        <label for="origin">MCPLab origin</label>
-        <div class="inline-row">
-          <input id="origin" type="url" value="http://127.0.0.1:8787" spellcheck="false" />
+        <div class="connection-label">
+          <label for="origin">MCPLab</label>
+          <span id="connection-status" class="connection-status"><span id="connection-dot" class="connection-dot" aria-hidden="true"></span><span>Connecting…</span></span>
+          <button id="connection-settings" type="button" class="settings-button" aria-label="MCPLab connection settings" aria-expanded="false">⚙</button>
+        </div>
+        <div id="connection-controls" class="inline-row" hidden>
+          <input id="origin" type="url" value="http://127.0.0.1:8787" spellcheck="false" aria-label="MCPLab URL" />
           <button id="connect" type="button" class="compact-button">Connect</button>
         </div>
       </section>

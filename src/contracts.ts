@@ -24,6 +24,7 @@ export interface RoverState {
 }
 
 export type ExtensionMessage =
+  | { type: 'ROVER_TOGGLE_PANEL' }
   | { type: 'ROVER_GET_CATALOG'; origin?: string }
   | { type: 'ROVER_GET_STATE' }
   | { type: 'ROVER_PREPARE'; testCaseId: string; origin?: string }

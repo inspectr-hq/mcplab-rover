@@ -7,6 +7,8 @@ const shell = document.querySelector<HTMLElement>('.shell')!;
 const provider = document.querySelector<HTMLParagraphElement>('#provider')!;
 const origin = document.querySelector<HTMLInputElement>('#origin')!;
 const connect = document.querySelector<HTMLButtonElement>('#connect')!;
+const connectionSettings = document.querySelector<HTMLButtonElement>('#connection-settings')!;
+const connectionControls = document.querySelector<HTMLDivElement>('#connection-controls')!;
 const catalog = document.querySelector<HTMLElement>('#catalog')!;
 const search = document.querySelector<HTMLInputElement>('#search')!;
 const testCase = document.querySelector<HTMLSelectElement>('#test-case')!;
@@ -25,9 +27,23 @@ const checks = document.querySelector<HTMLParagraphElement>('#checks')!;
 const result = document.querySelector<HTMLPreElement>('#result')!;
 const openResult = document.querySelector<HTMLButtonElement>('#open-result')!;
 const reset = document.querySelector<HTMLButtonElement>('#reset')!;
+const connectionStatus = document.querySelector<HTMLSpanElement>('#connection-status')!;
+const connectionDot = document.querySelector<HTMLSpanElement>('#connection-dot')!;
 
 let items: LiveTestCatalogItem[] = [];
 let current: RoverState | null = null;
+
+function setConnectionState(state: 'connecting' | 'connected' | 'disconnected', message: string): void {
+  connectionStatus.dataset.state = state;
+  connectionDot.title = message;
+  connectionStatus.lastElementChild!.textContent = message;
+}
+
+connectionSettings.addEventListener('click', () => {
+  const expanded = !connectionControls.hidden;
+  connectionControls.hidden = expanded;
+  connectionSettings.setAttribute('aria-expanded', String(!expanded));
+});
 
 function selectedItem(): LiveTestCatalogItem | undefined {
   return items.find((item) => item.id === testCase.value);
@@ -93,18 +109,29 @@ function render(state: RoverState | null): void {
 
 async function loadCatalog(requestedOrigin?: string): Promise<void> {
   connect.disabled = true;
+  setConnectionState('connecting', 'Connecting…');
   status.textContent = 'Connecting to MCPLab…';
-  const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_CATALOG', origin: requestedOrigin });
-  connect.disabled = false;
-  if (!response?.ok) {
-    status.textContent = `Connection error: ${response?.error ?? 'Could not connect.'}`;
-    return;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_CATALOG', origin: requestedOrigin });
+    connect.disabled = false;
+    if (!response?.ok) {
+      setConnectionState('disconnected', 'Disconnected');
+      status.textContent = `Connection error: ${response?.error ?? 'Could not connect.'}`;
+      return;
+    }
+    setConnectionState('connected', 'Connected');
+    origin.value = response.origin;
+    items = response.testCases;
+    if (!current) {
+      catalog.hidden = false;
+      renderCatalog();
+      status.textContent = items.length ? 'Choose a test case' : 'No test cases found.';
+    }
+  } catch (error) {
+    connect.disabled = false;
+    setConnectionState('disconnected', 'Disconnected');
+    status.textContent = `Connection error: ${error instanceof Error ? error.message : 'Could not connect.'}`;
   }
-  origin.value = response.origin;
-  items = response.testCases;
-  catalog.hidden = false;
-  renderCatalog();
-  status.textContent = items.length ? 'Choose a test case' : 'No test cases found.';
 }
 
 connect.addEventListener('click', () => void loadCatalog(origin.value));
@@ -164,5 +191,5 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 void chrome.runtime.sendMessage({ type: 'ROVER_GET_STATE' }).then((state: RoverState | null) => {
   if (state) render(state);
-  else void loadCatalog();
+  void loadCatalog(state?.origin);
 });
