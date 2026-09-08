@@ -13,6 +13,8 @@ function render(state: RunState | null): void {
     shell.dataset.state = 'ready';
     status.textContent = 'Ready';
     run.disabled = false;
+    result.hidden = true;
+    copy.hidden = true;
     return;
   }
   shell.dataset.state = state.status;
@@ -22,6 +24,9 @@ function render(state: RunState | null): void {
     result.hidden = false;
     result.textContent = state.text;
     copy.hidden = false;
+  } else {
+    result.hidden = true;
+    copy.hidden = true;
   }
 }
 
