@@ -9,11 +9,11 @@ export function normalizeMcplabOrigin(value: string): string {
   } catch {
     throw new Error('Enter a valid MCPLab origin.');
   }
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
-    throw new Error('MCPLab origin must contain only protocol, host, and port.');
-  }
-  if (url.hostname !== 'localhost' && url.hostname !== '127.0.0.1' && url.hostname !== '::1') {
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
     throw new Error('MCPLab V1 supports loopback origins only.');
+  }
+  if (url.protocol !== 'http:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+    throw new Error('MCPLab origin must contain only HTTP protocol, host, and port.');
   }
   return url.origin;
 }

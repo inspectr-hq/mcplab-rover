@@ -1,57 +1,168 @@
-import { SMOKE_PROMPT, type RunState } from '../contracts';
+import type { RoverState } from '../contracts';
+import type { LiveTestCatalogItem } from '../mcplab/types';
+import { filterTestCases, formatCheckCounts } from './view-model';
 import './style.css';
 
+const shell = document.querySelector<HTMLElement>('.shell')!;
 const provider = document.querySelector<HTMLParagraphElement>('#provider')!;
+const origin = document.querySelector<HTMLInputElement>('#origin')!;
+const connect = document.querySelector<HTMLButtonElement>('#connect')!;
+const catalog = document.querySelector<HTMLElement>('#catalog')!;
+const search = document.querySelector<HTMLInputElement>('#search')!;
+const testCase = document.querySelector<HTMLSelectElement>('#test-case')!;
+const selectionNote = document.querySelector<HTMLParagraphElement>('#selection-note')!;
+const prepare = document.querySelector<HTMLButtonElement>('#prepare')!;
+const session = document.querySelector<HTMLElement>('#session')!;
+const testName = document.querySelector<HTMLElement>('#test-name')!;
+const prompt = document.querySelector<HTMLPreElement>('#prompt')!;
 const run = document.querySelector<HTMLButtonElement>('#run')!;
+const copyPrompt = document.querySelector<HTMLButtonElement>('#copy-prompt')!;
+const manualAnswer = document.querySelector<HTMLTextAreaElement>('#manual-answer')!;
+const evaluate = document.querySelector<HTMLButtonElement>('#evaluate')!;
 const status = document.querySelector<HTMLParagraphElement>('#status')!;
+const outcome = document.querySelector<HTMLParagraphElement>('#outcome')!;
+const checks = document.querySelector<HTMLParagraphElement>('#checks')!;
 const result = document.querySelector<HTMLPreElement>('#result')!;
-const copy = document.querySelector<HTMLButtonElement>('#copy')!;
+const openResult = document.querySelector<HTMLButtonElement>('#open-result')!;
+const reset = document.querySelector<HTMLButtonElement>('#reset')!;
 
-function render(state: RunState | null): void {
-  const shell = document.querySelector<HTMLElement>('.shell')!;
+let items: LiveTestCatalogItem[] = [];
+let current: RoverState | null = null;
+
+function selectedItem(): LiveTestCatalogItem | undefined {
+  return items.find((item) => item.id === testCase.value);
+}
+
+function renderCatalog(): void {
+  const visible = filterTestCases(items, search.value);
+  testCase.replaceChildren(...visible.map((item) => {
+    const option = document.createElement('option');
+    option.value = item.id;
+    option.textContent = `${item.name}${item.eligible ? '' : ' (unsupported)'}`;
+    return option;
+  }));
+  updateSelection();
+}
+
+function updateSelection(): void {
+  const item = selectedItem();
+  prepare.disabled = !item?.eligible;
+  selectionNote.textContent = item?.ineligibleReason ?? (item ? `${item.assertionCount} checks` : 'Select a test case.');
+}
+
+function render(state: RoverState | null): void {
+  current = state;
+  shell.dataset.state = state?.status ?? 'ready';
+  shell.dataset.outcome = state?.outcome ?? '';
+  const active = Boolean(state);
+  catalog.hidden = active;
+  session.hidden = !active;
+  outcome.hidden = state?.status !== 'completed';
+  checks.hidden = state?.status !== 'completed';
+  result.hidden = !state?.text;
+  openResult.hidden = state?.status !== 'completed';
+  reset.hidden = !state || !['completed', 'error'].includes(state.status);
+  run.hidden = state?.status !== 'ready';
+  copyPrompt.hidden = state?.status !== 'manual';
+  manualAnswer.hidden = state?.status !== 'manual';
+  evaluate.hidden = state?.status !== 'manual';
+
   if (!state) {
-    shell.dataset.state = 'ready';
-    status.textContent = 'Ready';
-    run.disabled = false;
-    result.hidden = true;
-    copy.hidden = true;
+    provider.textContent = 'Connect to choose a Live Test';
+    status.textContent = items.length ? 'Choose a test case' : 'Ready';
     return;
   }
-  shell.dataset.state = state.status;
-  run.disabled = state.status === 'running';
-  status.textContent = state.status === 'running' ? 'Waiting for response…' : state.status === 'completed' ? 'Completed' : `Error: ${state.error}`;
-  if (state.text) {
-    result.hidden = false;
-    result.textContent = state.text;
-    copy.hidden = false;
-  } else {
-    result.hidden = true;
-    copy.hidden = true;
+  testName.textContent = state.testCaseName;
+  prompt.textContent = state.prompt;
+  provider.textContent = state.provider ? `Active chat: ${state.provider}` : 'Manual browser handoff';
+  result.textContent = state.text ?? '';
+  status.textContent = {
+    ready: 'Review the prompt, then run it in the active chat.',
+    manual: 'Unsupported page. Copy the prompt, then paste the final answer.',
+    running: 'Waiting for the agent response…',
+    evaluating: 'Evaluating in MCPLab…',
+    completed: 'Live Test saved.',
+    error: `Error: ${state.error ?? 'Live Test failed.'}`
+  }[state.status];
+  if (state.status === 'completed') {
+    outcome.textContent = state.outcome?.toUpperCase() ?? 'COMPLETED';
+    const count = state.checkCounts;
+    checks.textContent = count ? formatCheckCounts(count) : '';
   }
 }
 
-chrome.runtime.sendMessage({ type: 'ROVER_GET_STATE' }).then((state: RunState | null) => render(state));
+async function loadCatalog(requestedOrigin?: string): Promise<void> {
+  connect.disabled = true;
+  status.textContent = 'Connecting to MCPLab…';
+  const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_CATALOG', origin: requestedOrigin });
+  connect.disabled = false;
+  if (!response?.ok) {
+    status.textContent = `Connection error: ${response?.error ?? 'Could not connect.'}`;
+    return;
+  }
+  origin.value = response.origin;
+  items = response.testCases;
+  catalog.hidden = false;
+  renderCatalog();
+  status.textContent = items.length ? 'Choose a test case' : 'No test cases found.';
+}
+
+connect.addEventListener('click', () => void loadCatalog(origin.value));
+search.addEventListener('input', renderCatalog);
+testCase.addEventListener('change', updateSelection);
+
+prepare.addEventListener('click', async () => {
+  const item = selectedItem();
+  if (!item?.eligible) return;
+  prepare.disabled = true;
+  status.textContent = 'Preparing Live Test…';
+  const response = await chrome.runtime.sendMessage({ type: 'ROVER_PREPARE', testCaseId: item.id, origin: origin.value });
+  prepare.disabled = false;
+  if (!response?.ok) status.textContent = `Error: ${response?.error ?? 'Could not prepare Live Test.'}`;
+  else render(response.state);
+});
 
 run.addEventListener('click', async () => {
   run.disabled = true;
-  status.textContent = 'Starting…';
-  const response = await chrome.runtime.sendMessage({ type: 'ROVER_START', prompt: SMOKE_PROMPT });
-  if (!response?.ok) {
-    status.textContent = `Error: ${response?.error ?? 'Could not start Rover'}`;
-    run.disabled = false;
-  } else {
-    render(response.state);
-  }
+  const response = await chrome.runtime.sendMessage({ type: 'ROVER_EXECUTE' });
+  run.disabled = false;
+  if (!response?.ok) status.textContent = `Error: ${response?.error ?? 'Could not run Live Test.'}`;
+  else render(response.state);
 });
 
-copy.addEventListener('click', async () => {
-  if (result.textContent) await navigator.clipboard.writeText(result.textContent);
-  status.textContent = 'Copied';
+copyPrompt.addEventListener('click', async () => {
+  await navigator.clipboard.writeText(current?.prompt ?? '');
+  status.textContent = 'Prompt copied. Paste it into your agent.';
+});
+
+evaluate.addEventListener('click', async () => {
+  if (!manualAnswer.value.trim()) {
+    status.textContent = 'Paste the final answer first.';
+    return;
+  }
+  evaluate.disabled = true;
+  const response = await chrome.runtime.sendMessage({ type: 'ROVER_COMPLETE_MANUAL', text: manualAnswer.value });
+  evaluate.disabled = false;
+  if (!response?.ok) status.textContent = `Evaluation error: ${response?.error ?? 'Could not evaluate answer.'}`;
+  else render(response.state);
+});
+
+openResult.addEventListener('click', async () => {
+  if (current?.resultUrl) await chrome.tabs.create({ url: `${current.origin}${current.resultUrl}` });
+});
+
+reset.addEventListener('click', async () => {
+  await chrome.runtime.sendMessage({ type: 'ROVER_CANCEL' });
+  manualAnswer.value = '';
+  render(null);
+  await loadCatalog(origin.value);
 });
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== 'session' || !changes['rover.run']) return;
-  render(changes['rover.run'].newValue as RunState | null);
+  if (area === 'session' && changes['rover.run']) render(changes['rover.run'].newValue as RoverState | null);
 });
 
-provider.textContent = 'Use the active Claude or TrendMiner chat tab';
+void chrome.runtime.sendMessage({ type: 'ROVER_GET_STATE' }).then((state: RoverState | null) => {
+  if (state) render(state);
+  else void loadCatalog();
+});

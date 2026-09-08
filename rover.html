@@ -17,14 +17,40 @@
         <span class="notch-dot" aria-hidden="true"></span>
       </header>
       <div class="notch-rule" aria-hidden="true"></div>
-      <button id="run" type="button"><span class="run-icon" aria-hidden="true">↗</span><span>Run smoke test</span></button>
+      <section id="connection" class="stack" aria-label="MCPLab connection">
+        <label for="origin">MCPLab origin</label>
+        <div class="inline-row">
+          <input id="origin" type="url" value="http://127.0.0.1:8787" spellcheck="false" />
+          <button id="connect" type="button" class="compact-button">Connect</button>
+        </div>
+      </section>
+      <section id="catalog" class="stack" aria-label="Live Test catalog" hidden>
+        <label for="search">Test case</label>
+        <input id="search" type="search" placeholder="Filter test cases" />
+        <select id="test-case" size="5" aria-label="Test cases"></select>
+        <p id="selection-note" class="muted wrap"></p>
+        <button id="prepare" type="button">Prepare Live Test</button>
+      </section>
+      <section id="session" class="stack" aria-label="Prepared Live Test" hidden>
+        <strong id="test-name"></strong>
+        <pre id="prompt" class="result"></pre>
+        <button id="run" type="button"><span class="run-icon" aria-hidden="true">↗</span><span>Run in active chat</span></button>
+        <button id="copy-prompt" type="button" class="copy-button" hidden>Copy prompt</button>
+        <textarea id="manual-answer" rows="5" placeholder="Paste the agent's final answer" hidden></textarea>
+        <button id="evaluate" type="button" hidden>Evaluate answer</button>
+      </section>
       <div class="status-row">
         <span class="status-pip" aria-hidden="true"></span>
         <p id="status" role="status" class="status">Ready</p>
       </div>
       <section class="response-tray" aria-label="Captured response">
+        <p id="outcome" class="outcome" hidden></p>
+        <p id="checks" class="muted wrap" hidden></p>
         <pre id="result" class="result" hidden></pre>
-        <button id="copy" type="button" class="copy-button" hidden>Copy response</button>
+        <div class="inline-row">
+          <button id="open-result" type="button" class="copy-button" hidden>View in MCPLab</button>
+          <button id="reset" type="button" class="copy-button" hidden>Run another</button>
+        </div>
       </section>
     </main>
     <script type="module" src="/src/popup/main.ts"></script>

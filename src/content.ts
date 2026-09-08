@@ -8,6 +8,7 @@ if (runtime.__mcplabRoverInstalled) {
 } else {
   runtime.__mcplabRoverInstalled = true;
   chrome.runtime.onMessage.addListener((message: ExtensionMessage) => {
+    if (message.type === 'ROVER_DETECT') return findAdapter()?.id ?? null;
     if (message.type !== 'ROVER_ASK') return;
     void (async () => {
       try {
@@ -17,12 +18,14 @@ if (runtime.__mcplabRoverInstalled) {
         await chrome.runtime.sendMessage({
           type: 'ROVER_RESULT',
           requestId: message.requestId,
+          sessionId: message.sessionId,
           result: { ok: true, text }
         });
       } catch (error) {
         await chrome.runtime.sendMessage({
           type: 'ROVER_RESULT',
           requestId: message.requestId,
+          sessionId: message.sessionId,
           result: { ok: false, error: error instanceof Error ? error.message : String(error) }
         });
       }

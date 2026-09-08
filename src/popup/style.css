@@ -61,3 +61,33 @@ button:disabled { background: #63321f; color: var(--button-disabled); cursor: wa
 .copy-button:hover:not(:disabled) { background: color-mix(in srgb, var(--copy-surface) 84%, var(--text)); }
 
 @keyframes pulse { 0%, 100% { opacity: .45; transform: scale(.85); } 50% { opacity: 1; transform: scale(1); } }
+
+.stack { display: grid; gap: 8px; }
+.inline-row { display: flex; gap: 8px; }
+.inline-row > * { flex: 1; }
+label, strong { color: var(--text-soft); font-size: 11px; font-weight: 700; }
+input, select, textarea {
+  width: 100%;
+  border: 1px solid var(--result-border);
+  border-radius: 10px;
+  padding: 9px 10px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+select { min-height: 112px; padding: 4px; }
+select option { border-radius: 7px; padding: 7px; }
+textarea { resize: vertical; line-height: 1.4; }
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid #ff672a;
+  outline-offset: 1px;
+}
+.compact-button { flex: 0 0 auto; padding-inline: 14px; }
+.wrap { overflow: visible; white-space: normal; }
+.outcome { margin: 0; color: #42d392; font-size: 13px; font-weight: 800; letter-spacing: .04em; }
+.shell[data-outcome="failed"] .outcome, .shell[data-outcome="error"] .outcome { color: #ff6961; }
+.shell[data-outcome="incomplete"] .outcome { color: #f5a524; }
+.shell[data-state="evaluating"] .status-pip { background: #f5a524; animation: pulse 1.25s ease-in-out infinite; }
+
+#prompt { max-height: 120px; }
