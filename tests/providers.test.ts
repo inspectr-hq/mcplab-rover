@@ -49,4 +49,18 @@ describe('Claude adapter', () => {
 
     expect(claudeAdapter.getAssistantCandidates().at(-1)?.text).toContain('Claude answer');
   });
+
+  it('considers a completed streaming container idle without requiring a visible send button', () => {
+    document.body.innerHTML = `
+      <div data-is-streaming="false">
+        <div class="font-claude-response">Claude answer</div>
+      </div>
+    `;
+    const candidates = claudeAdapter.getAssistantCandidates();
+    const state = claudeAdapter.getResponseState(candidates);
+
+    expect(state.isGenerating).toBe(false);
+    expect(state.isIdle).toBe(true);
+    expect(state.text).toContain('Claude answer');
+  });
 });

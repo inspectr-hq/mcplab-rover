@@ -8,7 +8,7 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        popup: resolve(dirname(fileURLToPath(import.meta.url)), 'popup.html'),
+        rover: resolve(dirname(fileURLToPath(import.meta.url)), 'rover.html'),
         background: resolve(dirname(fileURLToPath(import.meta.url)), 'src/background.ts'),
         content: resolve(dirname(fileURLToPath(import.meta.url)), 'src/content.ts')
       },
