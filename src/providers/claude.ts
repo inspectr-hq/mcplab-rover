@@ -67,10 +67,12 @@ export const claudeAdapter: ChatProviderAdapter = {
     const stop = document.querySelector('[aria-label*="Stop"], button[data-is-streaming="true"]');
     const submit = claudeAdapter.findSubmitButton();
     const error = document.querySelector('[role="alert"]')?.textContent?.trim() || null;
+    const isGenerating = Boolean(stop || document.querySelector('[data-is-streaming="true"]'));
+    const hasCompletedContainer = Boolean(document.querySelector('[data-is-streaming="false"]'));
     return {
       text: candidates.at(-1)?.text ?? '',
-      isGenerating: Boolean(stop),
-      isIdle: Boolean(submit && !submit.disabled && !stop),
+      isGenerating,
+      isIdle: !isGenerating && (hasCompletedContainer || Boolean(submit && !submit.disabled)),
       error
     };
   }
