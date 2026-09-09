@@ -16,10 +16,45 @@ import {
 const STATE_KEY = 'rover.run';
 const ORIGIN_KEY = 'rover.mcplabOrigin';
 const QUEUE_KEY = 'rover.queue';
+let roverSocket: WebSocket | null = null;
+
+async function connectToMcplab(): Promise<void> {
+  const origin = await resolveOrigin();
+  if (roverSocket && (roverSocket.readyState === WebSocket.OPEN || roverSocket.readyState === WebSocket.CONNECTING)) return;
+  const wsOrigin = origin.replace(/^http/i, 'ws');
+  const socket = new WebSocket(`${wsOrigin}/api/rover/ws`);
+  roverSocket = socket;
+  socket.onopen = async () => {
+    const tab = await activeTab();
+    const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
+    if (!provider) return;
+    socket.send(JSON.stringify({ type: 'register', protocolVersion: 1, provider, pageUrl: tab?.url ?? '', extensionVersion: chrome.runtime.getManifest().version }));
+  };
+  socket.onmessage = (event) => {
+    try {
+      const message = JSON.parse(String(event.data)) as { type?: string; jobId?: string; agent?: { provider?: ProviderId }; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
+      if (message.type !== 'assignment' || !message.jobId || !message.agent?.provider || !message.scenarios?.length) return;
+      void (async () => {
+        const tab = await activeTab();
+        if (typeof tab?.id !== 'number') return;
+        const queue = createQueue(origin, message.agent!.provider!, message.newConversationBetweenScenarios !== false, new Date().toISOString());
+        const assigned = { ...queue, queueId: message.jobId!, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
+        await saveQueue(assigned);
+        const started = startQueue(assigned, new Date().toISOString());
+        await saveQueue(started);
+        await runQueueItem(started);
+      })();
+    } catch { /* ignore malformed server messages */ }
+  };
+  socket.onclose = () => { if (roverSocket === socket) roverSocket = null; };
+}
+
+void connectToMcplab().catch(() => undefined);
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (typeof tab.id !== 'number') return;
   try {
+    await connectToMcplab().catch(() => undefined);
     try {
       await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_TOGGLE_PANEL' });
     } catch {
@@ -368,6 +403,9 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
           const result = await new McplabClient(queue.origin).complete(item.sessionId, { finalText, startedAt: item.startedAt ?? new Date().toISOString(), completedAt: new Date().toISOString() });
           const completed = recordQueueItemOutcome(evaluating, item.queueItemId, result.outcome, { runId: result.runId, resultUrl: result.resultUrl, checkCounts: result.checkCounts, text: finalText }, new Date().toISOString());
           await saveQueue(completed);
+          if (completed.status === 'completed' && roverSocket?.readyState === WebSocket.OPEN) {
+            roverSocket.send(JSON.stringify({ type: 'complete', jobId: queue.queueId, runId: result.runId, outcome: result.outcome }));
+          }
           if (completed.status === 'running') {
             try {
               if (completed.newConversationBetweenItems) await startQueueConversation(completed);
