@@ -22,6 +22,20 @@ describe('TrendMiner adapter', () => {
     expect(inputEvents).toBe(1);
     expect(trendminerAdapter.getAssistantCandidates()[0]?.text).toContain('Visible answer');
   });
+
+  it('starts a new conversation through the native New chat control', async () => {
+    document.body.innerHTML = `
+      <textarea data-test="ai-agent_input"></textarea>
+      <button aria-label="New chat">New chat</button>
+    `;
+    const button = document.querySelector('button')!;
+    let clicks = 0;
+    button.addEventListener('click', () => clicks++);
+
+    await trendminerAdapter.startNewConversation?.();
+
+    expect(clicks).toBe(1);
+  });
 });
 
 describe('Claude adapter', () => {

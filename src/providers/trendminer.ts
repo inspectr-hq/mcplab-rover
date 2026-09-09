@@ -18,6 +18,19 @@ export const trendminerAdapter: ChatProviderAdapter = {
     if (!button || button.disabled) throw new Error('TrendMiner submit button is unavailable');
     button.click();
   },
+  startNewConversation: async () => {
+    const button = document.querySelector<HTMLButtonElement>('button[aria-label="New chat"]');
+    if (!button) throw new Error('TrendMiner New chat button is unavailable');
+    button.click();
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 5000) {
+      const composer = trendminerAdapter.findComposer();
+      const value = composer instanceof HTMLTextAreaElement ? composer.value : composer?.textContent;
+      if (composer && !value?.trim()) return;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error('TrendMiner new conversation did not become ready');
+  },
   getAssistantCandidates: () =>
     Array.from(document.querySelectorAll<HTMLElement>(assistantSelector)).map((element, index) => ({
       key: `trendminer-${index}`,

@@ -28,12 +28,31 @@
           <button id="connect" type="button" class="compact-button">Connect</button>
         </div>
       </section>
+      <div class="mode-tabs" role="tablist" aria-label="Rover mode">
+        <button id="manual-mode" type="button" class="mode-tab active" role="tab" aria-selected="true">Manual</button>
+        <button id="queue-mode" type="button" class="mode-tab" role="tab" aria-selected="false">Queue</button>
+      </div>
       <section id="catalog" class="stack" aria-label="Live Test catalog" hidden>
         <label for="search">Evaluation</label>
         <input id="search" type="search" placeholder="Filter test cases" />
         <select id="test-case" size="5" aria-label="Test cases"></select>
         <p id="selection-note" class="muted wrap"></p>
         <button id="prepare" type="button">Prepare Live Test</button>
+      </section>
+      <section id="queue-panel" class="stack" aria-label="Evaluation queue" hidden>
+        <div class="inline-row queue-add-row">
+          <select id="queue-evaluation" aria-label="Evaluation to add"></select>
+          <button id="queue-add" type="button" class="compact-button">Add</button>
+        </div>
+        <label class="checkbox-row"><input id="queue-new-chat" type="checkbox" /> New conversation between evaluations</label>
+        <div id="queue-items" class="queue-items"></div>
+        <p id="queue-status" class="muted wrap">Add evaluations to create a queue.</p>
+        <div class="inline-row">
+          <button id="queue-start" type="button">Run queue</button>
+          <button id="queue-retry" type="button" class="copy-button" hidden>Retry</button>
+          <button id="queue-skip" type="button" class="copy-button" hidden>Skip</button>
+          <button id="queue-stop" type="button" class="stop-button" hidden>Stop</button>
+        </div>
       </section>
       <section id="session" class="stack" aria-label="Prepared Live Test" hidden>
         <strong id="test-name"></strong>

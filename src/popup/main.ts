@@ -1,5 +1,6 @@
 import type { RoverState } from '../contracts';
 import type { LiveTestCatalogItem } from '../mcplab/types';
+import type { RoverQueueState } from '../queue/state';
 import { filterTestCases, formatCheckCounts } from './view-model';
 import './style.css';
 
@@ -30,9 +31,23 @@ const openResult = document.querySelector<HTMLButtonElement>('#open-result')!;
 const reset = document.querySelector<HTMLButtonElement>('#reset')!;
 const connectionStatus = document.querySelector<HTMLSpanElement>('#connection-status')!;
 const connectionDot = document.querySelector<HTMLSpanElement>('#connection-dot')!;
+const manualMode = document.querySelector<HTMLButtonElement>('#manual-mode')!;
+const queueMode = document.querySelector<HTMLButtonElement>('#queue-mode')!;
+const queuePanel = document.querySelector<HTMLElement>('#queue-panel')!;
+const queueEvaluation = document.querySelector<HTMLSelectElement>('#queue-evaluation')!;
+const queueAdd = document.querySelector<HTMLButtonElement>('#queue-add')!;
+const queueNewChat = document.querySelector<HTMLInputElement>('#queue-new-chat')!;
+const queueItems = document.querySelector<HTMLElement>('#queue-items')!;
+const queueStatus = document.querySelector<HTMLParagraphElement>('#queue-status')!;
+const queueStart = document.querySelector<HTMLButtonElement>('#queue-start')!;
+const queueRetry = document.querySelector<HTMLButtonElement>('#queue-retry')!;
+const queueSkip = document.querySelector<HTMLButtonElement>('#queue-skip')!;
+const queueStop = document.querySelector<HTMLButtonElement>('#queue-stop')!;
 
 let items: LiveTestCatalogItem[] = [];
 let current: RoverState | null = null;
+let currentQueue: RoverQueueState | null = null;
+let mode: 'manual' | 'queue' = 'manual';
 
 function setConnectionState(state: 'connecting' | 'connected' | 'disconnected', message: string): void {
   connectionStatus.dataset.state = state;
@@ -57,9 +72,113 @@ connectionSettings.addEventListener('click', () => {
   connectionControls.hidden = expanded;
   connectionSettings.setAttribute('aria-expanded', String(!expanded));
 });
+manualMode.addEventListener('click', () => setMode('manual'));
+queueMode.addEventListener('click', async () => {
+  setMode('queue');
+  if (!currentQueue) {
+    const response = await chrome.runtime.sendMessage({
+      type: 'ROVER_QUEUE_CREATE',
+      origin: origin.value,
+      newConversationBetweenItems: queueNewChat.checked
+    });
+    if (response?.ok) renderQueue(response.queue);
+    else queueStatus.textContent = response?.error ?? 'Could not create queue.';
+  }
+});
+queueAdd.addEventListener('click', async () => {
+  const item = items.find((candidate) => candidate.id === queueEvaluation.value);
+  if (!item?.eligible) return;
+  const response = await chrome.runtime.sendMessage({
+    type: 'ROVER_QUEUE_ADD',
+    item: { id: item.id, name: item.name, prompt: '', assertionCount: item.assertionCount }
+  });
+  if (response?.ok) renderQueue(response.queue);
+  else queueStatus.textContent = response?.error ?? 'Could not add evaluation.';
+});
+queueNewChat.addEventListener('change', async () => {
+  const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_SET_NEW_CHAT', enabled: queueNewChat.checked });
+  if (response?.ok) renderQueue(response.queue);
+  else queueStatus.textContent = response?.error ?? 'Could not update conversation setting.';
+});
+queueStart.addEventListener('click', async () => {
+  const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_START' });
+  if (response?.ok) renderQueue(response.queue);
+  else queueStatus.textContent = response?.error ?? 'Could not start queue.';
+});
+queueRetry.addEventListener('click', async () => {
+  const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_RETRY' });
+  if (response?.ok) renderQueue(response.queue);
+});
+queueSkip.addEventListener('click', async () => {
+  const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_SKIP' });
+  if (response?.ok) renderQueue(response.queue);
+});
+queueStop.addEventListener('click', async () => {
+  const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_STOP' });
+  if (response?.ok) renderQueue(response.queue);
+});
 
 function selectedItem(): LiveTestCatalogItem | undefined {
   return items.find((item) => item.id === testCase.value);
+}
+
+function setMode(next: 'manual' | 'queue'): void {
+  mode = next;
+  manualMode.classList.toggle('active', mode === 'manual');
+  queueMode.classList.toggle('active', mode === 'queue');
+  manualMode.setAttribute('aria-selected', String(mode === 'manual'));
+  queueMode.setAttribute('aria-selected', String(mode === 'queue'));
+  queuePanel.hidden = mode !== 'queue';
+  if (mode === 'manual') {
+    catalog.hidden = Boolean(current);
+    session.hidden = !current;
+  } else {
+    catalog.hidden = true;
+    session.hidden = true;
+    renderQueue(currentQueue);
+  }
+}
+
+function renderQueue(queue: RoverQueueState | null): void {
+  currentQueue = queue;
+  if (!queue) {
+    queueItems.replaceChildren();
+    queueStatus.textContent = 'Queue mode requires a supported Claude or TrendMiner page.';
+    queueStart.disabled = true;
+    queueRetry.hidden = true;
+    queueSkip.hidden = true;
+    queueStop.hidden = true;
+    return;
+  }
+  queueNewChat.checked = queue.newConversationBetweenItems;
+  queueItems.replaceChildren(...queue.items.map((item, index) => {
+    const row = document.createElement('div');
+    row.className = 'queue-item';
+    const name = document.createElement('span');
+    name.className = 'queue-item-name';
+    name.textContent = `${index + 1}. ${item.name}`;
+    const itemStatus = document.createElement('span');
+    itemStatus.className = 'queue-item-status';
+    itemStatus.textContent = item.status;
+    row.append(name, itemStatus);
+    for (const [action, label] of [['up', '↑'], ['down', '↓'], ['remove', '×']] as const) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.title = action;
+      button.disabled = item.status !== 'queued' || (action === 'up' && index === 0) || (action === 'down' && index === queue.items.length - 1);
+      button.addEventListener('click', () => void chrome.runtime.sendMessage({ type: action === 'remove' ? 'ROVER_QUEUE_REMOVE' : 'ROVER_QUEUE_MOVE', queueItemId: item.queueItemId, ...(action === 'remove' ? {} : { direction: action }) }));
+      row.append(button);
+    }
+    return row;
+  }));
+  queueStatus.textContent = queue.status === 'paused'
+    ? `Paused: ${queue.error?.message ?? 'Queue needs attention.'}`
+    : queue.status === 'completed' ? 'Queue completed.' : `${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} evaluations processed.`;
+  queueStart.disabled = queue.items.length === 0 || queue.status === 'running' || queue.status === 'paused' || queue.status === 'completed';
+  queueRetry.hidden = queue.status !== 'paused';
+  queueSkip.hidden = queue.status !== 'paused';
+  queueStop.hidden = !['running', 'paused'].includes(queue.status);
 }
 
 function renderCatalog(): void {
@@ -68,6 +187,13 @@ function renderCatalog(): void {
     const option = document.createElement('option');
     option.value = item.id;
     option.textContent = `${item.name}${item.eligible ? '' : ' (unsupported)'}`;
+    return option;
+  }));
+  queueEvaluation.replaceChildren(...visible.map((item) => {
+    const option = document.createElement('option');
+    option.value = item.id;
+    option.textContent = `${item.name}${item.eligible ? '' : ' (unsupported)'}`;
+    option.disabled = !item.eligible;
     return option;
   }));
   updateSelection();
@@ -84,8 +210,11 @@ function render(state: RoverState | null): void {
   shell.dataset.state = state?.status ?? 'ready';
   shell.dataset.outcome = state?.outcome ?? '';
   const active = Boolean(state);
-  catalog.hidden = active;
-  session.hidden = !active;
+  if (mode === 'manual') {
+    catalog.hidden = active;
+    session.hidden = !active;
+  }
+  queuePanel.hidden = mode !== 'queue';
   outcome.hidden = state?.status !== 'completed';
   checks.hidden = state?.status !== 'completed';
   result.hidden = !state?.text;
@@ -211,10 +340,15 @@ reset.addEventListener('click', async () => {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'session' && changes['rover.run']) render(changes['rover.run'].newValue as RoverState | null);
+  if (area === 'session' && changes['rover.queue']) renderQueue(changes['rover.queue'].newValue as RoverQueueState | null);
 });
 
 void chrome.runtime.sendMessage({ type: 'ROVER_GET_STATE' }).then((state: RoverState | null) => {
   if (state) render(state);
   void loadCatalog(state?.origin);
   reportPanelSize();
+});
+void chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_GET' }).then((queue: RoverQueueState | null) => {
+  renderQueue(queue);
+  if (queue) setMode('queue');
 });

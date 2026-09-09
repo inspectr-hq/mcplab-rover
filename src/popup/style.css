@@ -78,6 +78,17 @@ button:disabled { background: #63321f; color: var(--button-disabled); cursor: wa
 .connection-status[data-state="disconnected"] .connection-dot { background: #ff6961; }
 .settings-button { width: 22px; height: 22px; padding: 0; border-radius: 7px; background: transparent; color: var(--text-muted); box-shadow: none; font-size: 14px; line-height: 1; }
 .settings-button:hover:not(:disabled) { background: var(--surface-raised); color: var(--text); transform: none; }
+.mode-tabs { display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: var(--surface-raised); }
+.mode-tab { flex: 1; padding: 7px 10px; background: transparent; color: var(--text-muted); box-shadow: none; font-size: 11px; }
+.mode-tab.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+.queue-add-row select { min-height: 34px; }
+.queue-items { display: grid; gap: 5px; max-height: 190px; overflow: auto; }
+.queue-item { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 5px; padding: 7px 8px; border: 1px solid var(--result-border); border-radius: 9px; background: var(--surface-raised); font-size: 11px; }
+.queue-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-item-status { color: var(--text-muted); font-size: 10px; }
+.queue-item button { width: 22px; height: 22px; padding: 0; background: transparent; color: var(--text-muted); box-shadow: none; font-size: 12px; }
+.checkbox-row { display: flex; align-items: center; gap: 6px; color: var(--text-soft); font-size: 11px; }
+.checkbox-row input { width: auto; }
 label, strong { color: var(--text-soft); font-size: 11px; font-weight: 700; }
 input, select, textarea {
   width: 100%;

@@ -4,7 +4,7 @@ import { ask } from './runtime/ask';
 
 const runtime = globalThis as typeof globalThis & { __mcplabRoverInstalled?: boolean };
 
-function togglePanel(): void {
+function togglePanel(expand = false): void {
   const existing = document.querySelector<HTMLElement>('[data-mcplab-rover-panel]');
   if (existing) {
     existing.remove();
@@ -53,6 +53,11 @@ function togglePanel(): void {
   });
   shadow.append(style, notch, frame);
   document.documentElement.append(host);
+  if (expand) {
+    host.classList.add('expanded');
+    notch.title = 'Collapse MCPLab Rover';
+    notch.setAttribute('aria-label', notch.title);
+  }
 }
 
 if (runtime.__mcplabRoverInstalled) {
@@ -64,8 +69,21 @@ if (runtime.__mcplabRoverInstalled) {
       togglePanel();
       return;
     }
+    if (message.type === 'ROVER_SHOW_PANEL') {
+      if (!document.querySelector('[data-mcplab-rover-panel]')) togglePanel(true);
+      return;
+    }
     if (message.type === 'ROVER_DETECT') {
       sendResponse(findAdapter()?.id ?? null);
+      return true;
+    }
+    if (message.type === 'ROVER_NEW_CHAT') {
+      void (async () => {
+        const adapter = findAdapter();
+        if (!adapter?.startNewConversation) throw new Error('New conversations are not supported on this page');
+        await adapter.startNewConversation();
+        sendResponse({ ok: true });
+      })().catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
       return true;
     }
     if (message.type !== 'ROVER_ASK') return;
@@ -78,6 +96,8 @@ if (runtime.__mcplabRoverInstalled) {
           type: 'ROVER_RESULT',
           requestId: message.requestId,
           sessionId: message.sessionId,
+          queueId: message.queueId,
+          queueItemId: message.queueItemId,
           result: { ok: true, text }
         });
       } catch (error) {
@@ -85,6 +105,8 @@ if (runtime.__mcplabRoverInstalled) {
           type: 'ROVER_RESULT',
           requestId: message.requestId,
           sessionId: message.sessionId,
+          queueId: message.queueId,
+          queueItemId: message.queueItemId,
           result: { ok: false, error: error instanceof Error ? error.message : String(error) }
         });
       }
