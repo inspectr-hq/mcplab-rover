@@ -6,6 +6,7 @@ import { cancelActiveQueueItem, runQueueItem } from './queue-runner';
 import { getQueue, resolveOrigin, saveQueue } from './store';
 
 let roverSocket: WebSocket | null = null;
+let registeredSocket: WebSocket | null = null;
 let roverReconnectAttempt = 0;
 
 export function currentSocket(): WebSocket | null {
@@ -18,16 +19,21 @@ export async function connectToMcplab(): Promise<void> {
   const wsOrigin = origin.replace(/^http/i, 'ws');
   const socket = new WebSocket(`${wsOrigin}/api/rover/ws`);
   roverSocket = socket;
+  registeredSocket = null;
   socket.onopen = async () => {
     roverReconnectAttempt = 0;
     const tab = await activeTab();
     const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
-    if (!provider) return;
+    if (!provider) {
+      socket.close(1000, 'No supported Rover provider is active');
+      return;
+    }
     socket.send(JSON.stringify({ type: 'register', protocolVersion: 1, provider, pageUrl: tab?.url ?? '', extensionVersion: chrome.runtime.getManifest().version }));
   };
   socket.onmessage = (event) => {
     try {
       const message = JSON.parse(String(event.data)) as { type?: string; jobId?: string; evaluationRunId?: string; agent?: { provider?: ProviderId }; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
+      if (message.type === 'registered' && roverSocket === socket) registeredSocket = socket;
       if (message.type === 'stop' && message.jobId) {
         void (async () => {
           const queue = await getQueue();
@@ -53,6 +59,7 @@ export async function connectToMcplab(): Promise<void> {
   socket.onclose = () => {
     if (roverSocket !== socket) return;
     roverSocket = null;
+    if (registeredSocket === socket) registeredSocket = null;
     if (roverReconnectAttempt >= 8) return;
     const delay = Math.min(30_000, 1_000 * 2 ** roverReconnectAttempt);
     roverReconnectAttempt += 1;
@@ -61,10 +68,16 @@ export async function connectToMcplab(): Promise<void> {
 }
 
 export async function updateRoverRegistration(tabId: number): Promise<void> {
-  if (!roverSocket || roverSocket.readyState !== WebSocket.OPEN) return;
+  if (!roverSocket || roverSocket.readyState !== WebSocket.OPEN) {
+    void connectToMcplab().catch(() => undefined);
+    return;
+  }
   const provider = await detectProvider(tabId);
   if (!provider) return;
   const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+  if (registeredSocket !== roverSocket) {
+    roverSocket.send(JSON.stringify({ type: 'register', protocolVersion: 1, provider, pageUrl: tab?.url ?? '', extensionVersion: chrome.runtime.getManifest().version }));
+    return;
+  }
   roverSocket.send(JSON.stringify({ type: 'register_update', provider, pageUrl: tab?.url ?? '' }));
 }
-
