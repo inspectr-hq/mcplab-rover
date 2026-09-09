@@ -403,6 +403,9 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
           const result = await new McplabClient(queue.origin).complete(item.sessionId, { finalText, startedAt: item.startedAt ?? new Date().toISOString(), completedAt: new Date().toISOString() });
           const completed = recordQueueItemOutcome(evaluating, item.queueItemId, result.outcome, { runId: result.runId, resultUrl: result.resultUrl, checkCounts: result.checkCounts, text: finalText }, new Date().toISOString());
           await saveQueue(completed);
+          if (roverSocket?.readyState === WebSocket.OPEN) {
+            roverSocket.send(JSON.stringify({ type: 'progress', jobId: queue.queueId, completed: completed.items.filter((candidate) => ['passed', 'failed', 'incomplete', 'skipped'].includes(candidate.status)).length, total: completed.items.length, currentScenarioId: completed.activeItemId ? completed.items.find((candidate) => candidate.queueItemId === completed.activeItemId)?.testCaseId : undefined }));
+          }
           if (completed.status === 'completed' && roverSocket?.readyState === WebSocket.OPEN) {
             roverSocket.send(JSON.stringify({ type: 'complete', jobId: queue.queueId, runId: result.runId, outcome: result.outcome }));
           }
