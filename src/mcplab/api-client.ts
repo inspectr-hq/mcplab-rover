@@ -37,10 +37,10 @@ export class McplabClient {
     return value.testCases;
   }
 
-  start(testCaseId: string, client: string): Promise<LiveTestSessionView> {
+  start(testCaseId: string, client: string, evaluationGroupId?: string): Promise<LiveTestSessionView> {
     return this.request('/api/live-tests/sessions', {
       method: 'POST',
-      body: JSON.stringify({ testCaseId, client })
+      body: JSON.stringify({ testCaseId, client, evaluationGroupId })
     });
   }
 

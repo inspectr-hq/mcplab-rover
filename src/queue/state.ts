@@ -46,6 +46,7 @@ export interface RoverQueueState {
   error?: QueueFailure;
   createdAt: string;
   updatedAt: string;
+  evaluationGroupId?: string;
 }
 
 function clone<T>(value: T): T {
