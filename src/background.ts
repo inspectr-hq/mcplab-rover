@@ -33,6 +33,16 @@ async function connectToMcplab(): Promise<void> {
   socket.onmessage = (event) => {
     try {
       const message = JSON.parse(String(event.data)) as { type?: string; jobId?: string; agent?: { provider?: ProviderId }; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
+      if (message.type === 'stop' && message.jobId) {
+        void (async () => {
+          const queue = await getQueue();
+          if (!queue || queue.queueId !== message.jobId) return;
+          const item = queue.activeItemId ? queue.items.find((candidate) => candidate.queueItemId === queue.activeItemId) : undefined;
+          if (item?.sessionId) await new McplabClient(queue.origin).cancel(item.sessionId).catch(() => undefined);
+          await saveQueue(stopQueue(queue, new Date().toISOString()));
+        })();
+        return;
+      }
       if (message.type !== 'assignment' || !message.jobId || !message.agent?.provider || !message.scenarios?.length) return;
       void (async () => {
         const tab = await activeTab();
