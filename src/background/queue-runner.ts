@@ -3,8 +3,17 @@ import {
   type RoverQueueState
 } from '../queue/state';
 import { detectProvider } from './browser';
+import type { RoverStage } from '../contracts';
 import { errorMessage } from './errors';
 import { saveQueue } from './store';
+import { currentSocket } from './socket';
+
+function sendStage(queue: RoverQueueState, itemId: string, stage: RoverStage): void {
+  const socket = currentSocket();
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'stage', jobId: queue.queueId, scenarioId: itemId, stage }));
+  }
+}
 
 export async function cancelActiveQueueItem(queue: RoverQueueState): Promise<void> {
   const item = queue.activeItemId ? queue.items.find((candidate) => candidate.queueItemId === queue.activeItemId) : undefined;
@@ -38,6 +47,7 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
       updatedAt: new Date().toISOString()
     };
     await saveQueue(running);
+    sendStage(queue, item.testCaseId, 'prompt_sent');
     await chrome.tabs.sendMessage(queue.tabId, {
       type: 'ROVER_ASK',
       requestId,
@@ -46,6 +56,7 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
       queueItemId: item.queueItemId,
       prompt
     });
+    sendStage(queue, item.testCaseId, 'waiting_for_response');
   } catch (error) {
     await pauseQueue(queue, error);
   }

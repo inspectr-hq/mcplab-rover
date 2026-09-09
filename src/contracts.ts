@@ -2,6 +2,12 @@ import type { CheckCounts, RunOutcome } from './mcplab/types';
 import type { RoverQueueState } from './queue/state';
 
 export type ProviderId = 'claude' | 'trendminer';
+export type RoverStage =
+  | 'prompt_sent'
+  | 'waiting_for_response'
+  | 'response_captured'
+  | 'evaluating'
+  | 'persisted';
 export type RoverStatus = 'ready' | 'running' | 'manual' | 'evaluating' | 'completed' | 'error';
 
 export interface RoverState {

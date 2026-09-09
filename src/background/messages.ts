@@ -1,4 +1,4 @@
-import type { ExtensionMessage, RoverState } from '../contracts';
+import type { ExtensionMessage, RoverStage, RoverState } from '../contracts';
 import { McplabClient } from '../mcplab/api-client';
 import { acceptsContentResult } from '../runtime/live-state';
 import {
@@ -204,6 +204,13 @@ function createQueueForMessage(origin: string, provider: RoverQueueState['provid
   return createQueue(origin, provider, newConversationBetweenItems, new Date().toISOString());
 }
 
+function sendQueueStage(queue: RoverQueueState, scenarioId: string, stage: RoverStage): void {
+  const socket = currentSocket();
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'stage', jobId: queue.queueId, scenarioId, stage }));
+  }
+}
+
 async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RESULT' }>): Promise<void> {
   if (message.queueId && message.queueItemId) {
     const queue = await getQueue();
@@ -214,12 +221,18 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
       return;
     }
     const finalText = message.result.text;
+    sendQueueStage(queue, item.testCaseId, 'response_captured');
     const evaluating: RoverQueueState = { ...queue, items: queue.items.map((candidate) => candidate.queueItemId === item.queueItemId ? { ...candidate, status: 'evaluating' as const, text: finalText } : candidate), updatedAt: new Date().toISOString() };
     await saveQueue(evaluating);
     try {
+      sendQueueStage(queue, item.testCaseId, 'evaluating');
       const result = await new McplabClient(queue.origin).complete(item.sessionId, { finalText, startedAt: item.startedAt ?? new Date().toISOString(), completedAt: new Date().toISOString() });
-      const completed = recordQueueItemOutcome(evaluating, item.queueItemId, result.outcome, { runId: result.runId, resultUrl: result.resultUrl, checkCounts: result.checkCounts, text: finalText }, new Date().toISOString());
+      const resultUrl = queue.evaluationRunId
+        ? `/results/${encodeURIComponent(queue.evaluationRunId)}`
+        : result.resultUrl;
+      const completed = recordQueueItemOutcome(evaluating, item.queueItemId, result.outcome, { runId: result.runId, resultUrl, checkCounts: result.checkCounts, text: finalText }, new Date().toISOString());
       await saveQueue(completed);
+      sendQueueStage(queue, item.testCaseId, 'persisted');
       const socket = currentSocket();
       if (socket?.readyState === WebSocket.OPEN) {
         const durationMs = item.startedAt ? Math.max(0, Date.parse(new Date().toISOString()) - Date.parse(item.startedAt)) : undefined;
