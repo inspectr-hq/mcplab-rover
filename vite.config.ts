@@ -13,6 +13,8 @@ export default defineConfig({
         content: resolve(dirname(fileURLToPath(import.meta.url)), 'src/content.ts')
       },
       output: {
+        intro: '(() => {',
+        outro: '})();',
         entryFileNames: '[name].js',
         chunkFileNames: 'chunks/[name].js',
         assetFileNames: 'assets/[name][extname]'
