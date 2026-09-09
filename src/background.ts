@@ -34,7 +34,7 @@ async function connectToMcplab(): Promise<void> {
   };
   socket.onmessage = (event) => {
     try {
-      const message = JSON.parse(String(event.data)) as { type?: string; jobId?: string; evaluationGroupId?: string; agent?: { provider?: ProviderId }; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
+      const message = JSON.parse(String(event.data)) as { type?: string; jobId?: string; evaluationGroupId?: string; evaluationRunId?: string; agent?: { provider?: ProviderId }; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
       if (message.type === 'stop' && message.jobId) {
         void (async () => {
           const queue = await getQueue();
@@ -50,7 +50,7 @@ async function connectToMcplab(): Promise<void> {
         const tab = await activeTab();
         if (typeof tab?.id !== 'number') return;
         const queue = createQueue(origin, message.agent!.provider!, message.newConversationBetweenScenarios !== false, new Date().toISOString());
-        const assigned = { ...queue, queueId: message.jobId!, evaluationGroupId: message.evaluationGroupId, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
+        const assigned = { ...queue, queueId: message.jobId!, evaluationGroupId: message.evaluationGroupId, evaluationRunId: message.evaluationRunId, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
         await saveQueue(assigned);
         const started = startQueue(assigned, new Date().toISOString());
         await saveQueue(started);
@@ -193,7 +193,7 @@ async function runQueueItem(queue: RoverQueueState): Promise<void> {
   if (!item || typeof queue.tabId !== 'number') return;
   try {
     const client = new McplabClient(queue.origin);
-    const session = item.sessionId ? await client.get(item.sessionId) : await client.start(item.testCaseId, queue.provider, queue.evaluationGroupId);
+    const session = item.sessionId ? await client.get(item.sessionId) : await client.start(item.testCaseId, queue.provider, queue.evaluationGroupId, queue.evaluationRunId);
     const prompt = item.prompt || session.prompt;
     const requestId = crypto.randomUUID();
     const running: RoverQueueState = {

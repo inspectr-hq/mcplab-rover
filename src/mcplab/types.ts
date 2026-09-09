@@ -27,6 +27,7 @@ export interface LiveTestSessionView {
   createdAt: string;
   expiresAt: string;
   evaluationGroupId?: string;
+  evaluationRunId?: string;
   completion?: LiveTestCompletion;
 }
 

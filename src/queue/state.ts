@@ -47,6 +47,7 @@ export interface RoverQueueState {
   createdAt: string;
   updatedAt: string;
   evaluationGroupId?: string;
+  evaluationRunId?: string;
 }
 
 function clone<T>(value: T): T {
