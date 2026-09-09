@@ -96,12 +96,16 @@ export function removeQueueItem(queue: RoverQueueState, queueItemId: string): Ro
 }
 
 export function startQueue(queue: RoverQueueState, now: string): RoverQueueState {
-  const first = queue.items.find((item) => item.status === 'queued');
+  const restart = queue.status === 'completed' || queue.status === 'stopped';
+  const candidates = restart
+    ? queue.items.map((item) => ({ ...item, status: 'queued' as const, sessionId: undefined, requestId: undefined, startedAt: undefined, completedAt: undefined, runId: undefined, resultUrl: undefined, checkCounts: undefined, text: undefined }))
+    : queue.items;
+  const first = candidates.find((item) => item.status === 'queued');
   if (!first) throw new Error('Queue must contain at least one evaluation.');
   return updated(queue, {
     status: 'running',
     activeItemId: first.queueItemId,
-    items: queue.items.map((item) => item.queueItemId === first.queueItemId ? { ...item, status: 'running', startedAt: now } : item),
+    items: candidates.map((item) => item.queueItemId === first.queueItemId ? { ...item, status: 'running', startedAt: now } : item),
     error: undefined
   });
 }

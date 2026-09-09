@@ -55,4 +55,15 @@ describe('queue state', () => {
     queue = removeQueueItem(queue, queue.items[1]!.queueItemId);
     expect(queue.items).toHaveLength(1);
   });
+
+  it('allows a completed queue to be run again from the beginning', () => {
+    let queue = createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z');
+    queue = addQueueItem(queue, alpha);
+    queue = startQueue(queue, '2026-09-09T10:01:00.000Z');
+    queue = recordQueueItemOutcome(queue, queue.activeItemId!, 'passed', { runId: 'run-1' }, '2026-09-09T10:02:00.000Z');
+    const restarted = startQueue(queue, '2026-09-09T10:03:00.000Z');
+    expect(restarted.status).toBe('running');
+    expect(restarted.items[0]?.status).toBe('running');
+    expect(restarted.items[0]?.runId).toBeUndefined();
+  });
 });

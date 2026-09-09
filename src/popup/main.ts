@@ -1,7 +1,7 @@
 import type { RoverState } from '../contracts';
 import type { LiveTestCatalogItem } from '../mcplab/types';
 import type { RoverQueueState } from '../queue/state';
-import { filterTestCases, formatCheckCounts } from './view-model';
+import { filterTestCases, formatCheckCounts, modeVisibility } from './view-model';
 import './style.css';
 
 const shell = document.querySelector<HTMLElement>('.shell')!;
@@ -128,15 +128,11 @@ function setMode(next: 'manual' | 'queue'): void {
   queueMode.classList.toggle('active', mode === 'queue');
   manualMode.setAttribute('aria-selected', String(mode === 'manual'));
   queueMode.setAttribute('aria-selected', String(mode === 'queue'));
-  queuePanel.hidden = mode !== 'queue';
-  if (mode === 'manual') {
-    catalog.hidden = Boolean(current);
-    session.hidden = !current;
-  } else {
-    catalog.hidden = true;
-    session.hidden = true;
-    renderQueue(currentQueue);
-  }
+  const visibility = modeVisibility(mode, Boolean(current));
+  catalog.hidden = !visibility.catalog;
+  session.hidden = !visibility.session;
+  queuePanel.hidden = !visibility.queue;
+  if (mode === 'queue') renderQueue(currentQueue);
 }
 
 function renderQueue(queue: RoverQueueState | null): void {
@@ -175,7 +171,7 @@ function renderQueue(queue: RoverQueueState | null): void {
   queueStatus.textContent = queue.status === 'paused'
     ? `Paused: ${queue.error?.message ?? 'Queue needs attention.'}`
     : queue.status === 'completed' ? 'Queue completed.' : `${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} evaluations processed.`;
-  queueStart.disabled = queue.items.length === 0 || queue.status === 'running' || queue.status === 'paused' || queue.status === 'completed';
+  queueStart.disabled = queue.items.length === 0 || queue.status === 'running' || queue.status === 'paused';
   queueRetry.hidden = queue.status !== 'paused';
   queueSkip.hidden = queue.status !== 'paused';
   queueStop.hidden = !['running', 'paused'].includes(queue.status);
@@ -265,7 +261,7 @@ async function loadCatalog(requestedOrigin?: string): Promise<void> {
     setConnectionState('connected', 'Connected');
     origin.value = response.origin;
     items = response.testCases;
-    if (!current) {
+    if (!current && mode === 'manual') {
       catalog.hidden = false;
       renderCatalog();
       status.textContent = items.length ? 'Choose a test case' : 'No test cases found.';
