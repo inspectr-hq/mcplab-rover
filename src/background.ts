@@ -59,6 +59,21 @@ async function connectToMcplab(): Promise<void> {
   socket.onclose = () => { if (roverSocket === socket) roverSocket = null; };
 }
 
+async function updateRoverRegistration(tabId: number): Promise<void> {
+  if (!roverSocket || roverSocket.readyState !== WebSocket.OPEN) return;
+  const provider = await detectProvider(tabId);
+  if (!provider) return;
+  const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+  roverSocket.send(JSON.stringify({ type: 'register_update', provider, pageUrl: tab?.url ?? '' }));
+}
+
+chrome.tabs.onActivated.addListener(({ tabId }) => {
+  void updateRoverRegistration(tabId);
+});
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'complete') void updateRoverRegistration(tabId);
+});
+
 void connectToMcplab().catch(() => undefined);
 
 chrome.action.onClicked.addListener(async (tab) => {
