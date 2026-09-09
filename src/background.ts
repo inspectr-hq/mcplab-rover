@@ -404,7 +404,8 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
           const completed = recordQueueItemOutcome(evaluating, item.queueItemId, result.outcome, { runId: result.runId, resultUrl: result.resultUrl, checkCounts: result.checkCounts, text: finalText }, new Date().toISOString());
           await saveQueue(completed);
           if (roverSocket?.readyState === WebSocket.OPEN) {
-            roverSocket.send(JSON.stringify({ type: 'progress', jobId: queue.queueId, completed: completed.items.filter((candidate) => ['passed', 'failed', 'incomplete', 'skipped'].includes(candidate.status)).length, total: completed.items.length, currentScenarioId: completed.activeItemId ? completed.items.find((candidate) => candidate.queueItemId === completed.activeItemId)?.testCaseId : undefined }));
+            const durationMs = item.startedAt ? Math.max(0, Date.parse(new Date().toISOString()) - Date.parse(item.startedAt)) : undefined;
+            roverSocket.send(JSON.stringify({ type: 'progress', jobId: queue.queueId, completed: completed.items.filter((candidate) => ['passed', 'failed', 'incomplete', 'skipped'].includes(candidate.status)).length, total: completed.items.length, currentScenarioId: completed.activeItemId ? completed.items.find((candidate) => candidate.queueItemId === completed.activeItemId)?.testCaseId : undefined, lastDurationMs: durationMs, ...(result.outcome === 'failed' || result.outcome === 'error' ? { error: result.outcome } : {}) }));
           }
           if (completed.status === 'completed' && roverSocket?.readyState === WebSocket.OPEN) {
             roverSocket.send(JSON.stringify({ type: 'complete', jobId: queue.queueId, runId: result.runId, outcome: result.outcome }));
