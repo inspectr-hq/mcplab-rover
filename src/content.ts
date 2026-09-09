@@ -7,6 +7,8 @@ const runtime = globalThis as typeof globalThis & { __mcplabRoverInstalled?: boo
 function togglePanel(expand = false): void {
   const existing = document.querySelector<HTMLElement>('[data-mcplab-rover-panel]');
   if (existing) {
+    const cleanup = panelCleanup.get(existing);
+    cleanup?.();
     existing.remove();
     return;
   }
@@ -42,7 +44,7 @@ function togglePanel(expand = false): void {
     notch.title = host.classList.contains('expanded') ? 'Collapse MCPLab Rover' : 'Open MCPLab Rover';
     notch.setAttribute('aria-label', notch.title);
   });
-  window.addEventListener('message', (event) => {
+  const onMessage = (event: MessageEvent) => {
     if (event.source === frame.contentWindow && event.data?.type === 'ROVER_CONNECTION_STATE') {
       notch.dataset.connected = String(event.data.connected === true);
     }
@@ -50,7 +52,9 @@ function togglePanel(expand = false): void {
       const height = Number(event.data.height);
       if (Number.isFinite(height)) host.style.height = `${Math.min(Math.max(height, 184), window.innerHeight - 24)}px`;
     }
-  });
+  };
+  window.addEventListener('message', onMessage);
+  panelCleanup.set(host, () => window.removeEventListener('message', onMessage));
   shadow.append(style, notch, frame);
   document.documentElement.append(host);
   if (expand) {
@@ -59,6 +63,8 @@ function togglePanel(expand = false): void {
     notch.setAttribute('aria-label', notch.title);
   }
 }
+
+const panelCleanup = new WeakMap<HTMLElement, () => void>();
 
 if (runtime.__mcplabRoverInstalled) {
   // The background worker may inject this file more than once for repeated runs.

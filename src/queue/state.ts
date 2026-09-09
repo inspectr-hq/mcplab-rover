@@ -125,7 +125,7 @@ export function recordQueueItemOutcome(queue: RoverQueueState, queueItemId: stri
 }
 
 export function skipQueueItem(queue: RoverQueueState, queueItemId: string, now: string): RoverQueueState {
-  if (queue.activeItemId !== queueItemId) throw new Error('Queue item is not active.');
+  if (!queueItemId || !queue.activeItemId || queue.activeItemId !== queueItemId) throw new Error('Queue item is not active.');
   const items = queue.items.map((item) => item.queueItemId === queueItemId ? { ...item, status: 'skipped' as const, completedAt: now } : item);
   const next = items.find((item) => item.status === 'queued');
   return updated(queue, next ? { items, status: 'running', activeItemId: next.queueItemId, error: undefined } : { items, status: 'completed', activeItemId: undefined, error: undefined });

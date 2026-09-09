@@ -48,6 +48,14 @@ describe('queue state', () => {
     expect(queue.status).toBe('stopped');
   });
 
+  it('rejects skipping without the active queue item', () => {
+    let queue = startQueue(addQueueItem(createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z'), alpha), '2026-09-09T10:01:00.000Z');
+    queue = { ...queue, status: 'paused', error: { stage: 'browser', message: 'Composer missing' } };
+
+    expect(() => skipQueueItem(queue, '', '2026-09-09T10:02:00.000Z')).toThrow('active');
+    expect(() => skipQueueItem({ ...queue, activeItemId: undefined }, undefined as unknown as string, '2026-09-09T10:02:00.000Z')).toThrow('active');
+  });
+
   it('removes only queued items', () => {
     let queue = addQueueItem(addQueueItem(createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z'), alpha), beta);
     queue = startQueue(queue, '2026-09-09T10:01:00.000Z');

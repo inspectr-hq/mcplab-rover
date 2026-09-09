@@ -248,6 +248,11 @@ async function startQueueConversation(queue: RoverQueueState): Promise<void> {
   await chrome.tabs.sendMessage(queue.tabId, { type: 'ROVER_SHOW_PANEL' });
 }
 
+function respond<T>(sendResponse: (response: T | { ok: false; error: string }) => void, work: () => Promise<T>): true {
+  void work().then(sendResponse).catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+  return true;
+}
+
 chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
   if (message.type === 'ROVER_GET_STATE') {
     void getState().then(sendResponse);
@@ -255,11 +260,10 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
   }
 
   if (message.type === 'ROVER_GET_CATALOG') {
-    void (async () => {
+    return respond(sendResponse, async () => {
       const origin = await resolveOrigin(message.origin);
-      sendResponse({ ok: true, origin, testCases: await new McplabClient(origin).listTestCases() });
-    })().catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
-    return true;
+      return { ok: true, origin, testCases: await new McplabClient(origin).listTestCases() };
+    });
   }
 
   if (message.type === 'ROVER_QUEUE_GET') {
@@ -267,32 +271,44 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
     return true;
   }
 
-  if (message.type === 'ROVER_QUEUE_CREATE') {
+  if (message.type === 'ROVER_QUEUE_CLEAR') {
     void (async () => {
+      const queue = await getQueue();
+      if (queue?.activeItemId) {
+        const item = queue.items.find((candidate) => candidate.queueItemId === queue.activeItemId);
+        if (item?.sessionId) await new McplabClient(queue.origin).cancel(item.sessionId).catch(() => undefined);
+      }
+      await chrome.storage.session.remove(QUEUE_KEY);
+      sendResponse({ ok: true });
+    })().catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+    return true;
+  }
+
+  if (message.type === 'ROVER_QUEUE_CREATE') {
+    return respond(sendResponse, async () => {
       const origin = await resolveOrigin(message.origin);
       const tab = await activeTab();
       const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
       if (!provider || typeof tab?.id !== 'number') throw new Error('Queue mode requires a supported Claude or TrendMiner page.');
       const queue = createQueue(origin, provider, message.newConversationBetweenItems, new Date().toISOString());
       await saveQueue({ ...queue, tabId: tab.id });
-      sendResponse({ ok: true, queue: { ...queue, tabId: tab.id } });
-    })().catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
-    return true;
+      await chrome.storage.session.remove(STATE_KEY);
+      return { ok: true, queue: { ...queue, tabId: tab.id } };
+    });
   }
 
   if (message.type === 'ROVER_QUEUE_SET_NEW_CHAT') {
-    void (async () => {
+    return respond(sendResponse, async () => {
       const queue = await getQueue();
       if (!queue || queue.status !== 'draft') throw new Error('Conversation setting can only change before the queue starts.');
       const next = { ...queue, newConversationBetweenItems: message.enabled, updatedAt: new Date().toISOString() };
       await saveQueue(next);
-      sendResponse({ ok: true, queue: next });
-    })().catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
-    return true;
+      return { ok: true, queue: next };
+    });
   }
 
   if (message.type === 'ROVER_QUEUE_ADD' || message.type === 'ROVER_QUEUE_REMOVE' || message.type === 'ROVER_QUEUE_MOVE') {
-    void (async () => {
+    return respond(sendResponse, async () => {
       const queue = await getQueue();
       if (!queue) throw new Error('No queue has been created.');
       const next = message.type === 'ROVER_QUEUE_ADD'
@@ -301,9 +317,8 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
           ? removeQueueItem(queue, message.queueItemId)
           : moveQueueItem(queue, message.queueItemId, message.direction);
       await saveQueue(next);
-      sendResponse({ ok: true, queue: next });
-    })().catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
-    return true;
+      return { ok: true, queue: next };
+    });
   }
 
   if (message.type === 'ROVER_QUEUE_START') {
@@ -347,7 +362,7 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
   }
 
   if (message.type === 'ROVER_PREPARE') {
-    void (async () => {
+    return respond(sendResponse, async () => {
       const origin = await resolveOrigin(message.origin);
       const tab = await activeTab();
       const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
@@ -364,10 +379,10 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
         provider,
         startedAt: new Date().toISOString()
       };
+      await chrome.storage.session.remove(QUEUE_KEY);
       await saveState(state);
-      sendResponse({ ok: true, state });
-    })().catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
-    return true;
+      return { ok: true, state };
+    });
   }
 
   if (message.type === 'ROVER_EXECUTE') {

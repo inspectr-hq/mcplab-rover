@@ -43,6 +43,8 @@ const queueStart = document.querySelector<HTMLButtonElement>('#queue-start')!;
 const queueRetry = document.querySelector<HTMLButtonElement>('#queue-retry')!;
 const queueSkip = document.querySelector<HTMLButtonElement>('#queue-skip')!;
 const queueStop = document.querySelector<HTMLButtonElement>('#queue-stop')!;
+const statusRow = document.querySelector<HTMLDivElement>('.status-row')!;
+const responseTray = document.querySelector<HTMLElement>('.response-tray')!;
 
 let items: LiveTestCatalogItem[] = [];
 let current: RoverState | null = null;
@@ -72,9 +74,9 @@ connectionSettings.addEventListener('click', () => {
   connectionControls.hidden = expanded;
   connectionSettings.setAttribute('aria-expanded', String(!expanded));
 });
-manualMode.addEventListener('click', () => setMode('manual'));
+manualMode.addEventListener('click', () => void setMode('manual'));
 queueMode.addEventListener('click', async () => {
-  setMode('queue');
+  await setMode('queue');
   if (!currentQueue) {
     const response = await chrome.runtime.sendMessage({
       type: 'ROVER_QUEUE_CREATE',
@@ -105,24 +107,46 @@ queueStart.addEventListener('click', async () => {
   if (response?.ok) renderQueue(response.queue);
   else queueStatus.textContent = response?.error ?? 'Could not start queue.';
 });
+
+function showQueueError(response: { ok?: boolean; error?: string } | undefined, fallback: string): void {
+  if (!response?.ok) queueStatus.textContent = response?.error ?? fallback;
+}
+
 queueRetry.addEventListener('click', async () => {
   const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_RETRY' });
   if (response?.ok) renderQueue(response.queue);
+  else showQueueError(response, 'Could not retry queue item.');
 });
 queueSkip.addEventListener('click', async () => {
   const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_SKIP' });
   if (response?.ok) renderQueue(response.queue);
+  else showQueueError(response, 'Could not skip queue item.');
 });
 queueStop.addEventListener('click', async () => {
   const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_STOP' });
   if (response?.ok) renderQueue(response.queue);
+  else showQueueError(response, 'Could not stop queue.');
 });
 
 function selectedItem(): LiveTestCatalogItem | undefined {
   return items.find((item) => item.id === testCase.value);
 }
 
-function setMode(next: 'manual' | 'queue'): void {
+async function setMode(next: 'manual' | 'queue'): Promise<void> {
+  if (next === mode) return;
+  if (next === 'queue') {
+    if (current) {
+      await chrome.runtime.sendMessage({ type: 'ROVER_CANCEL' });
+      render(null);
+    }
+  } else {
+    const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_CLEAR' });
+    if (!response?.ok) {
+      queueStatus.textContent = response?.error ?? 'Could not clear queue.';
+      return;
+    }
+    renderQueue(null);
+  }
   mode = next;
   manualMode.classList.toggle('active', mode === 'manual');
   queueMode.classList.toggle('active', mode === 'queue');
@@ -132,6 +156,8 @@ function setMode(next: 'manual' | 'queue'): void {
   catalog.hidden = !visibility.catalog;
   session.hidden = !visibility.session;
   queuePanel.hidden = !visibility.queue;
+  statusRow.hidden = mode !== 'manual';
+  responseTray.hidden = mode !== 'manual';
   if (mode === 'queue') renderQueue(currentQueue);
 }
 
@@ -211,16 +237,17 @@ function render(state: RoverState | null): void {
     session.hidden = !active;
   }
   queuePanel.hidden = mode !== 'queue';
-  outcome.hidden = state?.status !== 'completed';
-  checks.hidden = state?.status !== 'completed';
-  result.hidden = !state?.text;
-  openResult.hidden = state?.status !== 'completed';
-  reset.hidden = !state || !['completed', 'error'].includes(state.status);
-  stop.hidden = !state || ['completed', 'error'].includes(state.status);
-  run.hidden = state?.status !== 'ready';
-  copyPrompt.hidden = state?.status !== 'manual';
-  manualAnswer.hidden = state?.status !== 'manual';
-  evaluate.hidden = state?.status !== 'manual';
+  const manualVisible = mode === 'manual';
+  outcome.hidden = !manualVisible || state?.status !== 'completed';
+  checks.hidden = !manualVisible || state?.status !== 'completed';
+  result.hidden = !manualVisible || !state?.text;
+  openResult.hidden = !manualVisible || state?.status !== 'completed';
+  reset.hidden = !manualVisible || !state || !['completed', 'error'].includes(state.status);
+  stop.hidden = !manualVisible || !state || ['completed', 'error'].includes(state.status);
+  run.hidden = !manualVisible || state?.status !== 'ready';
+  copyPrompt.hidden = !manualVisible || state?.status !== 'manual';
+  manualAnswer.hidden = !manualVisible || state?.status !== 'manual';
+  evaluate.hidden = !manualVisible || state?.status !== 'manual';
 
   if (!state) {
     provider.textContent = 'Connect to choose a Live Test';
@@ -346,5 +373,5 @@ void chrome.runtime.sendMessage({ type: 'ROVER_GET_STATE' }).then((state: RoverS
 });
 void chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_GET' }).then((queue: RoverQueueState | null) => {
   renderQueue(queue);
-  if (queue) setMode('queue');
+  if (queue) void setMode('queue');
 });

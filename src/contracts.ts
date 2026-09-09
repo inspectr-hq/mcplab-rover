@@ -30,6 +30,7 @@ export type ExtensionMessage =
   | { type: 'ROVER_GET_CATALOG'; origin?: string }
   | { type: 'ROVER_GET_STATE' }
   | { type: 'ROVER_QUEUE_GET' }
+  | { type: 'ROVER_QUEUE_CLEAR' }
   | { type: 'ROVER_QUEUE_CREATE'; origin?: string; newConversationBetweenItems: boolean }
   | { type: 'ROVER_QUEUE_ADD'; item: { id: string; name: string; prompt: string; assertionCount: number } }
   | { type: 'ROVER_QUEUE_SET_NEW_CHAT'; enabled: boolean }
