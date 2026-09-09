@@ -17,6 +17,7 @@ const STATE_KEY = 'rover.run';
 const ORIGIN_KEY = 'rover.mcplabOrigin';
 const QUEUE_KEY = 'rover.queue';
 let roverSocket: WebSocket | null = null;
+let roverReconnectAttempt = 0;
 
 async function connectToMcplab(): Promise<void> {
   const origin = await resolveOrigin();
@@ -25,6 +26,7 @@ async function connectToMcplab(): Promise<void> {
   const socket = new WebSocket(`${wsOrigin}/api/rover/ws`);
   roverSocket = socket;
   socket.onopen = async () => {
+    roverReconnectAttempt = 0;
     const tab = await activeTab();
     const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
     if (!provider) return;
@@ -56,7 +58,14 @@ async function connectToMcplab(): Promise<void> {
       })();
     } catch { /* ignore malformed server messages */ }
   };
-  socket.onclose = () => { if (roverSocket === socket) roverSocket = null; };
+  socket.onclose = () => {
+    if (roverSocket !== socket) return;
+    roverSocket = null;
+    if (roverReconnectAttempt >= 8) return;
+    const delay = Math.min(30_000, 1_000 * 2 ** roverReconnectAttempt);
+    roverReconnectAttempt += 1;
+    setTimeout(() => { void connectToMcplab().catch(() => undefined); }, delay);
+  };
 }
 
 async function updateRoverRegistration(tabId: number): Promise<void> {
