@@ -46,7 +46,6 @@ export interface RoverQueueState {
   error?: QueueFailure;
   createdAt: string;
   updatedAt: string;
-  evaluationGroupId?: string;
   evaluationRunId?: string;
 }
 

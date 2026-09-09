@@ -26,7 +26,6 @@ export interface LiveTestSessionView {
   status: 'ready' | 'completed' | 'cancelled';
   createdAt: string;
   expiresAt: string;
-  evaluationGroupId?: string;
   evaluationRunId?: string;
   completion?: LiveTestCompletion;
 }
