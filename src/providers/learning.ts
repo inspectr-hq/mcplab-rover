@@ -54,16 +54,19 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
   let composer: HTMLElement | null = null;
   let submit: HTMLElement | null = null;
   let assistant: HTMLElement | null = null;
+  let submittedAt = 0;
   let stopped = false;
   const startedAt = new Date().toISOString();
   const origin = location.origin;
+  const baselineTexts = new Set(allElements('*').map((element) => element.innerText?.trim()).filter((text): text is string => Boolean(text)));
   const observer = new MutationObserver(() => {
-    if (stopped || assistant) return;
+    if (stopped || assistant || !submittedAt) return;
     const candidates = allElements('*')
       .filter((element) => visible(element) && element.innerText?.trim() && !element.isContentEditable && element !== composer && !composer?.contains(element))
+      .filter((element) => !baselineTexts.has(element.innerText.trim()))
       .filter((element) => element.children.length === 0 || element.innerText.length > 40);
     assistant = candidates.at(-1) ?? null;
-    if (composer && submit && assistant) emit();
+    if (composer && assistant) emit();
   });
   const onFocus = (event: FocusEvent) => {
     const target = event.target;
@@ -72,20 +75,36 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
   const onClick = (event: MouseEvent) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    if (target instanceof HTMLButtonElement || target.getAttribute('role') === 'button') {
-      const label = `${target.getAttribute('aria-label') ?? ''} ${target.textContent ?? ''}`.toLowerCase();
-      if (/send|submit|enter|ask|run/.test(label)) submit = target;
+    const control = target.closest('button,[role="button"]') as HTMLElement | null;
+    if (control) {
+      const label = `${control.getAttribute('aria-label') ?? ''} ${control.textContent ?? ''} ${control.getAttribute('data-testid') ?? ''}`.toLowerCase();
+      if (/send|submit|enter|ask|run/.test(label)) {
+        submit = control;
+        submittedAt = Date.now();
+      }
     }
   };
   const onKey = (event: KeyboardEvent) => {
     if (event.key === 'Enter' && !event.shiftKey && event.target instanceof HTMLElement) {
       composer = event.target;
       submit = submit ?? event.target;
+      submittedAt = Date.now();
     }
   };
+  const onSubmit = () => { submittedAt = Date.now(); };
   const emit = () => {
     if (!composer || !assistant) return;
     const submitLocator = submit && submit !== composer ? locator(submit) : undefined;
+    const newConversation = allElements('button,[role="button"],a').find((element) => {
+      if (!visible(element)) return false;
+      const label = `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
+      return /new\s*(chat|conversation)|new\s*thread|start\s*(a\s*)?new/.test(label);
+    });
+    const newConversationProfile = newConversation
+      ? newConversation instanceof HTMLAnchorElement && newConversation.href
+        ? { action: 'navigate' as const, url: newConversation.href }
+        : { action: 'click' as const, locator: locator(newConversation) }
+      : undefined;
     const profile: BrowserProviderProfile = {
       schemaVersion: 1,
       id: origin.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'learned-provider',
@@ -95,18 +114,21 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
       submit: submitLocator ? { action: 'click', locator: submitLocator } : { action: 'enter' },
       assistantMessages: { locator: locator(assistant) },
       completion: { stabilityMs: 2500 },
+      ...(newConversationProfile ? { newConversation: newConversationProfile } : {}),
       learned: { sourceOrigin: origin, createdAt: startedAt, updatedAt: new Date().toISOString(), confidence: { composer: confidence(composer), submit: submit ? confidence(submit) : 'medium', assistantMessages: confidence(assistant) } }
     };
     onDraft({ profile, capabilities: [
       { id: 'composer', label: 'Composer', confidence: confidence(composer), detail: 'Found the message input.' },
       { id: 'submit', label: 'Send', confidence: submit ? confidence(submit) : 'medium', detail: submit ? 'Found the send action.' : 'Will submit with Enter.' },
       { id: 'assistantMessages', label: 'Response', confidence: confidence(assistant), detail: 'Observed a new response element.' },
-      { id: 'completion', label: 'Completion', confidence: 'medium', detail: 'Uses response stability.' }
+      { id: 'completion', label: 'Completion', confidence: 'medium', detail: 'Uses response stability.' },
+      { id: 'newConversation', label: 'New conversation', confidence: newConversation ? confidence(newConversation) : 'low', detail: newConversation ? 'Found a new chat control.' : 'Not available for this provider.' }
     ] });
   };
   document.addEventListener('focusin', onFocus, true);
   document.addEventListener('click', onClick, true);
   document.addEventListener('keydown', onKey, true);
+  document.addEventListener('submit', onSubmit, true);
   for (const root of roots(document)) observer.observe(root, { childList: true, subtree: true, characterData: true });
   return () => {
     stopped = true;
@@ -114,5 +136,6 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
     document.removeEventListener('focusin', onFocus, true);
     document.removeEventListener('click', onClick, true);
     document.removeEventListener('keydown', onKey, true);
+    document.removeEventListener('submit', onSubmit, true);
   };
 }

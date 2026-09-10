@@ -27,6 +27,17 @@ function respond<T>(sendResponse: (response: T | { ok: false; error: string }) =
 
 let debugSubscribed = false;
 
+async function sendToActiveTab(message: ExtensionMessage): Promise<unknown> {
+  const tab = await activeTab();
+  if (typeof tab?.id !== 'number') throw new Error('No active browser tab is available.');
+  try {
+    return await chrome.tabs.sendMessage(tab.id, message);
+  } catch {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+    return chrome.tabs.sendMessage(tab.id, message);
+  }
+}
+
 export async function syncDebugSubscription(tabId: number): Promise<void> {
   if (!debugSubscribed) return;
   try {
@@ -41,9 +52,7 @@ export function installMessageHandler(): void {
   chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
     if (message.type === 'ROVER_LEARN_START' || message.type === 'ROVER_LEARN_STOP') {
       return respond(sendResponse, async () => {
-        const tab = await activeTab();
-        if (typeof tab?.id !== 'number') throw new Error('No active browser tab is available.');
-        const response = await chrome.tabs.sendMessage(tab.id, message);
+        const response = await sendToActiveTab(message);
         return response ?? { ok: true };
       });
     }

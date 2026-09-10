@@ -108,7 +108,11 @@ debugMode.addEventListener('click', () => void setMode('debug'));
 learnMode.addEventListener('click', () => void setMode('learn'));
 learnStart.addEventListener('click', async () => {
   if (learnStart.textContent === 'Stop learning') {
-    await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_STOP' });
+    const response = await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_STOP' });
+    if (!response?.ok) {
+      learnStatus.textContent = response?.error ?? 'Could not stop learning.';
+      return;
+    }
     learnStart.textContent = 'Start learning';
     learnStatus.textContent = 'Learning stopped. Start again when you are ready.';
     return;
