@@ -2,11 +2,11 @@ import type { BrowserProviderLearningDraft } from '../contracts';
 import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
 import { selectAssistantCandidate, type ChatCandidateDescriptor } from './candidate-descriptor';
 
-const LEARNING_LOG = '[MCPLab Rover][learning]';
+const DISCOVERY_LOG = '[MCPLab Rover][provider-discovery]';
 
-function learningLog(message: string, details?: unknown): void {
-  if (details === undefined) console.info(`${LEARNING_LOG} ${message}`);
-  else console.info(`${LEARNING_LOG} ${message}`, details);
+function discoveryLog(message: string, details?: unknown): void {
+  if (details === undefined) console.info(`${DISCOVERY_LOG} ${message}`);
+  else console.info(`${DISCOVERY_LOG} ${message}`, details);
 }
 
 function visible(element: Element): boolean {
@@ -85,7 +85,7 @@ function confidence(element: Element): 'high' | 'medium' | 'low' {
       : 'low';
 }
 
-export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => void): () => void {
+export function startProviderDiscovery(onDraft: (draft: BrowserProviderLearningDraft) => void): () => void {
   let composer: HTMLElement | null = null;
   let submit: HTMLElement | null = null;
   let assistant: HTMLElement | null = null;
@@ -96,7 +96,7 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
   const origin = location.origin;
   const baselineTexts = new Set(allElements('*').map((element) => element.innerText?.trim()).filter((text): text is string => Boolean(text)));
   let lastScanSignature = '';
-  learningLog('started', { origin, href: location.href, baselineTextCount: baselineTexts.size });
+  discoveryLog('started', { origin, href: location.href, baselineTextCount: baselineTexts.size });
   const scan = () => {
     if (stopped || assistant || (!submittedAt && !submissionArmed)) return;
     const candidates = allElements('*')
@@ -117,11 +117,11 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
     const scanSignature = `${candidates.length}:${selected?.testId ?? selected?.tagName ?? 'none'}:${topCandidates.map((candidate) => `${candidate.testId ?? candidate.tag}:${candidate.text}`).join('|')}`;
     if (scanSignature !== lastScanSignature) {
       lastScanSignature = scanSignature;
-      learningLog('scan', { submittedAt: Boolean(submittedAt), submissionArmed, candidateCount: candidates.length, selected: selected ? { tag: selected.tagName, testId: selected.testId, role: selected.role, text: selected.text.slice(0, 120) } : null, changedCandidates: topCandidates });
+      discoveryLog('scan', { submittedAt: Boolean(submittedAt), submissionArmed, candidateCount: candidates.length, selected: selected ? { tag: selected.tagName, testId: selected.testId, role: selected.role, text: selected.text.slice(0, 120) } : null, changedCandidates: topCandidates });
     }
     assistant = selected ? candidates.find((candidate) => candidate.descriptor === selected)?.element ?? null : null;
     if (composer && assistant) {
-      learningLog('response selected, emitting draft', { responseTestId: assistant.getAttribute('data-testid'), responseText: assistant.innerText?.slice(0, 120) });
+      discoveryLog('response selected, emitting draft', { responseTestId: assistant.getAttribute('data-testid'), responseText: assistant.innerText?.slice(0, 120) });
       emit();
     }
   };
@@ -136,7 +136,7 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
     if (target instanceof HTMLElement && (target.isContentEditable || target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement)) {
       composer = target;
       submissionArmed = true;
-      learningLog('composer input observed', { tag: target.tagName, testId: target.getAttribute('data-testid'), textLength: (target.innerText ?? (target as HTMLInputElement).value ?? '').length });
+      discoveryLog('composer input observed', { tag: target.tagName, testId: target.getAttribute('data-testid'), textLength: (target.innerText ?? (target as HTMLInputElement).value ?? '').length });
     }
   };
   const onClick = (event: MouseEvent) => {
@@ -148,7 +148,7 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
       if (/send|submit|enter|ask|run/.test(label)) {
         submit = control;
         submittedAt = Date.now();
-        learningLog('send control observed', { tag: control.tagName, testId: control.getAttribute('data-testid'), ariaLabel: control.getAttribute('aria-label') });
+        discoveryLog('send control observed', { tag: control.tagName, testId: control.getAttribute('data-testid'), ariaLabel: control.getAttribute('aria-label') });
       }
       else if (composer && !/new\s*(chat|conversation)|new\s*thread/.test(label)) submittedAt = Date.now();
     }
@@ -158,12 +158,12 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
       if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement)) composer = event.target;
       submit = submit ?? composer;
       submittedAt = Date.now();
-      learningLog('Enter submission observed', { composerTag: composer?.tagName, composerTestId: composer?.getAttribute('data-testid') });
+      discoveryLog('Enter submission observed', { composerTag: composer?.tagName, composerTestId: composer?.getAttribute('data-testid') });
     }
   };
   const onSubmit = () => {
     submittedAt = Date.now();
-    learningLog('form submission observed');
+    discoveryLog('form submission observed');
   };
   const emit = () => {
     if (!composer || !assistant) return;

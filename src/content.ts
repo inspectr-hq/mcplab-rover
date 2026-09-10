@@ -2,7 +2,7 @@ import type { ExtensionMessage } from './contracts';
 import { findAdapter, findPageAdapter, setLearnedProfiles } from './providers';
 import type { BrowserProviderProfile } from './mcplab/types';
 import { ask } from './runtime/ask';
-import { startLearning } from './providers/learning';
+import { startProviderDiscovery } from './providers/provider-discovery';
 
 const runtime = globalThis as typeof globalThis & { __mcplabRoverInstalled?: boolean };
 let debugObserver: MutationObserver | null = null;
@@ -108,7 +108,7 @@ if (runtime.__mcplabRoverInstalled) {
     }
     if (message.type === 'ROVER_LEARN_START') {
       stopLearning?.();
-      stopLearning = startLearning((draft) => {
+      stopLearning = startProviderDiscovery((draft) => {
         void chrome.runtime.sendMessage({ type: 'ROVER_LEARN_RESULT', draft });
       });
       sendResponse({ ok: true });
