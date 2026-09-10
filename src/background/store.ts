@@ -25,6 +25,6 @@ export async function saveQueue(queue: RoverQueueState): Promise<void> {
 export async function resolveOrigin(requested?: string): Promise<string> {
   const stored = (await chrome.storage.sync.get(ORIGIN_KEY))[ORIGIN_KEY];
   const origin = normalizeMcplabOrigin(requested ?? (typeof stored === 'string' ? stored : DEFAULT_MCPLAB_ORIGIN));
-  await chrome.storage.sync.set({ [ORIGIN_KEY]: origin });
+  if (stored !== origin) await chrome.storage.sync.set({ [ORIGIN_KEY]: origin });
   return origin;
 }
