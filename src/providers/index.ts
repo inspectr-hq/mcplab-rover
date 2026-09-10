@@ -2,8 +2,18 @@ import type { ProviderId } from '../contracts';
 import type { ChatProviderAdapter } from './types';
 import { claudeAdapter } from './claude';
 import { trendminerAdapter } from './trendminer';
+import { createLearnedAdapter } from './learned';
+import type { BrowserProviderProfile } from '../mcplab/types';
 
-export const adapters: ChatProviderAdapter[] = [claudeAdapter, trendminerAdapter];
+const builtInAdapters: ChatProviderAdapter[] = [claudeAdapter, trendminerAdapter];
+let learnedAdapters: ChatProviderAdapter[] = [];
+
+export const adapters: ChatProviderAdapter[] = builtInAdapters;
+
+export function setLearnedProfiles(profiles: BrowserProviderProfile[]): void {
+  learnedAdapters = profiles.map(createLearnedAdapter);
+  adapters.splice(0, adapters.length, ...learnedAdapters, ...builtInAdapters);
+}
 
 export function findAdapter(provider?: ProviderId): ChatProviderAdapter | null {
   return adapters.find((adapter) => (!provider || adapter.id === provider) && adapter.canHandle()) ?? null;

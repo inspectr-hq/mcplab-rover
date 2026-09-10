@@ -479,4 +479,5 @@ void chrome.runtime.sendMessage({ type: 'ROVER_GET_STATE' }).then((state: RoverS
 void chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_GET' }).then((queue: RoverQueueState | null) => {
   renderQueue(queue);
   if (queue) void setMode('queue');
+  else queueMode.click();
 });

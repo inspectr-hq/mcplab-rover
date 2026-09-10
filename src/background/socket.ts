@@ -28,6 +28,10 @@ export async function connectToMcplab(): Promise<void> {
       socket.close(1000, 'No supported Rover provider is active');
       return;
     }
+    if (typeof tab?.id === 'number') {
+      const profiles = await new McplabClient(origin).listBrowserProviders().catch(() => []);
+      await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_SET_PROFILES', profiles }).catch(() => undefined);
+    }
     socket.send(JSON.stringify({ type: 'register', protocolVersion: 1, provider, pageUrl: tab?.url ?? '', extensionVersion: chrome.runtime.getManifest().version }));
   };
   socket.onmessage = (event) => {

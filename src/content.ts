@@ -1,5 +1,6 @@
 import type { ExtensionMessage } from './contracts';
-import { findAdapter, findPageAdapter } from './providers';
+import { findAdapter, findPageAdapter, setLearnedProfiles } from './providers';
+import type { BrowserProviderProfile } from './mcplab/types';
 import { ask } from './runtime/ask';
 
 const runtime = globalThis as typeof globalThis & { __mcplabRoverInstalled?: boolean };
@@ -98,6 +99,11 @@ if (runtime.__mcplabRoverInstalled) {
 } else {
   runtime.__mcplabRoverInstalled = true;
   chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
+    if ((message as { type?: string }).type === 'ROVER_SET_PROFILES') {
+      setLearnedProfiles((message as { profiles?: BrowserProviderProfile[] }).profiles ?? []);
+      sendResponse({ ok: true });
+      return true;
+    }
     if (message.type === 'ROVER_TOGGLE_PANEL') {
       togglePanel();
       return;

@@ -1,4 +1,4 @@
-import type { LiveTestCatalogItem, LiveTestCompletion, LiveTestSessionView } from './types';
+import type { BrowserProviderProfile, LiveTestCatalogItem, LiveTestCompletion, LiveTestSessionView } from './types';
 
 export const DEFAULT_MCPLAB_ORIGIN = 'http://127.0.0.1:8787';
 
@@ -35,6 +35,19 @@ export class McplabClient {
     const value = await this.request<{ testCases: LiveTestCatalogItem[] }>('/api/live-tests/test-cases');
     if (!Array.isArray(value.testCases)) throw new McplabApiError('MCPLab returned an invalid test-case catalog.');
     return value.testCases;
+  }
+
+  async listBrowserProviders(): Promise<BrowserProviderProfile[]> {
+    const value = await this.request<{ providers: BrowserProviderProfile[] }>('/api/rover/providers');
+    if (!Array.isArray(value.providers)) throw new McplabApiError('MCPLab returned an invalid browser provider catalog.');
+    return value.providers;
+  }
+
+  saveLearnedBrowserProvider(profile: BrowserProviderProfile): Promise<{ provider: BrowserProviderProfile; revision: string }> {
+    return this.request('/api/browser-providers/learned', {
+      method: 'POST',
+      body: JSON.stringify({ profile })
+    });
   }
 
   start(testCaseId: string, client: string, evaluationRunId?: string): Promise<LiveTestSessionView> {
