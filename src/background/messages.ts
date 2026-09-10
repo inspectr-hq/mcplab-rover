@@ -45,11 +45,13 @@ export function installMessageHandler(): void {
         const [manual, queue, tab] = await Promise.all([getState(), getQueue(), activeTab()]);
         let endpointConnected = false;
         let endpointError: string | undefined;
-        try {
-          await new McplabClient(origin).listTestCases();
-          endpointConnected = true;
-        } catch (error) {
-          endpointError = errorMessage(error);
+        if (message.checkEndpoint !== false) {
+          try {
+            await new McplabClient(origin).listTestCases();
+            endpointConnected = true;
+          } catch (error) {
+            endpointError = errorMessage(error);
+          }
         }
 
         let page: { matched: boolean; provider?: ProviderId; elements: DebugElementCheck[]; error?: string } | undefined;
@@ -73,6 +75,7 @@ export function installMessageHandler(): void {
           checkedAt: new Date().toISOString(),
           origin,
           endpointConnected,
+          endpointChecked: message.checkEndpoint !== false,
           endpointError,
           tab,
           page,

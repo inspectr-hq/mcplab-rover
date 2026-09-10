@@ -24,7 +24,7 @@ export function formatCheckCounts(counts: CheckCounts): string {
 
 export function debugFingerprint(snapshot: DebugSnapshot): string {
   return JSON.stringify({
-    endpoint: snapshot.endpoint,
+    endpoint: { origin: snapshot.endpoint.origin, connected: snapshot.endpoint.connected, error: snapshot.endpoint.error },
     page: snapshot.page,
     elements: snapshot.elements,
     rover: snapshot.rover

@@ -28,7 +28,7 @@ describe('popup view model', () => {
   it('ignores diagnostic check timestamps when comparing snapshots', () => {
     const first = {
       checkedAt: '2026-09-10T09:30:00.000Z',
-      endpoint: { origin: 'http://127.0.0.1:8787', connected: true },
+      endpoint: { origin: 'http://127.0.0.1:8787', connected: true, checked: true },
       page: { tabId: 1, url: 'https://claude.ai', matched: true, provider: 'claude' as const },
       elements: [{ id: 'composer', label: 'Composer', present: true, detail: 'Found' }],
       rover: { manualStatus: 'ready' as const }

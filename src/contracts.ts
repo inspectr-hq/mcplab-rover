@@ -40,7 +40,7 @@ export interface DebugElementCheck {
 
 export interface DebugSnapshot {
   checkedAt: string;
-  endpoint: { origin: string; connected: boolean; error?: string };
+  endpoint: { origin: string; connected: boolean; checked: boolean; error?: string };
   page: { tabId?: number; url?: string; matched: boolean; provider?: ProviderId; error?: string };
   elements: DebugElementCheck[];
   rover: { manualStatus?: RoverStatus; queueStatus?: string; activeQueueItem?: string };
@@ -50,7 +50,7 @@ export type ExtensionMessage =
   | { type: 'ROVER_TOGGLE_PANEL' }
   | { type: 'ROVER_SHOW_PANEL' }
   | { type: 'ROVER_GET_CATALOG'; origin?: string }
-  | { type: 'ROVER_GET_DEBUG'; origin?: string }
+  | { type: 'ROVER_GET_DEBUG'; origin?: string; checkEndpoint?: boolean }
   | { type: 'ROVER_GET_STATE' }
   | { type: 'ROVER_QUEUE_GET' }
   | { type: 'ROVER_QUEUE_CLEAR' }

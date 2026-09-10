@@ -5,6 +5,7 @@ export interface DebugSnapshotInput {
   checkedAt: string;
   origin: string;
   endpointConnected: boolean;
+  endpointChecked?: boolean;
   endpointError?: string;
   tab?: { id?: number; url?: string };
   page?: { matched: boolean; provider?: DebugSnapshot['page']['provider']; elements: DebugElementCheck[]; error?: string };
@@ -18,7 +19,7 @@ export function createDebugSnapshot(input: DebugSnapshotInput): DebugSnapshot {
     : undefined;
   return {
     checkedAt: input.checkedAt,
-    endpoint: { origin: input.origin, connected: input.endpointConnected, ...(input.endpointError ? { error: input.endpointError } : {}) },
+    endpoint: { origin: input.origin, connected: input.endpointConnected, checked: input.endpointChecked !== false, ...(input.endpointError ? { error: input.endpointError } : {}) },
     page: {
       tabId: input.tab?.id,
       url: input.tab?.url,

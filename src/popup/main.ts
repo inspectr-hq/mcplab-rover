@@ -57,6 +57,8 @@ let currentQueue: RoverQueueState | null = null;
 let mode: 'manual' | 'queue' | 'debug' = 'manual';
 let debugTimer: number | undefined;
 let lastDebugFingerprint = '';
+let debugRequestInFlight = false;
+let lastDebugSnapshot: DebugSnapshot | null = null;
 
 function setConnectionState(state: 'connecting' | 'connected' | 'disconnected', message: string): void {
   connectionStatus.dataset.state = state;
@@ -95,7 +97,7 @@ queueMode.addEventListener('click', async () => {
   }
 });
 debugMode.addEventListener('click', () => void setMode('debug'));
-debugRefresh.addEventListener('click', () => void refreshDebug());
+debugRefresh.addEventListener('click', () => void refreshDebug(true));
 queueAdd.addEventListener('click', async () => {
   const item = items.find((candidate) => candidate.id === queueEvaluation.value);
   if (!item?.eligible) return;
@@ -176,8 +178,8 @@ async function setMode(next: 'manual' | 'queue' | 'debug'): Promise<void> {
   responseTray.hidden = mode !== 'manual';
   if (mode === 'queue') renderQueue(currentQueue);
   if (mode === 'debug') {
-    await refreshDebug();
-    debugTimer = window.setInterval(() => void refreshDebug(), 2000);
+    await refreshDebug(true);
+    debugTimer = window.setInterval(() => void refreshDebug(false), 5000);
   }
 }
 
@@ -304,14 +306,18 @@ function renderDebug(snapshot: DebugSnapshot): void {
   ]);
 }
 
-async function refreshDebug(): Promise<void> {
-  if (mode !== 'debug') return;
-  debugRefresh.disabled = true;
+async function refreshDebug(checkEndpoint = true): Promise<void> {
+  if (mode !== 'debug' || debugRequestInFlight) return;
+  debugRequestInFlight = true;
   if (!lastDebugFingerprint) debugUpdated.textContent = 'Checking…';
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_DEBUG', origin: origin.value });
+    const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_DEBUG', origin: origin.value, checkEndpoint });
     if (response?.endpoint && response?.page && response?.rover) {
-      const snapshot = response as DebugSnapshot;
+      const incoming = response as DebugSnapshot;
+      const snapshot = incoming.endpoint.checked || !lastDebugSnapshot
+        ? incoming
+        : { ...incoming, endpoint: lastDebugSnapshot.endpoint };
+      lastDebugSnapshot = snapshot;
       const fingerprint = debugFingerprint(snapshot);
       if (fingerprint !== lastDebugFingerprint) {
         lastDebugFingerprint = fingerprint;
@@ -322,7 +328,7 @@ async function refreshDebug(): Promise<void> {
   } catch (error) {
     debugUpdated.textContent = error instanceof Error ? error.message : 'Could not collect diagnostics.';
   } finally {
-    debugRefresh.disabled = false;
+    debugRequestInFlight = false;
   }
 }
 
