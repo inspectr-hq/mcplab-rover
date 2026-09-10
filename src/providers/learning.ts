@@ -1,5 +1,6 @@
 import type { BrowserProviderLearningDraft } from '../contracts';
 import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
+import { selectAssistantCandidate, type ChatCandidateDescriptor } from './candidate-descriptor';
 
 function visible(element: Element): boolean {
   const node = element as HTMLElement;
@@ -46,6 +47,27 @@ function allElements(selectorText: string): HTMLElement[] {
   return roots(document).flatMap((root) => Array.from(root.querySelectorAll<HTMLElement>(selectorText)));
 }
 
+function descriptor(element: HTMLElement, baselineTexts: Set<string>): ChatCandidateDescriptor {
+  const ancestors: string[] = [];
+  let parent = element.parentElement;
+  while (parent && ancestors.length < 4) {
+    if (parent.getAttribute('role')) ancestors.push(parent.getAttribute('role')!);
+    parent = parent.parentElement;
+  }
+  return {
+    tagName: element.tagName,
+    role: element.getAttribute('role') ?? undefined,
+    testId: element.getAttribute('data-testid') ?? undefined,
+    dataTest: element.getAttribute('data-test') ?? undefined,
+    ariaLabel: element.getAttribute('aria-label') ?? undefined,
+    className: typeof element.className === 'string' ? element.className : undefined,
+    text: element.innerText?.trim() ?? '',
+    visible: visible(element),
+    changed: !baselineTexts.has(element.innerText?.trim() ?? ''),
+    ancestorRoles: ancestors
+  };
+}
+
 function confidence(element: Element): 'high' | 'medium' | 'low' {
   return element.hasAttribute('data-testid') || element.hasAttribute('data-test') || element.hasAttribute('aria-label') ? 'high' : element.id ? 'medium' : 'low';
 }
@@ -62,10 +84,11 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
   const observer = new MutationObserver(() => {
     if (stopped || assistant || !submittedAt) return;
     const candidates = allElements('*')
-      .filter((element) => visible(element) && element.innerText?.trim() && !element.isContentEditable && element !== composer && !composer?.contains(element))
-      .filter((element) => !baselineTexts.has(element.innerText.trim()))
-      .filter((element) => element.children.length === 0 || element.innerText.length > 40);
-    assistant = candidates.at(-1) ?? null;
+      .filter((element) => !element.isContentEditable && element !== composer && !composer?.contains(element))
+      .filter((element) => element.children.length === 0 || element.innerText.length > 20)
+      .map((element) => ({ element, descriptor: descriptor(element, baselineTexts) }));
+    const selected = selectAssistantCandidate(candidates.map((candidate) => candidate.descriptor));
+    assistant = selected ? candidates.find((candidate) => candidate.descriptor === selected)?.element ?? null : null;
     if (composer && assistant) emit();
   });
   const onFocus = (event: FocusEvent) => {
