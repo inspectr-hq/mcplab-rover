@@ -1,4 +1,4 @@
-import type { ExtensionMessage, RoverStage, RoverState } from '../contracts';
+import type { DebugElementCheck, ExtensionMessage, ProviderId, RoverStage, RoverState } from '../contracts';
 import { McplabClient } from '../mcplab/api-client';
 import { acceptsContentResult } from '../runtime/live-state';
 import {
@@ -13,6 +13,7 @@ import {
   type RoverQueueState
 } from '../queue/state';
 import { activeTab, detectProvider } from './browser';
+import { createDebugSnapshot } from './debug';
 import { errorMessage } from './errors';
 import { complete, fail } from './live-test';
 import { cancelActiveQueueItem, pauseQueue, runQueueItem, startQueueConversation } from './queue-runner';
@@ -35,6 +36,49 @@ export function installMessageHandler(): void {
       return respond(sendResponse, async () => {
         const origin = await resolveOrigin(message.origin);
         return { ok: true, origin, testCases: await new McplabClient(origin).listTestCases() };
+      });
+    }
+
+    if (message.type === 'ROVER_GET_DEBUG') {
+      return respond(sendResponse, async () => {
+        const origin = await resolveOrigin(message.origin);
+        const [manual, queue, tab] = await Promise.all([getState(), getQueue(), activeTab()]);
+        let endpointConnected = false;
+        let endpointError: string | undefined;
+        try {
+          await new McplabClient(origin).listTestCases();
+          endpointConnected = true;
+        } catch (error) {
+          endpointError = errorMessage(error);
+        }
+
+        let page: { matched: boolean; provider?: ProviderId; elements: DebugElementCheck[]; error?: string } | undefined;
+        if (typeof tab?.id === 'number') {
+          try {
+            await detectProvider(tab.id);
+            const response = await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_DEBUG' });
+            page = {
+              matched: response?.matched === true,
+              provider: response?.provider,
+              elements: response?.elements ?? []
+            };
+          } catch (error) {
+            page = { matched: false, elements: [], error: errorMessage(error) };
+          }
+        } else {
+          page = { matched: false, elements: [], error: 'No active browser tab.' };
+        }
+
+        return createDebugSnapshot({
+          checkedAt: new Date().toISOString(),
+          origin,
+          endpointConnected,
+          endpointError,
+          tab,
+          page,
+          manual,
+          queue
+        });
       });
     }
 

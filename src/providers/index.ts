@@ -8,3 +8,7 @@ export const adapters: ChatProviderAdapter[] = [claudeAdapter, trendminerAdapter
 export function findAdapter(provider?: ProviderId): ChatProviderAdapter | null {
   return adapters.find((adapter) => (!provider || adapter.id === provider) && adapter.canHandle()) ?? null;
 }
+
+export function findPageAdapter(): ChatProviderAdapter | null {
+  return adapters.find((adapter) => adapter.matchesPage()) ?? null;
+}

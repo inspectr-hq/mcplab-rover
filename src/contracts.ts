@@ -30,10 +30,27 @@ export interface RoverState {
   completedAt?: string;
 }
 
+export interface DebugElementCheck {
+  id: string;
+  label: string;
+  present: boolean;
+  detail: string;
+  selector?: string;
+}
+
+export interface DebugSnapshot {
+  checkedAt: string;
+  endpoint: { origin: string; connected: boolean; error?: string };
+  page: { tabId?: number; url?: string; matched: boolean; provider?: ProviderId; error?: string };
+  elements: DebugElementCheck[];
+  rover: { manualStatus?: RoverStatus; queueStatus?: string; activeQueueItem?: string };
+}
+
 export type ExtensionMessage =
   | { type: 'ROVER_TOGGLE_PANEL' }
   | { type: 'ROVER_SHOW_PANEL' }
   | { type: 'ROVER_GET_CATALOG'; origin?: string }
+  | { type: 'ROVER_GET_DEBUG'; origin?: string }
   | { type: 'ROVER_GET_STATE' }
   | { type: 'ROVER_QUEUE_GET' }
   | { type: 'ROVER_QUEUE_CLEAR' }
@@ -52,6 +69,7 @@ export type ExtensionMessage =
   | { type: 'ROVER_COMPLETE_MANUAL'; text: string }
   | { type: 'ROVER_CANCEL' }
   | { type: 'ROVER_DETECT' }
+  | { type: 'ROVER_DEBUG' }
   | { type: 'ROVER_ASK'; requestId: string; sessionId: string; prompt: string; queueId?: string; queueItemId?: string }
   | {
       type: 'ROVER_RESULT';

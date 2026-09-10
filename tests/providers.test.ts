@@ -4,6 +4,21 @@ import { trendminerAdapter } from '../src/providers/trendminer';
 import { claudeAdapter } from '../src/providers/claude';
 
 describe('TrendMiner adapter', () => {
+  it('reports semantic element diagnostics', () => {
+    document.body.innerHTML = `
+      <textarea data-test="ai-agent_input"></textarea>
+      <button aria-label="Submit">Submit</button>
+      <button aria-label="New chat">New chat</button>
+    `;
+
+    expect(trendminerAdapter.getDebugChecks()).toEqual([
+      expect.objectContaining({ id: 'composer', present: true }),
+      expect.objectContaining({ id: 'submit', present: true }),
+      expect.objectContaining({ id: 'assistant-response', present: false }),
+      expect.objectContaining({ id: 'new-chat', present: true })
+    ]);
+  });
+
   it('reads only visible assistant content and updates the native composer', async () => {
     document.body.innerHTML = `
       <textarea data-test="ai-agent_input"></textarea>
@@ -39,6 +54,16 @@ describe('TrendMiner adapter', () => {
 });
 
 describe('Claude adapter', () => {
+  it('reports missing composer and controls without throwing', () => {
+    document.body.innerHTML = '';
+
+    expect(claudeAdapter.getDebugChecks()).toEqual([
+      expect.objectContaining({ id: 'composer', present: false }),
+      expect.objectContaining({ id: 'submit', present: false }),
+      expect.objectContaining({ id: 'assistant-response', present: false })
+    ]);
+  });
+
   it('waits for the send button to become enabled after input', async () => {
     document.body.innerHTML = `
       <div contenteditable="true" class="ProseMirror"><p></p></div>

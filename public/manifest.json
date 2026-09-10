@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "MCPLab Rover",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Run a prompt in the active chat tab and capture the completed response.",
   "permissions": ["activeTab", "scripting", "storage", "clipboardWrite"],
   "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],

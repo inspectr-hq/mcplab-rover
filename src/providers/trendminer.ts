@@ -5,7 +5,14 @@ const assistantSelector = '[data-test="chat-messages_message"].chat-messages__me
 
 export const trendminerAdapter: ChatProviderAdapter = {
   id: 'trendminer',
+  matchesPage: () => location.hostname === 'trendminer.net' || location.hostname.endsWith('.trendminer.net'),
   canHandle: () => Boolean(document.querySelector('[data-test="ai-agent_input"]')),
+  getDebugChecks: () => [
+    debugCheck('composer', 'Composer', '[data-test="ai-agent_input"]'),
+    debugCheck('submit', 'Submit button', 'button[aria-label="Submit"]'),
+    debugCheck('assistant-response', 'Assistant response', assistantSelector),
+    debugCheck('new-chat', 'New conversation button', 'button[aria-label="New chat"]')
+  ],
   findComposer: () => document.querySelector<HTMLElement>('[data-test="ai-agent_input"]'),
   setComposerText: async (text) => {
     const composer = trendminerAdapter.findComposer();
@@ -48,3 +55,8 @@ export const trendminerAdapter: ChatProviderAdapter = {
     };
   }
 };
+
+function debugCheck(id: string, label: string, selector: string) {
+  const present = Boolean(document.querySelector(selector));
+  return { id, label, present, detail: present ? 'Found matching element' : 'Element not found', selector };
+}

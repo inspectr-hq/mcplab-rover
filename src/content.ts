@@ -1,5 +1,5 @@
 import type { ExtensionMessage } from './contracts';
-import { findAdapter } from './providers';
+import { findAdapter, findPageAdapter } from './providers';
 import { ask } from './runtime/ask';
 
 const runtime = globalThis as typeof globalThis & { __mcplabRoverInstalled?: boolean };
@@ -81,6 +81,16 @@ if (runtime.__mcplabRoverInstalled) {
     }
     if (message.type === 'ROVER_DETECT') {
       sendResponse(findAdapter()?.id ?? null);
+      return true;
+    }
+    if (message.type === 'ROVER_DEBUG') {
+      const pageAdapter = findPageAdapter();
+      sendResponse({
+        ok: true,
+        provider: pageAdapter?.id,
+        matched: Boolean(pageAdapter),
+        elements: pageAdapter?.getDebugChecks() ?? []
+      });
       return true;
     }
     if (message.type === 'ROVER_NEW_CHAT') {

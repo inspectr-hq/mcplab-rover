@@ -31,6 +31,7 @@
       <div class="mode-tabs" role="tablist" aria-label="Rover mode">
         <button id="manual-mode" type="button" class="mode-tab active" role="tab" aria-selected="true">Manual</button>
         <button id="queue-mode" type="button" class="mode-tab" role="tab" aria-selected="false">Queue</button>
+        <button id="debug-mode" type="button" class="mode-tab" role="tab" aria-selected="false">Debug</button>
       </div>
       <section id="catalog" class="stack" aria-label="Live Test catalog" hidden>
         <label for="search">Evaluation</label>
@@ -53,6 +54,14 @@
           <button id="queue-skip" type="button" class="copy-button" hidden>Skip</button>
           <button id="queue-stop" type="button" class="stop-button" hidden>Stop</button>
         </div>
+      </section>
+      <section id="debug-panel" class="stack" aria-label="Rover diagnostics" hidden>
+        <div class="inline-row debug-heading">
+          <strong>Diagnostics</strong>
+          <button id="debug-refresh" type="button" class="copy-button compact-button">Refresh</button>
+        </div>
+        <p id="debug-updated" class="muted wrap">Open Debug to inspect the active page.</p>
+        <div id="debug-indicators" class="debug-indicators"></div>
       </section>
       <section id="session" class="stack" aria-label="Prepared Live Test" hidden>
         <strong id="test-name"></strong>

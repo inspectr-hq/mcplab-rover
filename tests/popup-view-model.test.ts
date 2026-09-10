@@ -19,8 +19,9 @@ describe('popup view model', () => {
   });
 
   it('shows only the controls for the active mode', () => {
-    expect(modeVisibility('manual', false)).toEqual({ catalog: true, session: false, queue: false });
-    expect(modeVisibility('manual', true)).toEqual({ catalog: false, session: true, queue: false });
-    expect(modeVisibility('queue', false)).toEqual({ catalog: false, session: false, queue: true });
+    expect(modeVisibility('manual', false)).toEqual({ catalog: true, session: false, queue: false, debug: false });
+    expect(modeVisibility('manual', true)).toEqual({ catalog: false, session: true, queue: false, debug: false });
+    expect(modeVisibility('queue', false)).toEqual({ catalog: false, session: false, queue: true, debug: false });
+    expect(modeVisibility('debug', false)).toEqual({ catalog: false, session: false, queue: false, debug: true });
   });
 });

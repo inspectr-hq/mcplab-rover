@@ -1,4 +1,4 @@
-import type { RoverState } from '../contracts';
+import type { DebugElementCheck, DebugSnapshot, RoverState } from '../contracts';
 import type { LiveTestCatalogItem } from '../mcplab/types';
 import type { RoverQueueState } from '../queue/state';
 import { filterTestCases, formatCheckCounts, modeVisibility } from './view-model';
@@ -45,11 +45,17 @@ const queueSkip = document.querySelector<HTMLButtonElement>('#queue-skip')!;
 const queueStop = document.querySelector<HTMLButtonElement>('#queue-stop')!;
 const statusRow = document.querySelector<HTMLDivElement>('.status-row')!;
 const responseTray = document.querySelector<HTMLElement>('.response-tray')!;
+const debugMode = document.querySelector<HTMLButtonElement>('#debug-mode')!;
+const debugPanel = document.querySelector<HTMLElement>('#debug-panel')!;
+const debugRefresh = document.querySelector<HTMLButtonElement>('#debug-refresh')!;
+const debugUpdated = document.querySelector<HTMLParagraphElement>('#debug-updated')!;
+const debugIndicators = document.querySelector<HTMLElement>('#debug-indicators')!;
 
 let items: LiveTestCatalogItem[] = [];
 let current: RoverState | null = null;
 let currentQueue: RoverQueueState | null = null;
-let mode: 'manual' | 'queue' = 'manual';
+let mode: 'manual' | 'queue' | 'debug' = 'manual';
+let debugTimer: number | undefined;
 
 function setConnectionState(state: 'connecting' | 'connected' | 'disconnected', message: string): void {
   connectionStatus.dataset.state = state;
@@ -87,6 +93,8 @@ queueMode.addEventListener('click', async () => {
     else queueStatus.textContent = response?.error ?? 'Could not create queue.';
   }
 });
+debugMode.addEventListener('click', () => void setMode('debug'));
+debugRefresh.addEventListener('click', () => void refreshDebug());
 queueAdd.addEventListener('click', async () => {
   const item = items.find((candidate) => candidate.id === queueEvaluation.value);
   if (!item?.eligible) return;
@@ -132,7 +140,7 @@ function selectedItem(): LiveTestCatalogItem | undefined {
   return items.find((item) => item.id === testCase.value);
 }
 
-async function setMode(next: 'manual' | 'queue'): Promise<void> {
+async function setMode(next: 'manual' | 'queue' | 'debug'): Promise<void> {
   if (next === mode) return;
   if (next === 'queue') {
     if (current) {
@@ -148,17 +156,28 @@ async function setMode(next: 'manual' | 'queue'): Promise<void> {
     renderQueue(null);
   }
   mode = next;
+  if (debugTimer !== undefined) {
+    window.clearInterval(debugTimer);
+    debugTimer = undefined;
+  }
   manualMode.classList.toggle('active', mode === 'manual');
   queueMode.classList.toggle('active', mode === 'queue');
+  debugMode.classList.toggle('active', mode === 'debug');
   manualMode.setAttribute('aria-selected', String(mode === 'manual'));
   queueMode.setAttribute('aria-selected', String(mode === 'queue'));
+  debugMode.setAttribute('aria-selected', String(mode === 'debug'));
   const visibility = modeVisibility(mode, Boolean(current));
   catalog.hidden = !visibility.catalog;
   session.hidden = !visibility.session;
   queuePanel.hidden = !visibility.queue;
+  debugPanel.hidden = !visibility.debug;
   statusRow.hidden = mode !== 'manual';
   responseTray.hidden = mode !== 'manual';
   if (mode === 'queue') renderQueue(currentQueue);
+  if (mode === 'debug') {
+    await refreshDebug();
+    debugTimer = window.setInterval(() => void refreshDebug(), 2000);
+  }
 }
 
 function renderQueue(queue: RoverQueueState | null): void {
@@ -225,6 +244,78 @@ function updateSelection(): void {
   const item = selectedItem();
   prepare.disabled = !item?.eligible;
   selectionNote.textContent = item?.ineligibleReason ?? (item ? `${item.assertionCount} checks` : 'Select a test case.');
+}
+
+function appendDebugGroup(title: string, entries: Array<{ label: string; state: 'pass' | 'fail' | 'unknown'; detail: string }>): void {
+  const group = document.createElement('div');
+  group.className = 'debug-group';
+  const heading = document.createElement('div');
+  heading.className = 'debug-group-title';
+  heading.textContent = title;
+  group.append(heading);
+  for (const entry of entries) {
+    const row = document.createElement('div');
+    row.className = 'debug-indicator';
+    row.dataset.state = entry.state;
+    const dot = document.createElement('span');
+    dot.className = 'debug-indicator-dot';
+    dot.setAttribute('aria-hidden', 'true');
+    const copy = document.createElement('div');
+    const label = document.createElement('div');
+    label.className = 'debug-indicator-label';
+    label.textContent = entry.label;
+    const detail = document.createElement('div');
+    detail.className = 'debug-indicator-detail';
+    detail.textContent = entry.detail;
+    copy.append(label, detail);
+    row.append(dot, copy);
+    group.append(row);
+  }
+  debugIndicators.append(group);
+}
+
+function renderDebug(snapshot: DebugSnapshot): void {
+  debugUpdated.textContent = `Last checked ${new Date(snapshot.checkedAt).toLocaleTimeString()}`;
+  debugIndicators.replaceChildren();
+  appendDebugGroup('MCPLab endpoint', [{
+    label: snapshot.endpoint.connected ? 'Connected' : 'Disconnected',
+    state: snapshot.endpoint.connected ? 'pass' : 'fail',
+    detail: snapshot.endpoint.error ? `${snapshot.endpoint.origin}: ${snapshot.endpoint.error}` : snapshot.endpoint.origin
+  }]);
+  appendDebugGroup('Current page', [
+    {
+      label: snapshot.page.matched ? `Matched ${snapshot.page.provider ?? 'provider'}` : 'Page not matched',
+      state: snapshot.page.matched ? 'pass' : 'fail',
+      detail: snapshot.page.error ?? snapshot.page.url ?? 'No active page'
+    },
+    { label: 'Active tab', state: snapshot.page.tabId === undefined ? 'unknown' : 'pass', detail: snapshot.page.tabId === undefined ? 'Unavailable' : `Tab ${snapshot.page.tabId}` }
+  ]);
+  appendDebugGroup('Expected elements', snapshot.elements.length
+    ? snapshot.elements.map((element: DebugElementCheck) => ({
+      label: element.label,
+      state: element.present ? 'pass' as const : 'fail' as const,
+      detail: element.present ? element.detail : `${element.detail}${element.selector ? ` (${element.selector})` : ''}`
+    }))
+    : [{ label: 'Provider checks', state: 'unknown' as const, detail: 'No matching provider adapter' }]);
+  appendDebugGroup('Rover state', [
+    { label: 'Manual session', state: snapshot.rover.manualStatus ? 'pass' : 'unknown', detail: snapshot.rover.manualStatus ?? 'None' },
+    { label: 'Queue', state: snapshot.rover.queueStatus ? 'pass' : 'unknown', detail: snapshot.rover.queueStatus ? `${snapshot.rover.queueStatus}${snapshot.rover.activeQueueItem ? `, ${snapshot.rover.activeQueueItem}` : ''}` : 'None' }
+  ]);
+}
+
+async function refreshDebug(): Promise<void> {
+  if (mode !== 'debug') return;
+  debugRefresh.disabled = true;
+  debugUpdated.textContent = 'Checking…';
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_DEBUG', origin: origin.value });
+    if (response?.endpoint && response?.page && response?.rover) renderDebug(response as DebugSnapshot);
+    else debugUpdated.textContent = response?.error ?? 'Could not collect diagnostics.';
+  } catch (error) {
+    debugUpdated.textContent = error instanceof Error ? error.message : 'Could not collect diagnostics.';
+  } finally {
+    debugRefresh.disabled = false;
+  }
 }
 
 function render(state: RoverState | null): void {

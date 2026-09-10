@@ -36,7 +36,13 @@ async function waitForEnabledButton(timeoutMs = 3000): Promise<HTMLButtonElement
 
 export const claudeAdapter: ChatProviderAdapter = {
   id: 'claude',
+  matchesPage: () => location.hostname === 'claude.ai',
   canHandle: () => location.hostname === 'claude.ai',
+  getDebugChecks: () => [
+    debugCheck('composer', 'Composer', composerSelectors),
+    debugCheck('submit', 'Submit button', submitSelectors),
+    debugCheck('assistant-response', 'Assistant response', assistantSelectors)
+  ],
   findComposer: () => first<HTMLElement>(composerSelectors),
   setComposerText: async (text) => {
     const composer = claudeAdapter.findComposer();
@@ -77,3 +83,8 @@ export const claudeAdapter: ChatProviderAdapter = {
     };
   }
 };
+
+function debugCheck(id: string, label: string, selectors: string[]) {
+  const present = Boolean(first<HTMLElement>(selectors));
+  return { id, label, present, detail: present ? 'Found matching element' : 'Element not found', selector: selectors.join(', ') };
+}

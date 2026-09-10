@@ -87,6 +87,18 @@ button:disabled { background: #63321f; color: var(--button-disabled); cursor: wa
 .queue-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queue-item-status { color: var(--text-muted); font-size: 10px; }
 .queue-item button { width: 22px; height: 22px; padding: 0; background: transparent; color: var(--text-muted); box-shadow: none; font-size: 12px; }
+.debug-heading { align-items: center; }
+.debug-heading strong { flex: 1; }
+.debug-indicators { display: grid; gap: 9px; }
+.debug-group { display: grid; gap: 4px; }
+.debug-group-title { color: var(--text-soft); font-size: 10px; font-weight: 760; text-transform: uppercase; letter-spacing: .06em; }
+.debug-indicator { display: grid; grid-template-columns: 8px minmax(0, 1fr); gap: 7px; align-items: start; padding: 7px 8px; border: 1px solid var(--result-border); border-radius: 9px; background: var(--surface-raised); }
+.debug-indicator-dot { width: 7px; height: 7px; margin-top: 3px; border-radius: 999px; background: #77736e; }
+.debug-indicator[data-state="pass"] .debug-indicator-dot { background: #42d392; box-shadow: 0 0 7px rgba(66, 211, 146, .7); }
+.debug-indicator[data-state="fail"] .debug-indicator-dot { background: #ff6961; }
+.debug-indicator[data-state="unknown"] .debug-indicator-dot { background: #f5a524; }
+.debug-indicator-label { color: var(--text); font-size: 11px; font-weight: 700; }
+.debug-indicator-detail { margin-top: 2px; color: var(--text-muted); font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; }
 .checkbox-row { display: flex; align-items: center; gap: 6px; color: var(--text-soft); font-size: 11px; }
 .checkbox-row input { width: auto; }
 label, strong { color: var(--text-soft); font-size: 11px; font-weight: 700; }
