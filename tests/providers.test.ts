@@ -2,6 +2,20 @@
 import { describe, expect, it } from 'vitest';
 import { trendminerAdapter } from '../src/providers/trendminer';
 import { claudeAdapter } from '../src/providers/claude';
+import { createLearnedAdapter } from '../src/providers/learned';
+
+const learnedProfile = {
+  schemaVersion: 1 as const,
+  id: 'chatgpt-com',
+  name: 'ChatGPT',
+  match: { origins: ['https://chatgpt.com'] },
+  composer: { locator: { segments: ['[contenteditable="true"]'] }, inputMode: 'contenteditable' as const },
+  submit: { action: 'enter' as const },
+  assistantMessages: { locator: { segments: ['[data-message-author-role="assistant"]'] } },
+  completion: { stabilityMs: 1000 },
+  newConversation: { action: 'click' as const, locator: { segments: ['[data-testid="new-chat"]'] } },
+  learned: { sourceOrigin: 'https://chatgpt.com', createdAt: '2026-09-10T00:00:00.000Z', updatedAt: '2026-09-10T00:01:00.000Z', confidence: {} }
+};
 
 describe('TrendMiner adapter', () => {
   it('reports semantic element diagnostics', () => {
@@ -101,5 +115,38 @@ describe('Claude adapter', () => {
     expect(state.isGenerating).toBe(false);
     expect(state.isIdle).toBe(true);
     expect(state.text).toContain('Claude answer');
+  });
+});
+
+describe('Learned provider adapter', () => {
+  it('uses the learned composer, Enter submission, and assistant locator', async () => {
+    document.body.innerHTML = `
+      <div contenteditable="true"></div>
+      <div data-message-author-role="assistant">Learned response</div>
+    `;
+    const adapter = createLearnedAdapter(learnedProfile);
+    let keyEvents = 0;
+    document.querySelector('[contenteditable="true"]')!.addEventListener('keydown', () => keyEvents++);
+
+    await adapter.setComposerText('Learned prompt');
+    await adapter.submit();
+
+    expect(adapter.findComposer()?.textContent).toBe('Learned prompt');
+    expect(keyEvents).toBe(1);
+    expect(adapter.getAssistantCandidates()[0]?.text).toBe('Learned response');
+  });
+
+  it('uses the learned new-conversation control', async () => {
+    document.body.innerHTML = `
+      <div contenteditable="true"></div>
+      <button data-testid="new-chat">New chat</button>
+    `;
+    const adapter = createLearnedAdapter(learnedProfile);
+    let clicks = 0;
+    document.querySelector('button')!.addEventListener('click', () => clicks++);
+
+    await adapter.startNewConversation?.();
+
+    expect(clicks).toBe(1);
   });
 });
