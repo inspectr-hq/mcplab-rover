@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { trendminerAdapter } from '../src/providers/trendminer';
 import { claudeAdapter } from '../src/providers/claude';
 import { createLearnedAdapter } from '../src/providers/learned';
+import { findAdapter, findPageAdapter, setLearnedProfiles } from '../src/providers';
 
 const learnedProfile = {
   schemaVersion: 1 as const,
@@ -148,5 +149,15 @@ describe('Learned provider adapter', () => {
     await adapter.startNewConversation?.();
 
     expect(clicks).toBe(1);
+  });
+
+  it('prioritizes a matching learned profile and falls back when cleared', () => {
+    document.body.innerHTML = '<div contenteditable="true"></div>';
+    setLearnedProfiles([{ ...learnedProfile, match: { origins: [location.origin] } }]);
+
+    expect(findPageAdapter()?.id).toBe('chatgpt-com');
+
+    setLearnedProfiles([]);
+    expect(findAdapter()?.id).toBe('chatgpt-com');
   });
 });

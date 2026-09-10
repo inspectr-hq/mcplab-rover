@@ -1,14 +1,15 @@
 import type { ProviderId } from '../contracts';
 import type { ChatProviderAdapter } from './types';
 import { claudeAdapter } from './claude';
+import { chatgptAdapter } from './chatgpt';
 import { trendminerAdapter } from './trendminer';
 import { createLearnedAdapter } from './learned';
 import type { BrowserProviderProfile } from '../mcplab/types';
 
-const builtInAdapters: ChatProviderAdapter[] = [claudeAdapter, trendminerAdapter];
+const builtInAdapters: ChatProviderAdapter[] = [claudeAdapter, chatgptAdapter, trendminerAdapter];
 let learnedAdapters: ChatProviderAdapter[] = [];
 
-export const adapters: ChatProviderAdapter[] = builtInAdapters;
+export const adapters: ChatProviderAdapter[] = [...builtInAdapters];
 
 export function setLearnedProfiles(profiles: BrowserProviderProfile[]): void {
   learnedAdapters = profiles.map(createLearnedAdapter);
