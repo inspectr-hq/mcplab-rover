@@ -13,6 +13,11 @@ export function currentSocket(): WebSocket | null {
   return roverSocket;
 }
 
+async function loadProfilesIntoTab(tabId: number, origin: string): Promise<void> {
+  const profiles = await new McplabClient(origin).listBrowserProviders().catch(() => []);
+  await chrome.tabs.sendMessage(tabId, { type: 'ROVER_SET_PROFILES', profiles }).catch(() => undefined);
+}
+
 export async function connectToMcplab(): Promise<void> {
   const origin = await resolveOrigin();
   if (roverSocket && (roverSocket.readyState === WebSocket.OPEN || roverSocket.readyState === WebSocket.CONNECTING)) return;
@@ -23,20 +28,20 @@ export async function connectToMcplab(): Promise<void> {
   socket.onopen = async () => {
     roverReconnectAttempt = 0;
     const tab = await activeTab();
-    const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
+    let provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
+    if (typeof tab?.id === 'number') {
+      await loadProfilesIntoTab(tab.id, origin);
+      provider = await detectProvider(tab.id);
+    }
     if (!provider) {
       socket.close(1000, 'No supported Rover provider is active');
       return;
-    }
-    if (typeof tab?.id === 'number') {
-      const profiles = await new McplabClient(origin).listBrowserProviders().catch(() => []);
-      await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_SET_PROFILES', profiles }).catch(() => undefined);
     }
     socket.send(JSON.stringify({ type: 'register', protocolVersion: 1, provider, pageUrl: tab?.url ?? '', extensionVersion: chrome.runtime.getManifest().version }));
   };
   socket.onmessage = (event) => {
     try {
-      const message = JSON.parse(String(event.data)) as { type?: string; jobId?: string; evaluationRunId?: string; agent?: { provider?: ProviderId }; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
+      const message = JSON.parse(String(event.data)) as { type?: string; jobId?: string; evaluationRunId?: string; agent?: { provider?: ProviderId; providerRevision?: string; providerProfile?: import('../mcplab/types').BrowserProviderProfile }; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
       if (message.type === 'registered' && roverSocket === socket) registeredSocket = socket;
       if (message.type === 'stop' && message.jobId) {
         void (async () => {
@@ -51,6 +56,10 @@ export async function connectToMcplab(): Promise<void> {
       void (async () => {
         const tab = await activeTab();
         if (typeof tab?.id !== 'number') return;
+        if (message.agent?.providerProfile) {
+          if (message.agent.providerProfile.id !== message.agent.provider) return;
+          await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_SET_PROFILES', profiles: [message.agent.providerProfile] }).catch(() => undefined);
+        }
         const queue = createQueue(origin, message.agent!.provider!, message.newConversationBetweenScenarios !== false, new Date().toISOString());
         const assigned = { ...queue, queueId: message.jobId!, evaluationRunId: message.evaluationRunId, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
         await saveQueue(assigned);
@@ -72,6 +81,9 @@ export async function connectToMcplab(): Promise<void> {
 }
 
 export async function updateRoverRegistration(tabId: number): Promise<void> {
+  const origin = await resolveOrigin();
+  await detectProvider(tabId);
+  await loadProfilesIntoTab(tabId, origin);
   if (!roverSocket || roverSocket.readyState !== WebSocket.OPEN) {
     void connectToMcplab().catch(() => undefined);
     return;

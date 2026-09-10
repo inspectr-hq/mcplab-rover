@@ -24,4 +24,12 @@ describe('McplabClient', () => {
     expect(result[0]?.id).toBe('one');
     expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:8787/api/live-tests/test-cases', expect.any(Object));
   });
+
+  it('loads declarative browser providers', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ providers: [{ id: 'custom', schemaVersion: 1 }] }), { status: 200 }));
+    const client = new McplabClient('http://127.0.0.1:8787', fetcher as typeof fetch);
+    const result = await client.listBrowserProviders();
+    expect(result[0]?.id).toBe('custom');
+    expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:8787/api/rover/providers', expect.any(Object));
+  });
 });
