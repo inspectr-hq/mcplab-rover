@@ -15,9 +15,9 @@ export function scoreAssistantCandidate(candidate: ChatCandidateDescriptor): num
   if (!candidate.visible || !candidate.text.trim()) return Number.NEGATIVE_INFINITY;
   const identity = `${candidate.testId ?? ''} ${candidate.dataTest ?? ''} ${candidate.ariaLabel ?? ''} ${candidate.className ?? ''}`.toLowerCase();
   const text = candidate.text.trim();
+  if (/user|question|prompt|loading|suggestion|feedback|copybutton|actionbar/.test(identity)) return Number.NEGATIVE_INFINITY;
   let score = 0;
   if (/assistant|copilot-message|markdown-reply|response|reply|message-content/.test(identity)) score += 8;
-  if (/user|question|prompt|loading|suggestion|feedback|copy|action|button/.test(identity)) score -= 10;
   if (candidate.role === 'article' || candidate.ancestorRoles?.includes('feed')) score += 3;
   if (candidate.testId || candidate.dataTest) score += 3;
   if (candidate.changed) score += 8;

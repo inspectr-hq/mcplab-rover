@@ -4,8 +4,10 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
+    "dev": "vite build --watch",
     "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "format": "npx prettier --write \"packages/**/*.{ts,tsx,jsx,css, astro}\" --config ./.prettierrc"
   },
   "devDependencies": {
     "@types/chrome": "^0.1.1",

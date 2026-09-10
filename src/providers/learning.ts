@@ -81,7 +81,7 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
   const startedAt = new Date().toISOString();
   const origin = location.origin;
   const baselineTexts = new Set(allElements('*').map((element) => element.innerText?.trim()).filter((text): text is string => Boolean(text)));
-  const observer = new MutationObserver(() => {
+  const scan = () => {
     if (stopped || assistant || !submittedAt) return;
     const candidates = allElements('*')
       .filter((element) => !element.isContentEditable && element !== composer && !composer?.contains(element))
@@ -90,7 +90,9 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
     const selected = selectAssistantCandidate(candidates.map((candidate) => candidate.descriptor));
     assistant = selected ? candidates.find((candidate) => candidate.descriptor === selected)?.element ?? null : null;
     if (composer && assistant) emit();
-  });
+  };
+  const observer = new MutationObserver(scan);
+  const poller = window.setInterval(scan, 500);
   const onFocus = (event: FocusEvent) => {
     const target = event.target;
     if (target instanceof HTMLElement && (target.isContentEditable || target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement)) composer = target;
@@ -105,12 +107,13 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
         submit = control;
         submittedAt = Date.now();
       }
+      else if (composer && !/new\s*(chat|conversation)|new\s*thread/.test(label)) submittedAt = Date.now();
     }
   };
   const onKey = (event: KeyboardEvent) => {
-    if (event.key === 'Enter' && !event.shiftKey && event.target instanceof HTMLElement) {
-      composer = event.target;
-      submit = submit ?? event.target;
+    if (event.key === 'Enter' && !event.shiftKey) {
+      if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement)) composer = event.target;
+      submit = submit ?? composer;
       submittedAt = Date.now();
     }
   };
@@ -156,6 +159,7 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
   return () => {
     stopped = true;
     observer.disconnect();
+    window.clearInterval(poller);
     document.removeEventListener('focusin', onFocus, true);
     document.removeEventListener('click', onClick, true);
     document.removeEventListener('keydown', onKey, true);

@@ -26,5 +26,6 @@ describe('generic chat candidate scoring', () => {
   it('rejects hidden and control elements', () => {
     expect(scoreAssistantCandidate(candidate({ visible: false }))).toBe(Number.NEGATIVE_INFINITY);
     expect(scoreAssistantCandidate(candidate({ tagName: 'BUTTON', testId: 'CopyButtonTestId' }))).toBeLessThan(0);
+    expect(scoreAssistantCandidate(candidate({ testId: 'chatQuestion' }))).toBe(Number.NEGATIVE_INFINITY);
   });
 });
