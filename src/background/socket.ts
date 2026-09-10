@@ -15,7 +15,12 @@ export function currentSocket(): WebSocket | null {
 }
 
 async function loadProfilesIntoTab(tabId: number, origin: string): Promise<void> {
-  const profiles = await new McplabClient(origin).listBrowserProviders().catch(() => []);
+  let profiles: import('../mcplab/types').BrowserProviderProfile[];
+  try {
+    profiles = await new McplabClient(origin).listBrowserProviders();
+  } catch {
+    return;
+  }
   loadedProviders.clear();
   for (const profile of profiles) loadedProviders.set(profile.id, profile);
   await chrome.tabs.sendMessage(tabId, { type: 'ROVER_SET_PROFILES', profiles }).catch(() => undefined);
@@ -49,7 +54,7 @@ export async function connectToMcplab(): Promise<void> {
       if (message.type === 'provider_updated' && message.provider) {
         loadedProviders.set(message.provider.id, message.provider);
         void activeTab().then((tab) => typeof tab?.id === 'number'
-          ? chrome.tabs.sendMessage(tab.id, { type: 'ROVER_SET_PROFILES', profiles: [message.provider] }).catch(() => undefined)
+          ? chrome.tabs.sendMessage(tab.id, { type: 'ROVER_SET_PROFILES', profiles: [...loadedProviders.values()] }).catch(() => undefined)
           : undefined);
         return;
       }
