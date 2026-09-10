@@ -8,7 +8,7 @@ import { getQueue, resolveOrigin, saveQueue } from './store';
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
 let roverReconnectAttempt = 0;
-const loadedProviderRevisions = new Map<string, string>();
+const loadedProviders = new Map<string, import('../mcplab/types').BrowserProviderProfile>();
 
 export function currentSocket(): WebSocket | null {
   return roverSocket;
@@ -16,8 +16,8 @@ export function currentSocket(): WebSocket | null {
 
 async function loadProfilesIntoTab(tabId: number, origin: string): Promise<void> {
   const profiles = await new McplabClient(origin).listBrowserProviders().catch(() => []);
-  loadedProviderRevisions.clear();
-  for (const profile of profiles) loadedProviderRevisions.set(profile.id, profile.learned.updatedAt);
+  loadedProviders.clear();
+  for (const profile of profiles) loadedProviders.set(profile.id, profile);
   await chrome.tabs.sendMessage(tabId, { type: 'ROVER_SET_PROFILES', profiles }).catch(() => undefined);
 }
 
@@ -47,7 +47,7 @@ export async function connectToMcplab(): Promise<void> {
       const message = JSON.parse(String(event.data)) as { type?: string; jobId?: string; evaluationRunId?: string; agent?: { provider?: ProviderId; providerRevision?: string }; provider?: import('../mcplab/types').BrowserProviderProfile; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
       if (message.type === 'registered' && roverSocket === socket) registeredSocket = socket;
       if (message.type === 'provider_updated' && message.provider) {
-        loadedProviderRevisions.set(message.provider.id, message.provider.learned.updatedAt);
+        loadedProviders.set(message.provider.id, message.provider);
         void activeTab().then((tab) => typeof tab?.id === 'number'
           ? chrome.tabs.sendMessage(tab.id, { type: 'ROVER_SET_PROFILES', profiles: [message.provider] }).catch(() => undefined)
           : undefined);
@@ -66,9 +66,9 @@ export async function connectToMcplab(): Promise<void> {
       void (async () => {
         const tab = await activeTab();
         if (typeof tab?.id !== 'number') return;
-        if (message.agent?.providerRevision && loadedProviderRevisions.get(message.agent.provider ?? '') !== message.agent.providerRevision) {
+        if (message.agent?.providerRevision && loadedProviders.get(message.agent.provider ?? '')?.learned.updatedAt !== message.agent.providerRevision) {
           await loadProfilesIntoTab(tab.id, origin);
-          if (loadedProviderRevisions.get(message.agent.provider ?? '') !== message.agent.providerRevision) return;
+          if (loadedProviders.get(message.agent.provider ?? '')?.learned.updatedAt !== message.agent.providerRevision) return;
         }
         const queue = createQueue(origin, message.agent!.provider!, message.newConversationBetweenScenarios !== false, new Date().toISOString());
         const assigned = { ...queue, queueId: message.jobId!, evaluationRunId: message.evaluationRunId, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
