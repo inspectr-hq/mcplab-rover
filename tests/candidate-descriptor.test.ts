@@ -28,4 +28,16 @@ describe('generic chat candidate scoring', () => {
     expect(scoreAssistantCandidate(candidate({ tagName: 'BUTTON', testId: 'CopyButtonTestId' }))).toBeLessThan(0);
     expect(scoreAssistantCandidate(candidate({ testId: 'chatQuestion' }))).toBe(Number.NEGATIVE_INFINITY);
   });
+
+  it('rejects transient generation status text', () => {
+    expect(scoreAssistantCandidate(candidate({ text: 'Thinking…', className: undefined }))).toBe(Number.NEGATIVE_INFINITY);
+  });
+
+  it('does not select a weak generic changed element', () => {
+    expect(selectAssistantCandidate([candidate({ text: 'Updated status', className: undefined, role: undefined })])).toBeNull();
+  });
+
+  it('does not treat a generic descendant of an article as the response', () => {
+    expect(selectAssistantCandidate([candidate({ ancestorRoles: ['article'], className: undefined, role: undefined })])).toBeNull();
+  });
 });

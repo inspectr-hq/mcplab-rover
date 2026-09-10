@@ -152,7 +152,7 @@ export function installMessageHandler(): void {
         const origin = await resolveOrigin(message.origin);
         const tab = await activeTab();
         const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
-        if (!provider || typeof tab?.id !== 'number') throw new Error('Queue mode requires a supported Claude or TrendMiner page.');
+        if (!provider || typeof tab?.id !== 'number') throw new Error('Queue mode requires a supported or learned browser provider page.');
         const queue = { ...createQueueForMessage(origin, provider, message.newConversationBetweenItems), tabId: tab.id };
         await saveQueue(queue);
         await chrome.storage.session.remove(STATE_KEY);

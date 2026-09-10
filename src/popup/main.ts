@@ -150,6 +150,8 @@ learnSave.addEventListener('click', async () => {
     if (!response?.ok) throw new Error(response?.error ?? 'Could not save provider.');
     learnStatus.textContent = `Saved ${name} to MCPLab.`;
     learnSave.hidden = true;
+    learningDraft = null;
+    await chrome.storage.local.remove(LEARNING_DRAFT_KEY);
   } catch (error) {
     learnStatus.textContent = error instanceof Error ? error.message : 'Could not save provider.';
   }
@@ -248,7 +250,7 @@ function renderQueue(queue: RoverQueueState | null): void {
   currentQueue = queue;
   if (!queue) {
     queueItems.replaceChildren();
-    queueStatus.textContent = 'Queue mode requires a supported Claude or TrendMiner page.';
+    queueStatus.textContent = 'Queue mode requires a supported or learned browser provider page.';
     queueStart.disabled = true;
     queueRetry.hidden = true;
     queueSkip.hidden = true;

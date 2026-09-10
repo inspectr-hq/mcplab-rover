@@ -80,6 +80,15 @@ export async function waitForTabComplete(tabId: number): Promise<void> {
   });
 }
 
+async function waitForProviderReady(tabId: number): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    if (await detectProvider(tabId)) return;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error('Browser provider composer was not ready after starting a new conversation.');
+}
+
 export async function startQueueConversation(queue: RoverQueueState): Promise<void> {
   if (typeof queue.tabId !== 'number') throw new Error('Queue browser tab is unavailable.');
   if (queue.provider === 'trendminer') {
@@ -87,8 +96,20 @@ export async function startQueueConversation(queue: RoverQueueState): Promise<vo
     if (!response?.ok) throw new Error(response?.error ?? 'Could not start a new TrendMiner conversation.');
     return;
   }
+  if (queue.provider !== 'claude') {
+    const profile = (await new McplabClient(queue.origin).listBrowserProviders()).find((candidate) => candidate.id === queue.provider);
+    if (!profile?.newConversation) throw new Error(`${queue.provider} does not have a learned new-conversation action.`);
+    const response = await chrome.tabs.sendMessage(queue.tabId, { type: 'ROVER_NEW_CHAT', requestId: crypto.randomUUID(), queueId: queue.queueId });
+    if (!response?.ok) throw new Error(response?.error ?? `Could not start a new ${profile.name} conversation.`);
+    if (profile.newConversation.action === 'navigate') {
+      await waitForTabComplete(queue.tabId);
+      await waitForProviderReady(queue.tabId);
+      await chrome.tabs.sendMessage(queue.tabId, { type: 'ROVER_SHOW_PANEL' });
+    }
+    return;
+  }
   await chrome.tabs.update(queue.tabId, { url: 'https://claude.ai/new' });
   await waitForTabComplete(queue.tabId);
-  if (!(await detectProvider(queue.tabId))) throw new Error('Claude composer is not ready after starting a new conversation.');
+  await waitForProviderReady(queue.tabId);
   await chrome.tabs.sendMessage(queue.tabId, { type: 'ROVER_SHOW_PANEL' });
 }

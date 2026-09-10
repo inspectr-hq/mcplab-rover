@@ -2,6 +2,13 @@ import type { BrowserProviderLearningDraft } from '../contracts';
 import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
 import { selectAssistantCandidate, type ChatCandidateDescriptor } from './candidate-descriptor';
 
+const LEARNING_LOG = '[MCPLab Rover][learning]';
+
+function learningLog(message: string, details?: unknown): void {
+  if (details === undefined) console.info(`${LEARNING_LOG} ${message}`);
+  else console.info(`${LEARNING_LOG} ${message}`, details);
+}
+
 function visible(element: Element): boolean {
   const node = element as HTMLElement;
   const rect = node.getBoundingClientRect();
@@ -14,6 +21,7 @@ function selector(element: Element): string {
     const value = html.getAttribute(attribute);
     if (value?.trim()) return `[${attribute}="${CSS.escape(value)}"]`;
   }
+  if (element.getAttribute('role') === 'article') return '[role="article"]';
   if (element.tagName === 'TEXTAREA') return 'textarea';
   if (element.tagName === 'INPUT') return 'input';
   if (html.isContentEditable) return '[contenteditable="true"]';
@@ -69,7 +77,11 @@ function descriptor(element: HTMLElement, baselineTexts: Set<string>): ChatCandi
 }
 
 function confidence(element: Element): 'high' | 'medium' | 'low' {
-  return element.hasAttribute('data-testid') || element.hasAttribute('data-test') || element.hasAttribute('aria-label') ? 'high' : element.id ? 'medium' : 'low';
+  return element.hasAttribute('data-testid') || element.hasAttribute('data-test') || element.hasAttribute('aria-label')
+    ? 'high'
+    : element.id || element.getAttribute('role') === 'article'
+      ? 'medium'
+      : 'low';
 }
 
 export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => void): () => void {
@@ -82,6 +94,8 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
   const startedAt = new Date().toISOString();
   const origin = location.origin;
   const baselineTexts = new Set(allElements('*').map((element) => element.innerText?.trim()).filter((text): text is string => Boolean(text)));
+  let lastScanSignature = '';
+  learningLog('started', { origin, href: location.href, baselineTextCount: baselineTexts.size });
   const scan = () => {
     if (stopped || assistant || (!submittedAt && !submissionArmed)) return;
     const candidates = allElements('*')
@@ -89,8 +103,26 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
       .filter((element) => element.children.length === 0 || (element.innerText?.length ?? 0) > 20)
       .map((element) => ({ element, descriptor: descriptor(element, baselineTexts) }));
     const selected = selectAssistantCandidate(candidates.map((candidate) => candidate.descriptor));
+    const topCandidates = candidates
+      .map((candidate) => ({ element: candidate.element, descriptor: candidate.descriptor }))
+      .filter((candidate) => candidate.descriptor.changed && candidate.descriptor.text.trim())
+      .slice(-8)
+      .map((candidate) => ({
+        tag: candidate.descriptor.tagName,
+        testId: candidate.descriptor.testId,
+        role: candidate.descriptor.role,
+        text: candidate.descriptor.text.slice(0, 120)
+      }));
+    const scanSignature = `${candidates.length}:${selected?.testId ?? selected?.tagName ?? 'none'}:${topCandidates.map((candidate) => `${candidate.testId ?? candidate.tag}:${candidate.text}`).join('|')}`;
+    if (scanSignature !== lastScanSignature) {
+      lastScanSignature = scanSignature;
+      learningLog('scan', { submittedAt: Boolean(submittedAt), submissionArmed, candidateCount: candidates.length, selected: selected ? { tag: selected.tagName, testId: selected.testId, role: selected.role, text: selected.text.slice(0, 120) } : null, changedCandidates: topCandidates });
+    }
     assistant = selected ? candidates.find((candidate) => candidate.descriptor === selected)?.element ?? null : null;
-    if (composer && assistant) emit();
+    if (composer && assistant) {
+      learningLog('response selected, emitting draft', { responseTestId: assistant.getAttribute('data-testid'), responseText: assistant.innerText?.slice(0, 120) });
+      emit();
+    }
   };
   const observer = new MutationObserver(scan);
   const poller = window.setInterval(scan, 500);
@@ -103,6 +135,7 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
     if (target instanceof HTMLElement && (target.isContentEditable || target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement)) {
       composer = target;
       submissionArmed = true;
+      learningLog('composer input observed', { tag: target.tagName, testId: target.getAttribute('data-testid'), textLength: (target.innerText ?? (target as HTMLInputElement).value ?? '').length });
     }
   };
   const onClick = (event: MouseEvent) => {
@@ -114,6 +147,7 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
       if (/send|submit|enter|ask|run/.test(label)) {
         submit = control;
         submittedAt = Date.now();
+        learningLog('send control observed', { tag: control.tagName, testId: control.getAttribute('data-testid'), ariaLabel: control.getAttribute('aria-label') });
       }
       else if (composer && !/new\s*(chat|conversation)|new\s*thread/.test(label)) submittedAt = Date.now();
     }
@@ -123,9 +157,13 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
       if (event.target instanceof HTMLElement && (event.target.isContentEditable || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement)) composer = event.target;
       submit = submit ?? composer;
       submittedAt = Date.now();
+      learningLog('Enter submission observed', { composerTag: composer?.tagName, composerTestId: composer?.getAttribute('data-testid') });
     }
   };
-  const onSubmit = () => { submittedAt = Date.now(); };
+  const onSubmit = () => {
+    submittedAt = Date.now();
+    learningLog('form submission observed');
+  };
   const emit = () => {
     if (!composer || !assistant) return;
     const submitLocator = submit && submit !== composer ? locator(submit) : undefined;
