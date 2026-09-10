@@ -1,4 +1,5 @@
 import type { CheckCounts, LiveTestCatalogItem } from '../mcplab/types';
+import type { DebugSnapshot } from '../contracts';
 
 export type PopupMode = 'manual' | 'queue' | 'debug';
 
@@ -19,4 +20,13 @@ export function filterTestCases(items: LiveTestCatalogItem[], query: string): Li
 
 export function formatCheckCounts(counts: CheckCounts): string {
   return `${counts.passed} passed · ${counts.failed} failed · ${counts.not_evaluated} not evaluated`;
+}
+
+export function debugFingerprint(snapshot: DebugSnapshot): string {
+  return JSON.stringify({
+    endpoint: snapshot.endpoint,
+    page: snapshot.page,
+    elements: snapshot.elements,
+    rover: snapshot.rover
+  });
 }

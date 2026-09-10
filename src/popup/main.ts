@@ -1,7 +1,7 @@
 import type { DebugElementCheck, DebugSnapshot, RoverState } from '../contracts';
 import type { LiveTestCatalogItem } from '../mcplab/types';
 import type { RoverQueueState } from '../queue/state';
-import { filterTestCases, formatCheckCounts, modeVisibility } from './view-model';
+import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility } from './view-model';
 import './style.css';
 
 const shell = document.querySelector<HTMLElement>('.shell')!;
@@ -56,6 +56,7 @@ let current: RoverState | null = null;
 let currentQueue: RoverQueueState | null = null;
 let mode: 'manual' | 'queue' | 'debug' = 'manual';
 let debugTimer: number | undefined;
+let lastDebugFingerprint = '';
 
 function setConnectionState(state: 'connecting' | 'connected' | 'disconnected', message: string): void {
   connectionStatus.dataset.state = state;
@@ -275,7 +276,7 @@ function appendDebugGroup(title: string, entries: Array<{ label: string; state: 
 }
 
 function renderDebug(snapshot: DebugSnapshot): void {
-  debugUpdated.textContent = `Last checked ${new Date(snapshot.checkedAt).toLocaleTimeString()}`;
+  debugUpdated.textContent = `Last changed ${new Date(snapshot.checkedAt).toLocaleTimeString()}`;
   debugIndicators.replaceChildren();
   appendDebugGroup('MCPLab endpoint', [{
     label: snapshot.endpoint.connected ? 'Connected' : 'Disconnected',
@@ -306,10 +307,17 @@ function renderDebug(snapshot: DebugSnapshot): void {
 async function refreshDebug(): Promise<void> {
   if (mode !== 'debug') return;
   debugRefresh.disabled = true;
-  debugUpdated.textContent = 'Checking…';
+  if (!lastDebugFingerprint) debugUpdated.textContent = 'Checking…';
   try {
     const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_DEBUG', origin: origin.value });
-    if (response?.endpoint && response?.page && response?.rover) renderDebug(response as DebugSnapshot);
+    if (response?.endpoint && response?.page && response?.rover) {
+      const snapshot = response as DebugSnapshot;
+      const fingerprint = debugFingerprint(snapshot);
+      if (fingerprint !== lastDebugFingerprint) {
+        lastDebugFingerprint = fingerprint;
+        renderDebug(snapshot);
+      }
+    }
     else debugUpdated.textContent = response?.error ?? 'Could not collect diagnostics.';
   } catch (error) {
     debugUpdated.textContent = error instanceof Error ? error.message : 'Could not collect diagnostics.';
