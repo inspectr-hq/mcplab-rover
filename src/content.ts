@@ -2,10 +2,12 @@ import type { ExtensionMessage } from './contracts';
 import { findAdapter, findPageAdapter, setLearnedProfiles } from './providers';
 import type { BrowserProviderProfile } from './mcplab/types';
 import { ask } from './runtime/ask';
+import { startLearning } from './providers/learning';
 
 const runtime = globalThis as typeof globalThis & { __mcplabRoverInstalled?: boolean };
 let debugObserver: MutationObserver | null = null;
 let debugNotifyTimer: number | undefined;
+let stopLearning: (() => void) | null = null;
 
 function stopDebugObserver(): void {
   debugObserver?.disconnect();
@@ -101,6 +103,20 @@ if (runtime.__mcplabRoverInstalled) {
   chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
     if ((message as { type?: string }).type === 'ROVER_SET_PROFILES') {
       setLearnedProfiles((message as { profiles?: BrowserProviderProfile[] }).profiles ?? []);
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (message.type === 'ROVER_LEARN_START') {
+      stopLearning?.();
+      stopLearning = startLearning((draft) => {
+        void chrome.runtime.sendMessage({ type: 'ROVER_LEARN_RESULT', draft });
+      });
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (message.type === 'ROVER_LEARN_STOP') {
+      stopLearning?.();
+      stopLearning = null;
       sendResponse({ ok: true });
       return true;
     }

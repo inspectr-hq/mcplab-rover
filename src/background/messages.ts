@@ -39,6 +39,21 @@ export async function syncDebugSubscription(tabId: number): Promise<void> {
 
 export function installMessageHandler(): void {
   chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
+    if (message.type === 'ROVER_LEARN_START' || message.type === 'ROVER_LEARN_STOP') {
+      return respond(sendResponse, async () => {
+        const tab = await activeTab();
+        if (typeof tab?.id !== 'number') throw new Error('No active browser tab is available.');
+        const response = await chrome.tabs.sendMessage(tab.id, message);
+        return response ?? { ok: true };
+      });
+    }
+    if (message.type === 'ROVER_LEARN_SAVE') {
+      return respond(sendResponse, async () => {
+        const endpoint = await resolveOrigin(message.origin);
+        const result = await new McplabClient(endpoint).saveLearnedBrowserProvider(message.profile);
+        return { ok: true, provider: result.provider, revision: result.revision };
+      });
+    }
     if (message.type === 'ROVER_GET_STATE') {
       void getState().then(sendResponse);
       return true;

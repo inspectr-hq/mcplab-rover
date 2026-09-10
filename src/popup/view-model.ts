@@ -1,10 +1,11 @@
 import type { CheckCounts, LiveTestCatalogItem } from '../mcplab/types';
 import type { DebugSnapshot } from '../contracts';
 
-export type PopupMode = 'manual' | 'queue' | 'debug';
+export type PopupMode = 'manual' | 'queue' | 'learn' | 'debug';
 
 export function modeVisibility(mode: PopupMode, hasManualSession: boolean): { catalog: boolean; session: boolean; queue: boolean; debug: boolean } {
   if (mode === 'debug') return { catalog: false, session: false, queue: false, debug: true };
+  if (mode === 'learn') return { catalog: false, session: false, queue: false, debug: false };
   return mode === 'manual'
     ? { catalog: !hasManualSession, session: hasManualSession, queue: false, debug: false }
     : { catalog: false, session: false, queue: true, debug: false };

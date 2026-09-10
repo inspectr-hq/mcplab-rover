@@ -1,0 +1,95 @@
+import type { BrowserProviderLearningDraft } from '../contracts';
+import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
+
+function visible(element: Element): boolean {
+  const node = element as HTMLElement;
+  const rect = node.getBoundingClientRect();
+  return getComputedStyle(node).display !== 'none' && getComputedStyle(node).visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+}
+
+function selector(element: Element): string {
+  const html = element as HTMLElement;
+  for (const attribute of ['data-testid', 'data-test', 'aria-label', 'name', 'id']) {
+    const value = html.getAttribute(attribute);
+    if (value?.trim()) return `[${attribute}="${CSS.escape(value)}"]`;
+  }
+  if (element.tagName === 'TEXTAREA') return 'textarea';
+  if (element.tagName === 'INPUT') return 'input';
+  if (html.isContentEditable) return '[contenteditable="true"]';
+  return element.tagName.toLowerCase();
+}
+
+function locator(element: Element): ShadowLocator {
+  return { segments: [selector(element)] };
+}
+
+function confidence(element: Element): 'high' | 'medium' | 'low' {
+  return element.hasAttribute('data-testid') || element.hasAttribute('data-test') || element.hasAttribute('aria-label') ? 'high' : element.id ? 'medium' : 'low';
+}
+
+export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => void): () => void {
+  let composer: HTMLElement | null = null;
+  let submit: HTMLElement | null = null;
+  let assistant: HTMLElement | null = null;
+  let stopped = false;
+  const startedAt = new Date().toISOString();
+  const origin = location.origin;
+  const observer = new MutationObserver(() => {
+    if (stopped || assistant) return;
+    const candidates = Array.from(document.querySelectorAll<HTMLElement>('body *'))
+      .filter((element) => visible(element) && element.innerText?.trim() && !element.isContentEditable && element !== composer && !composer?.contains(element))
+      .filter((element) => element.children.length === 0 || element.innerText.length > 40);
+    assistant = candidates.at(-1) ?? null;
+    if (composer && submit && assistant) emit();
+  });
+  const onFocus = (event: FocusEvent) => {
+    const target = event.target;
+    if (target instanceof HTMLElement && (target.isContentEditable || target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement)) composer = target;
+  };
+  const onClick = (event: MouseEvent) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target instanceof HTMLButtonElement || target.getAttribute('role') === 'button') {
+      const label = `${target.getAttribute('aria-label') ?? ''} ${target.textContent ?? ''}`.toLowerCase();
+      if (/send|submit|enter|ask|run/.test(label)) submit = target;
+    }
+  };
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key === 'Enter' && !event.shiftKey && event.target instanceof HTMLElement) {
+      composer = event.target;
+      submit = submit ?? event.target;
+    }
+  };
+  const emit = () => {
+    if (!composer || !assistant) return;
+    const submitLocator = submit && submit !== composer ? locator(submit) : undefined;
+    const profile: BrowserProviderProfile = {
+      schemaVersion: 1,
+      id: origin.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase() || 'learned-provider',
+      name: location.hostname,
+      match: { origins: [origin] },
+      composer: { locator: locator(composer), inputMode: composer.isContentEditable ? 'contenteditable' : composer instanceof HTMLTextAreaElement ? 'textarea' : 'input' },
+      submit: submitLocator ? { action: 'click', locator: submitLocator } : { action: 'enter' },
+      assistantMessages: { locator: locator(assistant) },
+      completion: { stabilityMs: 2500 },
+      learned: { sourceOrigin: origin, createdAt: startedAt, updatedAt: new Date().toISOString(), confidence: { composer: confidence(composer), submit: submit ? confidence(submit) : 'medium', assistantMessages: confidence(assistant) } }
+    };
+    onDraft({ profile, capabilities: [
+      { id: 'composer', label: 'Composer', confidence: confidence(composer), detail: 'Found the message input.' },
+      { id: 'submit', label: 'Send', confidence: submit ? confidence(submit) : 'medium', detail: submit ? 'Found the send action.' : 'Will submit with Enter.' },
+      { id: 'assistantMessages', label: 'Response', confidence: confidence(assistant), detail: 'Observed a new response element.' },
+      { id: 'completion', label: 'Completion', confidence: 'medium', detail: 'Uses response stability.' }
+    ] });
+  };
+  document.addEventListener('focusin', onFocus, true);
+  document.addEventListener('click', onClick, true);
+  document.addEventListener('keydown', onKey, true);
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  return () => {
+    stopped = true;
+    observer.disconnect();
+    document.removeEventListener('focusin', onFocus, true);
+    document.removeEventListener('click', onClick, true);
+    document.removeEventListener('keydown', onKey, true);
+  };
+}

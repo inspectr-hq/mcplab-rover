@@ -31,6 +31,7 @@
       <div class="mode-tabs" role="tablist" aria-label="Rover mode">
         <button id="manual-mode" type="button" class="mode-tab active" role="tab" aria-selected="true" hidden>Manual</button>
         <button id="queue-mode" type="button" class="mode-tab active" role="tab" aria-selected="true">Queue</button>
+        <button id="learn-mode" type="button" class="mode-tab" role="tab" aria-selected="false">Learn</button>
         <button id="debug-mode" type="button" class="mode-tab" role="tab" aria-selected="false">Debug</button>
       </div>
       <section id="catalog" class="stack" aria-label="Live Test catalog" hidden>
@@ -39,6 +40,14 @@
         <select id="test-case" size="5" aria-label="Test cases"></select>
         <p id="selection-note" class="muted wrap"></p>
         <button id="prepare" type="button">Prepare Live Test</button>
+      </section>
+      <section id="learn-panel" class="stack" aria-label="Learn browser provider" hidden>
+        <strong>Teach Rover this chat</strong>
+        <p id="learn-status" class="muted wrap">Start learning, then send one message yourself in the active chat.</p>
+        <div id="learn-capabilities" class="debug-indicators"></div>
+        <input id="learn-name" type="text" placeholder="Provider name" aria-label="Provider name" hidden />
+        <button id="learn-start" type="button">Start learning</button>
+        <button id="learn-save" type="button" hidden>Save provider to MCPLab</button>
       </section>
       <section id="queue-panel" class="stack" aria-label="Evaluation queue" hidden>
         <div class="inline-row queue-add-row">

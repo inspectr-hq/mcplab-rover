@@ -2,6 +2,10 @@ import type { CheckCounts, RunOutcome } from './mcplab/types';
 import type { RoverQueueState } from './queue/state';
 
 export type ProviderId = string;
+export interface BrowserProviderLearningDraft {
+  profile: import('./mcplab/types').BrowserProviderProfile;
+  capabilities: Array<{ id: string; label: string; confidence: 'high' | 'medium' | 'low'; detail: string }>;
+}
 export type RoverStage =
   | 'prompt_sent'
   | 'waiting_for_response'
@@ -72,6 +76,10 @@ export type ExtensionMessage =
   | { type: 'ROVER_CANCEL' }
   | { type: 'ROVER_DETECT' }
   | { type: 'ROVER_DEBUG' }
+  | { type: 'ROVER_LEARN_START' }
+  | { type: 'ROVER_LEARN_STOP' }
+  | { type: 'ROVER_LEARN_SAVE'; profile: import('./mcplab/types').BrowserProviderProfile; origin?: string }
+  | { type: 'ROVER_LEARN_RESULT'; draft: BrowserProviderLearningDraft }
   | { type: 'ROVER_ASK'; requestId: string; sessionId: string; prompt: string; queueId?: string; queueItemId?: string }
   | {
       type: 'ROVER_RESULT';

@@ -1,4 +1,4 @@
-import type { DebugElementCheck, DebugSnapshot, RoverState } from '../contracts';
+import type { BrowserProviderLearningDraft, DebugElementCheck, DebugSnapshot, RoverState } from '../contracts';
 import type { LiveTestCatalogItem } from '../mcplab/types';
 import type { RoverQueueState } from '../queue/state';
 import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility } from './view-model';
@@ -46,6 +46,13 @@ const queueStop = document.querySelector<HTMLButtonElement>('#queue-stop')!;
 const statusRow = document.querySelector<HTMLDivElement>('.status-row')!;
 const responseTray = document.querySelector<HTMLElement>('.response-tray')!;
 const debugMode = document.querySelector<HTMLButtonElement>('#debug-mode')!;
+const learnMode = document.querySelector<HTMLButtonElement>('#learn-mode')!;
+const learnPanel = document.querySelector<HTMLElement>('#learn-panel')!;
+const learnStatus = document.querySelector<HTMLParagraphElement>('#learn-status')!;
+const learnCapabilities = document.querySelector<HTMLElement>('#learn-capabilities')!;
+const learnName = document.querySelector<HTMLInputElement>('#learn-name')!;
+const learnStart = document.querySelector<HTMLButtonElement>('#learn-start')!;
+const learnSave = document.querySelector<HTMLButtonElement>('#learn-save')!;
 const debugPanel = document.querySelector<HTMLElement>('#debug-panel')!;
 const debugRefresh = document.querySelector<HTMLButtonElement>('#debug-refresh')!;
 const debugUpdated = document.querySelector<HTMLParagraphElement>('#debug-updated')!;
@@ -54,7 +61,8 @@ const debugIndicators = document.querySelector<HTMLElement>('#debug-indicators')
 let items: LiveTestCatalogItem[] = [];
 let current: RoverState | null = null;
 let currentQueue: RoverQueueState | null = null;
-let mode: 'manual' | 'queue' | 'debug' = 'manual';
+let mode: 'manual' | 'queue' | 'learn' | 'debug' = 'manual';
+let learningDraft: BrowserProviderLearningDraft | null = null;
 let lastDebugFingerprint = '';
 let debugRequestInFlight = false;
 let lastDebugSnapshot: DebugSnapshot | null = null;
@@ -96,6 +104,37 @@ queueMode.addEventListener('click', async () => {
   }
 });
 debugMode.addEventListener('click', () => void setMode('debug'));
+learnMode.addEventListener('click', () => void setMode('learn'));
+learnStart.addEventListener('click', async () => {
+  learningDraft = null;
+  learnCapabilities.replaceChildren();
+  learnName.hidden = true;
+  learnSave.hidden = true;
+  learnStart.textContent = 'Stop learning';
+  learnStatus.textContent = 'Learning is active. Send one message in the chat, then wait for the response.';
+  const response = await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_START' });
+  if (!response?.ok) {
+    learnStatus.textContent = response?.error ?? 'Could not start learning.';
+    learnStart.textContent = 'Start learning';
+  }
+});
+learnSave.addEventListener('click', async () => {
+  if (!learningDraft) return;
+  const name = learnName.value.trim();
+  if (!name) {
+    learnStatus.textContent = 'Enter a provider name first.';
+    return;
+  }
+  const profile = { ...learningDraft.profile, id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), name };
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_SAVE', profile, origin: origin.value });
+    if (!response?.ok) throw new Error(response?.error ?? 'Could not save provider.');
+    learnStatus.textContent = `Saved ${name} to MCPLab.`;
+    learnSave.hidden = true;
+  } catch (error) {
+    learnStatus.textContent = error instanceof Error ? error.message : 'Could not save provider.';
+  }
+});
 debugRefresh.addEventListener('click', () => void refreshDebug(true));
 queueAdd.addEventListener('click', async () => {
   const item = items.find((candidate) => candidate.id === queueEvaluation.value);
@@ -142,10 +181,10 @@ function selectedItem(): LiveTestCatalogItem | undefined {
   return items.find((item) => item.id === testCase.value);
 }
 
-async function setMode(next: 'manual' | 'queue' | 'debug'): Promise<void> {
+async function setMode(next: 'manual' | 'queue' | 'learn' | 'debug'): Promise<void> {
   if (next === mode) return;
   if (mode === 'debug') void chrome.runtime.sendMessage({ type: 'ROVER_DEBUG_SUBSCRIBE', enabled: false });
-  if (next === 'queue') {
+  if (next === 'queue' || next === 'learn') {
     if (current) {
       await chrome.runtime.sendMessage({ type: 'ROVER_CANCEL' });
       render(null);
@@ -161,15 +200,18 @@ async function setMode(next: 'manual' | 'queue' | 'debug'): Promise<void> {
   mode = next;
   manualMode.classList.toggle('active', mode === 'manual');
   queueMode.classList.toggle('active', mode === 'queue');
+  learnMode.classList.toggle('active', mode === 'learn');
   debugMode.classList.toggle('active', mode === 'debug');
   manualMode.setAttribute('aria-selected', String(mode === 'manual'));
   queueMode.setAttribute('aria-selected', String(mode === 'queue'));
+  learnMode.setAttribute('aria-selected', String(mode === 'learn'));
   debugMode.setAttribute('aria-selected', String(mode === 'debug'));
   const visibility = modeVisibility(mode, Boolean(current));
   catalog.hidden = !visibility.catalog;
   session.hidden = !visibility.session;
   queuePanel.hidden = !visibility.queue;
   debugPanel.hidden = !visibility.debug;
+  learnPanel.hidden = mode !== 'learn';
   statusRow.hidden = mode !== 'manual';
   responseTray.hidden = mode !== 'manual';
   if (mode === 'queue') renderQueue(currentQueue);
@@ -469,6 +511,21 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 chrome.runtime.onMessage.addListener((message: { type?: string }) => {
   if (message.type === 'ROVER_DEBUG_CHANGED' && mode === 'debug') void refreshDebug(false);
+  if (message.type === 'ROVER_LEARN_RESULT') {
+    const event = message as { draft?: BrowserProviderLearningDraft };
+    if (!event.draft) return;
+    learningDraft = event.draft;
+    learnStart.textContent = 'Start learning again';
+    learnStatus.textContent = 'Sample captured. Review the capabilities, name the provider, and save it.';
+    learnName.hidden = false;
+    learnSave.hidden = false;
+    learnCapabilities.replaceChildren(...event.draft.capabilities.map((capability) => {
+      const item = document.createElement('span');
+      item.className = 'debug-indicator';
+      item.textContent = `${capability.label}: ${capability.confidence}`;
+      return item;
+    }));
+  }
 });
 
 void chrome.runtime.sendMessage({ type: 'ROVER_GET_STATE' }).then((state: RoverState | null) => {
