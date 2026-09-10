@@ -1,4 +1,4 @@
-import type { BrowserProviderLearningDraft, DebugElementCheck, DebugSnapshot, RoverState } from '../contracts';
+import type { BrowserProviderDiscoveryDraft, DebugElementCheck, DebugSnapshot, RoverState } from '../contracts';
 import type { LiveTestCatalogItem } from '../mcplab/types';
 import type { RoverQueueState } from '../queue/state';
 import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility } from './view-model';
@@ -62,8 +62,9 @@ let items: LiveTestCatalogItem[] = [];
 let current: RoverState | null = null;
 let currentQueue: RoverQueueState | null = null;
 let mode: 'manual' | 'queue' | 'learn' | 'debug' = 'manual';
-let learningDraft: BrowserProviderLearningDraft | null = null;
-const LEARNING_DRAFT_KEY = 'rover.learning-draft';
+let discoveryDraft: BrowserProviderDiscoveryDraft | null = null;
+const DISCOVERY_DRAFT_KEY = 'rover.provider-discovery-draft';
+const LEGACY_LEARNING_DRAFT_KEY = 'rover.learning-draft';
 let lastDebugFingerprint = '';
 let debugRequestInFlight = false;
 let lastDebugSnapshot: DebugSnapshot | null = null;
@@ -117,7 +118,7 @@ learnStart.addEventListener('click', async () => {
     learnStatus.textContent = 'Learning stopped. Start again when you are ready.';
     return;
   }
-  learningDraft = null;
+  discoveryDraft = null;
   learnCapabilities.replaceChildren();
   learnName.hidden = true;
   learnSave.hidden = true;
@@ -130,13 +131,13 @@ learnStart.addEventListener('click', async () => {
   }
 });
 learnSave.addEventListener('click', async () => {
-  if (!learningDraft) return;
+  if (!discoveryDraft) return;
   const name = learnName.value.trim();
   if (!name) {
     learnStatus.textContent = 'Enter a provider name first.';
     return;
   }
-  const profile = { ...learningDraft.profile, id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), name };
+  const profile = { ...discoveryDraft.profile, id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), name };
   try {
     const agentId = `${profile.id}-browser`;
     const providerOrigin = profile.match.origins[0];
@@ -150,8 +151,8 @@ learnSave.addEventListener('click', async () => {
     if (!response?.ok) throw new Error(response?.error ?? 'Could not save provider.');
     learnStatus.textContent = `Saved ${name} to MCPLab.`;
     learnSave.hidden = true;
-    learningDraft = null;
-    await chrome.storage.local.remove(LEARNING_DRAFT_KEY);
+    discoveryDraft = null;
+    await chrome.storage.local.remove([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]);
   } catch (error) {
     learnStatus.textContent = error instanceof Error ? error.message : 'Could not save provider.';
   }
@@ -544,10 +545,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
 chrome.runtime.onMessage.addListener((message: { type?: string }) => {
   if (message.type === 'ROVER_DEBUG_CHANGED' && mode === 'debug') void refreshDebug(false);
   if (message.type === 'ROVER_LEARN_RESULT') {
-    const event = message as { draft?: BrowserProviderLearningDraft };
+    const event = message as { draft?: BrowserProviderDiscoveryDraft };
     if (!event.draft) return;
-    learningDraft = event.draft;
-    void chrome.storage.local.set({ [LEARNING_DRAFT_KEY]: event.draft });
+    discoveryDraft = event.draft;
+    void chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: event.draft });
     learnStart.textContent = 'Start learning again';
     learnStatus.textContent = 'Sample captured. Review the capabilities, name the provider, and save it.';
     learnName.hidden = false;
@@ -571,10 +572,10 @@ void chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_GET' }).then((queue: RoverQ
   if (queue) void setMode('queue');
   else queueMode.click();
 });
-void chrome.storage.local.get(LEARNING_DRAFT_KEY).then((stored) => {
-  const draft = stored[LEARNING_DRAFT_KEY] as BrowserProviderLearningDraft | undefined;
+void chrome.storage.local.get([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]).then((stored) => {
+  const draft = (stored[DISCOVERY_DRAFT_KEY] ?? stored[LEGACY_LEARNING_DRAFT_KEY]) as BrowserProviderDiscoveryDraft | undefined;
   if (!draft) return;
-  learningDraft = draft;
+  discoveryDraft = draft;
   learnName.value = draft.profile.name;
   learnName.hidden = false;
   learnSave.hidden = false;

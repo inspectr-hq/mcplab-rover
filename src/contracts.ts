@@ -2,7 +2,7 @@ import type { CheckCounts, RunOutcome } from './mcplab/types';
 import type { RoverQueueState } from './queue/state';
 
 export type ProviderId = string;
-export interface BrowserProviderLearningDraft {
+export interface BrowserProviderDiscoveryDraft {
   profile: import('./mcplab/types').BrowserProviderProfile;
   capabilities: Array<{ id: string; label: string; confidence: 'high' | 'medium' | 'low'; detail: string }>;
 }
@@ -79,7 +79,7 @@ export type ExtensionMessage =
   | { type: 'ROVER_LEARN_START' }
   | { type: 'ROVER_LEARN_STOP' }
   | { type: 'ROVER_LEARN_SAVE'; profile: import('./mcplab/types').BrowserProviderProfile; agent?: { id: string; name: string; url: string }; origin?: string }
-  | { type: 'ROVER_LEARN_RESULT'; draft: BrowserProviderLearningDraft }
+  | { type: 'ROVER_LEARN_RESULT'; draft: BrowserProviderDiscoveryDraft }
   | { type: 'ROVER_ASK'; requestId: string; sessionId: string; prompt: string; queueId?: string; queueItemId?: string }
   | {
       type: 'ROVER_RESULT';

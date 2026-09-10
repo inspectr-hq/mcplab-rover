@@ -7,7 +7,7 @@ import { startProviderDiscovery } from './providers/provider-discovery';
 const runtime = globalThis as typeof globalThis & { __mcplabRoverInstalled?: boolean };
 let debugObserver: MutationObserver | null = null;
 let debugNotifyTimer: number | undefined;
-let stopLearning: (() => void) | null = null;
+let stopProviderDiscovery: (() => void) | null = null;
 
 function stopDebugObserver(): void {
   debugObserver?.disconnect();
@@ -107,16 +107,16 @@ if (runtime.__mcplabRoverInstalled) {
       return true;
     }
     if (message.type === 'ROVER_LEARN_START') {
-      stopLearning?.();
-      stopLearning = startProviderDiscovery((draft) => {
+      stopProviderDiscovery?.();
+      stopProviderDiscovery = startProviderDiscovery((draft) => {
         void chrome.runtime.sendMessage({ type: 'ROVER_LEARN_RESULT', draft });
       });
       sendResponse({ ok: true });
       return true;
     }
     if (message.type === 'ROVER_LEARN_STOP') {
-      stopLearning?.();
-      stopLearning = null;
+      stopProviderDiscovery?.();
+      stopProviderDiscovery = null;
       sendResponse({ ok: true });
       return true;
     }

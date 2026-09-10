@@ -1,4 +1,4 @@
-import type { BrowserProviderLearningDraft } from '../contracts';
+import type { BrowserProviderDiscoveryDraft } from '../contracts';
 import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
 import { selectAssistantCandidate, type ChatCandidateDescriptor } from './candidate-descriptor';
 
@@ -85,7 +85,7 @@ function confidence(element: Element): 'high' | 'medium' | 'low' {
       : 'low';
 }
 
-export function startProviderDiscovery(onDraft: (draft: BrowserProviderLearningDraft) => void): () => void {
+export function startProviderDiscovery(onDraft: (draft: BrowserProviderDiscoveryDraft) => void): () => void {
   let composer: HTMLElement | null = null;
   let submit: HTMLElement | null = null;
   let assistant: HTMLElement | null = null;
