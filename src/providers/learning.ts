@@ -77,15 +77,16 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
   let submit: HTMLElement | null = null;
   let assistant: HTMLElement | null = null;
   let submittedAt = 0;
+  let submissionArmed = false;
   let stopped = false;
   const startedAt = new Date().toISOString();
   const origin = location.origin;
   const baselineTexts = new Set(allElements('*').map((element) => element.innerText?.trim()).filter((text): text is string => Boolean(text)));
   const scan = () => {
-    if (stopped || assistant || !submittedAt) return;
+    if (stopped || assistant || (!submittedAt && !submissionArmed)) return;
     const candidates = allElements('*')
       .filter((element) => !element.isContentEditable && element !== composer && !composer?.contains(element))
-      .filter((element) => element.children.length === 0 || element.innerText.length > 20)
+      .filter((element) => element.children.length === 0 || (element.innerText?.length ?? 0) > 20)
       .map((element) => ({ element, descriptor: descriptor(element, baselineTexts) }));
     const selected = selectAssistantCandidate(candidates.map((candidate) => candidate.descriptor));
     assistant = selected ? candidates.find((candidate) => candidate.descriptor === selected)?.element ?? null : null;
@@ -96,6 +97,13 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
   const onFocus = (event: FocusEvent) => {
     const target = event.target;
     if (target instanceof HTMLElement && (target.isContentEditable || target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement)) composer = target;
+  };
+  const onInput = (event: Event) => {
+    const target = event.target;
+    if (target instanceof HTMLElement && (target.isContentEditable || target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement)) {
+      composer = target;
+      submissionArmed = true;
+    }
   };
   const onClick = (event: MouseEvent) => {
     const target = event.target;
@@ -152,6 +160,7 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
     ] });
   };
   document.addEventListener('focusin', onFocus, true);
+  document.addEventListener('input', onInput, true);
   document.addEventListener('click', onClick, true);
   document.addEventListener('keydown', onKey, true);
   document.addEventListener('submit', onSubmit, true);
@@ -161,6 +170,7 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
     observer.disconnect();
     window.clearInterval(poller);
     document.removeEventListener('focusin', onFocus, true);
+    document.removeEventListener('input', onInput, true);
     document.removeEventListener('click', onClick, true);
     document.removeEventListener('keydown', onKey, true);
     document.removeEventListener('submit', onSubmit, true);
