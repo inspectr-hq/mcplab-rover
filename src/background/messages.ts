@@ -12,7 +12,7 @@ import {
   stopQueue,
   type RoverQueueState
 } from '../queue/state';
-import { activeTab, detectProvider } from './browser';
+import { activeTab, detectProvider, expectedProviderForUrl } from './browser';
 import { createDebugSnapshot } from './debug';
 import { errorMessage } from './errors';
 import { complete, fail } from './live-test';
@@ -63,7 +63,7 @@ export function installMessageHandler(): void {
               elements: response?.elements ?? []
             };
           } catch (error) {
-            page = { matched: false, elements: [], error: errorMessage(error) };
+            page = { matched: Boolean(expectedProviderForUrl(tab.url)), provider: expectedProviderForUrl(tab.url), elements: [], error: errorMessage(error) };
           }
         } else {
           page = { matched: false, elements: [], error: 'No active browser tab.' };

@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { createDebugSnapshot } from '../src/background/debug';
+import { expectedProviderForUrl } from '../src/background/browser';
 
 describe('debug snapshot', () => {
+  it('recognizes supported page URLs independently of content-script availability', () => {
+    expect(expectedProviderForUrl('https://claude.ai/new')).toBe('claude');
+    expect(expectedProviderForUrl('https://claude.ai/chat/example')).toBe('claude');
+    expect(expectedProviderForUrl('https://tm-pipeline-aa01.trendminer.net/trendhub')).toBe('trendminer');
+    expect(expectedProviderForUrl('https://example.com')).toBeUndefined();
+  });
+
   it('combines endpoint, page, element, and Rover state indicators', () => {
     const snapshot = createDebugSnapshot({
       checkedAt: '2026-09-10T09:30:00.000Z',
