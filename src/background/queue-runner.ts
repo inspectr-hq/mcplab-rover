@@ -36,6 +36,15 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
   if (!item || typeof queue.tabId !== 'number') return;
   try {
     const client = new McplabClient(queue.origin);
+    if (queue.provider !== 'claude' && queue.provider !== 'trendminer') {
+      const profile = (await client.listBrowserProviders()).find((candidate) => candidate.id === queue.provider);
+      if (!profile) throw new Error(`Learned browser provider '${queue.provider}' is no longer available in MCPLab.`);
+      const tab = await chrome.tabs.get(queue.tabId);
+      const tabOrigin = tab.url ? new URL(tab.url).origin : undefined;
+      if (!tabOrigin || !profile.match.origins.includes(tabOrigin)) {
+        throw new Error(`${profile.name} is not matched by the active browser tab.`);
+      }
+    }
     const session = item.sessionId ? await client.get(item.sessionId) : await client.start(item.testCaseId, queue.provider, queue.evaluationRunId);
     const prompt = item.prompt || session.prompt;
     const requestId = crypto.randomUUID();
