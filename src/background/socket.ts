@@ -73,11 +73,22 @@ export async function connectToMcplab(): Promise<void> {
       }
       if (message.type !== 'assignment' || !message.jobId || !message.agent?.provider || !message.scenarios?.length) return;
       void (async () => {
+        const reportAssignmentError = (reason: string) => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'progress', jobId: message.jobId, completed: 0, total: message.scenarios?.length ?? 0, error: reason, message: `Rover could not start the assignment: ${reason}` }));
+          }
+        };
         const tab = await activeTab();
-        if (typeof tab?.id !== 'number') return;
+        if (typeof tab?.id !== 'number') {
+          reportAssignmentError('No active browser tab is available.');
+          return;
+        }
         if (message.agent?.providerRevision && loadedProviders.get(message.agent.provider ?? '')?.learned.updatedAt !== message.agent.providerRevision) {
           await loadProfilesIntoTab(tab.id, origin);
-          if (loadedProviders.get(message.agent.provider ?? '')?.learned.updatedAt !== message.agent.providerRevision) return;
+          if (loadedProviders.get(message.agent.provider ?? '')?.learned.updatedAt !== message.agent.providerRevision) {
+            reportAssignmentError(`Provider '${message.agent.provider}' is unavailable or out of date.`);
+            return;
+          }
         }
         const queue = createQueue(origin, message.agent!.provider!, message.newConversationBetweenScenarios !== false, new Date().toISOString());
         const assigned = { ...queue, queueId: message.jobId!, evaluationRunId: message.evaluationRunId, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };

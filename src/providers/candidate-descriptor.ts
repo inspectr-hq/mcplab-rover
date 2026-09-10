@@ -3,6 +3,7 @@ export interface ChatCandidateDescriptor {
   role?: string;
   testId?: string;
   dataTest?: string;
+  authorRole?: string;
   ariaLabel?: string;
   className?: string;
   text: string;
@@ -13,7 +14,7 @@ export interface ChatCandidateDescriptor {
 
 export function scoreAssistantCandidate(candidate: ChatCandidateDescriptor): number {
   if (!candidate.visible || !candidate.text.trim()) return Number.NEGATIVE_INFINITY;
-  const identity = `${candidate.testId ?? ''} ${candidate.dataTest ?? ''} ${candidate.ariaLabel ?? ''} ${candidate.className ?? ''}`.toLowerCase();
+  const identity = `${candidate.testId ?? ''} ${candidate.dataTest ?? ''} ${candidate.authorRole ?? ''} ${candidate.ariaLabel ?? ''} ${candidate.className ?? ''}`.toLowerCase();
   const text = candidate.text.trim();
   if (/user|question|prompt|loading|suggestion|feedback|copybutton|actionbar/.test(identity)) return Number.NEGATIVE_INFINITY;
   if (/^(thinking|generating|loading|searching|working|processing|just a moment|one moment)[.\s…]*$/i.test(text)) return Number.NEGATIVE_INFINITY;
@@ -36,7 +37,7 @@ export function selectAssistantCandidate<T extends ChatCandidateDescriptor>(cand
 }
 
 function hasAssistantMarker(candidate: ChatCandidateDescriptor): boolean {
-  const identity = `${candidate.testId ?? ''} ${candidate.dataTest ?? ''} ${candidate.ariaLabel ?? ''} ${candidate.className ?? ''}`.toLowerCase();
+  const identity = `${candidate.testId ?? ''} ${candidate.dataTest ?? ''} ${candidate.authorRole ?? ''} ${candidate.ariaLabel ?? ''} ${candidate.className ?? ''}`.toLowerCase();
   return /assistant|copilot-message|markdown-reply|response|reply|message-content/.test(identity)
     || candidate.role === 'article';
 }

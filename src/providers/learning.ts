@@ -17,7 +17,7 @@ function visible(element: Element): boolean {
 
 function selector(element: Element): string {
   const html = element as HTMLElement;
-  for (const attribute of ['data-testid', 'data-test', 'aria-label', 'name', 'id']) {
+  for (const attribute of ['data-message-author-role', 'data-testid', 'data-test', 'aria-label', 'name', 'id']) {
     const value = html.getAttribute(attribute);
     if (value?.trim()) return `[${attribute}="${CSS.escape(value)}"]`;
   }
@@ -67,6 +67,7 @@ function descriptor(element: HTMLElement, baselineTexts: Set<string>): ChatCandi
     role: element.getAttribute('role') ?? undefined,
     testId: element.getAttribute('data-testid') ?? undefined,
     dataTest: element.getAttribute('data-test') ?? undefined,
+    authorRole: element.getAttribute('data-message-author-role') ?? undefined,
     ariaLabel: element.getAttribute('aria-label') ?? undefined,
     className: typeof element.className === 'string' ? element.className : undefined,
     text: element.innerText?.trim() ?? '',
@@ -77,7 +78,7 @@ function descriptor(element: HTMLElement, baselineTexts: Set<string>): ChatCandi
 }
 
 function confidence(element: Element): 'high' | 'medium' | 'low' {
-  return element.hasAttribute('data-testid') || element.hasAttribute('data-test') || element.hasAttribute('aria-label')
+  return element.hasAttribute('data-message-author-role') || element.hasAttribute('data-testid') || element.hasAttribute('data-test') || element.hasAttribute('aria-label')
     ? 'high'
     : element.id || element.getAttribute('role') === 'article'
       ? 'medium'
