@@ -8,7 +8,7 @@ export interface DebugSnapshotInput {
   endpointChecked?: boolean;
   endpointError?: string;
   tab?: { id?: number; url?: string };
-  page?: { matched: boolean; provider?: DebugSnapshot['page']['provider']; elements: DebugElementCheck[]; error?: string };
+  page?: { matched: boolean; provider?: DebugSnapshot['page']['provider']; profile?: DebugSnapshot['page']['profile']; elements: DebugElementCheck[]; error?: string };
   manual: RoverState | null;
   queue: RoverQueueState | null;
 }
@@ -25,6 +25,7 @@ export function createDebugSnapshot(input: DebugSnapshotInput): DebugSnapshot {
       url: input.tab?.url,
       matched: input.page?.matched ?? false,
       provider: input.page?.provider,
+      profile: input.page?.profile,
       error: input.page?.error
     },
     elements: input.page?.elements ?? [],

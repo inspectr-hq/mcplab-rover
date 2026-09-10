@@ -45,7 +45,7 @@ export interface DebugElementCheck {
 export interface DebugSnapshot {
   checkedAt: string;
   endpoint: { origin: string; connected: boolean; checked: boolean; error?: string };
-  page: { tabId?: number; url?: string; matched: boolean; provider?: ProviderId; error?: string };
+  page: { tabId?: number; url?: string; matched: boolean; provider?: ProviderId; profile?: { name: string; source: string; revision: string; capabilities: string[] }; error?: string };
   elements: DebugElementCheck[];
   rover: { manualStatus?: RoverStatus; queueStatus?: string; activeQueueItem?: string };
 }

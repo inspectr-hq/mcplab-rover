@@ -14,6 +14,10 @@ export function currentSocket(): WebSocket | null {
   return roverSocket;
 }
 
+export function loadedProvider(providerId?: string): import('../mcplab/types').BrowserProviderProfile | undefined {
+  return providerId ? loadedProviders.get(providerId) : undefined;
+}
+
 async function loadProfilesIntoTab(tabId: number, origin: string): Promise<void> {
   let profiles: import('../mcplab/types').BrowserProviderProfile[];
   try {

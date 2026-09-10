@@ -356,6 +356,13 @@ function renderDebug(snapshot: DebugSnapshot): void {
     },
     { label: 'Active tab', state: snapshot.page.tabId === undefined ? 'unknown' : 'pass', detail: snapshot.page.tabId === undefined ? 'Unavailable' : `Tab ${snapshot.page.tabId}` }
   ]);
+  if (snapshot.page.profile) {
+    appendDebugGroup('Loaded provider profile', [
+      { label: snapshot.page.profile.name, state: 'pass', detail: `Source: ${snapshot.page.profile.source}` },
+      { label: 'Revision', state: 'pass', detail: snapshot.page.profile.revision },
+      { label: 'Capabilities', state: 'pass', detail: snapshot.page.profile.capabilities.join(', ') }
+    ]);
+  }
   appendDebugGroup('Expected elements', snapshot.elements.length
     ? snapshot.elements.map((element: DebugElementCheck) => ({
       label: element.label,

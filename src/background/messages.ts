@@ -1,4 +1,4 @@
-import type { DebugElementCheck, ExtensionMessage, ProviderId, RoverStage, RoverState } from '../contracts';
+import type { DebugElementCheck, DebugSnapshot, ExtensionMessage, ProviderId, RoverStage, RoverState } from '../contracts';
 import { McplabClient } from '../mcplab/api-client';
 import { acceptsContentResult } from '../runtime/live-state';
 import {
@@ -17,7 +17,7 @@ import { createDebugSnapshot } from './debug';
 import { errorMessage } from './errors';
 import { complete, fail } from './live-test';
 import { cancelActiveQueueItem, pauseQueue, runQueueItem, startQueueConversation } from './queue-runner';
-import { currentSocket } from './socket';
+import { currentSocket, loadedProvider } from './socket';
 import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, saveState, STATE_KEY } from './store';
 
 function respond<T>(sendResponse: (response: T | { ok: false; error: string }) => void, work: () => Promise<T>): true {
@@ -90,7 +90,7 @@ export function installMessageHandler(): void {
           }
         }
 
-        let page: { matched: boolean; provider?: ProviderId; elements: DebugElementCheck[]; error?: string } | undefined;
+        let page: { matched: boolean; provider?: ProviderId; profile?: DebugSnapshot['page']['profile']; elements: DebugElementCheck[]; error?: string } | undefined;
         if (typeof tab?.id === 'number') {
           try {
             await detectProvider(tab.id);
@@ -98,6 +98,20 @@ export function installMessageHandler(): void {
             page = {
               matched: response?.matched === true,
               provider: response?.provider,
+              profile: (() => {
+                const profile = loadedProvider(response?.provider);
+                return profile ? {
+                  name: profile.name,
+                  source: profile.learned.sourceOrigin,
+                  revision: profile.learned.updatedAt,
+                  capabilities: [
+                    'composer',
+                    'submit',
+                    'assistant response',
+                    ...(profile.newConversation ? ['new conversation'] : [])
+                  ]
+                } : undefined;
+              })(),
               elements: response?.elements ?? []
             };
           } catch (error) {
