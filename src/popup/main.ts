@@ -55,7 +55,6 @@ let items: LiveTestCatalogItem[] = [];
 let current: RoverState | null = null;
 let currentQueue: RoverQueueState | null = null;
 let mode: 'manual' | 'queue' | 'debug' = 'manual';
-let debugTimer: number | undefined;
 let lastDebugFingerprint = '';
 let debugRequestInFlight = false;
 let lastDebugSnapshot: DebugSnapshot | null = null;
@@ -145,6 +144,7 @@ function selectedItem(): LiveTestCatalogItem | undefined {
 
 async function setMode(next: 'manual' | 'queue' | 'debug'): Promise<void> {
   if (next === mode) return;
+  if (mode === 'debug') void chrome.runtime.sendMessage({ type: 'ROVER_DEBUG_SUBSCRIBE', enabled: false });
   if (next === 'queue') {
     if (current) {
       await chrome.runtime.sendMessage({ type: 'ROVER_CANCEL' });
@@ -159,10 +159,6 @@ async function setMode(next: 'manual' | 'queue' | 'debug'): Promise<void> {
     renderQueue(null);
   }
   mode = next;
-  if (debugTimer !== undefined) {
-    window.clearInterval(debugTimer);
-    debugTimer = undefined;
-  }
   manualMode.classList.toggle('active', mode === 'manual');
   queueMode.classList.toggle('active', mode === 'queue');
   debugMode.classList.toggle('active', mode === 'debug');
@@ -179,7 +175,7 @@ async function setMode(next: 'manual' | 'queue' | 'debug'): Promise<void> {
   if (mode === 'queue') renderQueue(currentQueue);
   if (mode === 'debug') {
     await refreshDebug(true);
-    debugTimer = window.setInterval(() => void refreshDebug(false), 5000);
+    await chrome.runtime.sendMessage({ type: 'ROVER_DEBUG_SUBSCRIBE', enabled: true });
   }
 }
 
@@ -469,6 +465,10 @@ reset.addEventListener('click', async () => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'session' && changes['rover.run']) render(changes['rover.run'].newValue as RoverState | null);
   if (area === 'session' && changes['rover.queue']) renderQueue(changes['rover.queue'].newValue as RoverQueueState | null);
+});
+
+chrome.runtime.onMessage.addListener((message: { type?: string }) => {
+  if (message.type === 'ROVER_DEBUG_CHANGED' && mode === 'debug') void refreshDebug(false);
 });
 
 void chrome.runtime.sendMessage({ type: 'ROVER_GET_STATE' }).then((state: RoverState | null) => {

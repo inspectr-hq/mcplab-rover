@@ -51,6 +51,8 @@ export type ExtensionMessage =
   | { type: 'ROVER_SHOW_PANEL' }
   | { type: 'ROVER_GET_CATALOG'; origin?: string }
   | { type: 'ROVER_GET_DEBUG'; origin?: string; checkEndpoint?: boolean }
+  | { type: 'ROVER_DEBUG_SUBSCRIBE'; enabled: boolean }
+  | { type: 'ROVER_DEBUG_CHANGED' }
   | { type: 'ROVER_GET_STATE' }
   | { type: 'ROVER_QUEUE_GET' }
   | { type: 'ROVER_QUEUE_CLEAR' }

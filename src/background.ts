@@ -1,12 +1,16 @@
-import { installMessageHandler } from './background/messages';
+import { installMessageHandler, syncDebugSubscription } from './background/messages';
 import { connectToMcplab, updateRoverRegistration } from './background/socket';
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   void updateRoverRegistration(tabId);
+  void syncDebugSubscription(tabId);
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.status === 'complete') void updateRoverRegistration(tabId);
+  if (changeInfo.status === 'complete') {
+    void updateRoverRegistration(tabId);
+    void syncDebugSubscription(tabId);
+  }
 });
 
 void connectToMcplab().catch(() => undefined);

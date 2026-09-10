@@ -3,6 +3,33 @@ import { findAdapter, findPageAdapter } from './providers';
 import { ask } from './runtime/ask';
 
 const runtime = globalThis as typeof globalThis & { __mcplabRoverInstalled?: boolean };
+let debugObserver: MutationObserver | null = null;
+let debugNotifyTimer: number | undefined;
+
+function stopDebugObserver(): void {
+  debugObserver?.disconnect();
+  debugObserver = null;
+  if (debugNotifyTimer !== undefined) window.clearTimeout(debugNotifyTimer);
+  debugNotifyTimer = undefined;
+}
+
+function startDebugObserver(): void {
+  stopDebugObserver();
+  if (!document.body) return;
+  debugObserver = new MutationObserver(() => {
+    if (debugNotifyTimer !== undefined) window.clearTimeout(debugNotifyTimer);
+    debugNotifyTimer = window.setTimeout(() => {
+      debugNotifyTimer = undefined;
+      void chrome.runtime.sendMessage({ type: 'ROVER_DEBUG_CHANGED' });
+    }, 250);
+  });
+  debugObserver.observe(document.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ['aria-label', 'class', 'data-is-streaming', 'disabled']
+  });
+}
 
 function togglePanel(expand = false): void {
   const existing = document.querySelector<HTMLElement>('[data-mcplab-rover-panel]');
@@ -91,6 +118,12 @@ if (runtime.__mcplabRoverInstalled) {
         matched: Boolean(pageAdapter),
         elements: pageAdapter?.getDebugChecks() ?? []
       });
+      return true;
+    }
+    if (message.type === 'ROVER_DEBUG_SUBSCRIBE') {
+      if (message.enabled) startDebugObserver();
+      else stopDebugObserver();
+      sendResponse({ ok: true });
       return true;
     }
     if (message.type === 'ROVER_NEW_CHAT') {

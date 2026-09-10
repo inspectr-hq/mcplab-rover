@@ -25,6 +25,18 @@ function respond<T>(sendResponse: (response: T | { ok: false; error: string }) =
   return true;
 }
 
+let debugSubscribed = false;
+
+export async function syncDebugSubscription(tabId: number): Promise<void> {
+  if (!debugSubscribed) return;
+  try {
+    await detectProvider(tabId);
+    await chrome.tabs.sendMessage(tabId, { type: 'ROVER_DEBUG_SUBSCRIBE', enabled: true });
+  } catch {
+    // The active tab may be a restricted page.
+  }
+}
+
 export function installMessageHandler(): void {
   chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
     if (message.type === 'ROVER_GET_STATE') {
@@ -82,6 +94,18 @@ export function installMessageHandler(): void {
           manual,
           queue
         });
+      });
+    }
+
+    if (message.type === 'ROVER_DEBUG_SUBSCRIBE') {
+      return respond(sendResponse, async () => {
+        debugSubscribed = message.enabled;
+        const tab = await activeTab();
+        if (typeof tab?.id === 'number') {
+          await syncDebugSubscription(tab.id);
+          if (!message.enabled) await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_DEBUG_SUBSCRIBE', enabled: false }).catch(() => undefined);
+        }
+        return { ok: true };
       });
     }
 
