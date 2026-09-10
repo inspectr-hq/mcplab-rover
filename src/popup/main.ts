@@ -139,10 +139,12 @@ learnSave.addEventListener('click', async () => {
   const profile = { ...learningDraft.profile, id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), name };
   try {
     const agentId = `${profile.id}-browser`;
+    const providerOrigin = profile.match.origins[0];
+    if (!providerOrigin) throw new Error('The learned provider has no page origin.');
     const response = await chrome.runtime.sendMessage({
       type: 'ROVER_LEARN_SAVE',
       profile,
-      agent: { id: agentId, name: `${name} browser`, url: origin.value },
+      agent: { id: agentId, name: `${name} browser`, url: providerOrigin },
       origin: origin.value
     });
     if (!response?.ok) throw new Error(response?.error ?? 'Could not save provider.');
