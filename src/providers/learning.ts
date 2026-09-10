@@ -20,7 +20,30 @@ function selector(element: Element): string {
 }
 
 function locator(element: Element): ShadowLocator {
-  return { segments: [selector(element)] };
+  const segments = [selector(element)];
+  let current: Node | null = element.parentNode;
+  while (current) {
+    if (current instanceof ShadowRoot) {
+      const host = current.host;
+      segments.unshift(selector(host));
+      current = host.parentNode;
+      continue;
+    }
+    current = current.parentNode;
+  }
+  return { segments };
+}
+
+function roots(root: Document | ShadowRoot): Array<Document | ShadowRoot> {
+  const result: Array<Document | ShadowRoot> = [root];
+  for (const host of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
+    if (host.shadowRoot) result.push(...roots(host.shadowRoot));
+  }
+  return result;
+}
+
+function allElements(selectorText: string): HTMLElement[] {
+  return roots(document).flatMap((root) => Array.from(root.querySelectorAll<HTMLElement>(selectorText)));
 }
 
 function confidence(element: Element): 'high' | 'medium' | 'low' {
@@ -36,7 +59,7 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
   const origin = location.origin;
   const observer = new MutationObserver(() => {
     if (stopped || assistant) return;
-    const candidates = Array.from(document.querySelectorAll<HTMLElement>('body *'))
+    const candidates = allElements('*')
       .filter((element) => visible(element) && element.innerText?.trim() && !element.isContentEditable && element !== composer && !composer?.contains(element))
       .filter((element) => element.children.length === 0 || element.innerText.length > 40);
     assistant = candidates.at(-1) ?? null;
@@ -84,7 +107,7 @@ export function startLearning(onDraft: (draft: BrowserProviderLearningDraft) => 
   document.addEventListener('focusin', onFocus, true);
   document.addEventListener('click', onClick, true);
   document.addEventListener('keydown', onKey, true);
-  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  for (const root of roots(document)) observer.observe(root, { childList: true, subtree: true, characterData: true });
   return () => {
     stopped = true;
     observer.disconnect();

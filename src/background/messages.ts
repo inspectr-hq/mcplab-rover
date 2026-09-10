@@ -50,7 +50,7 @@ export function installMessageHandler(): void {
     if (message.type === 'ROVER_LEARN_SAVE') {
       return respond(sendResponse, async () => {
         const endpoint = await resolveOrigin(message.origin);
-        const result = await new McplabClient(endpoint).saveLearnedBrowserProvider(message.profile);
+        const result = await new McplabClient(endpoint).saveLearnedBrowserProvider(message.profile, message.agent);
         return { ok: true, provider: result.provider, revision: result.revision };
       });
     }

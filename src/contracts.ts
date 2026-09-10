@@ -78,7 +78,7 @@ export type ExtensionMessage =
   | { type: 'ROVER_DEBUG' }
   | { type: 'ROVER_LEARN_START' }
   | { type: 'ROVER_LEARN_STOP' }
-  | { type: 'ROVER_LEARN_SAVE'; profile: import('./mcplab/types').BrowserProviderProfile; origin?: string }
+  | { type: 'ROVER_LEARN_SAVE'; profile: import('./mcplab/types').BrowserProviderProfile; agent?: { id: string; name: string; url: string }; origin?: string }
   | { type: 'ROVER_LEARN_RESULT'; draft: BrowserProviderLearningDraft }
   | { type: 'ROVER_ASK'; requestId: string; sessionId: string; prompt: string; queueId?: string; queueItemId?: string }
   | {

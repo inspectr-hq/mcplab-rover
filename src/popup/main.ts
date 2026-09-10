@@ -63,6 +63,7 @@ let current: RoverState | null = null;
 let currentQueue: RoverQueueState | null = null;
 let mode: 'manual' | 'queue' | 'learn' | 'debug' = 'manual';
 let learningDraft: BrowserProviderLearningDraft | null = null;
+const LEARNING_DRAFT_KEY = 'rover.learning-draft';
 let lastDebugFingerprint = '';
 let debugRequestInFlight = false;
 let lastDebugSnapshot: DebugSnapshot | null = null;
@@ -106,6 +107,12 @@ queueMode.addEventListener('click', async () => {
 debugMode.addEventListener('click', () => void setMode('debug'));
 learnMode.addEventListener('click', () => void setMode('learn'));
 learnStart.addEventListener('click', async () => {
+  if (learnStart.textContent === 'Stop learning') {
+    await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_STOP' });
+    learnStart.textContent = 'Start learning';
+    learnStatus.textContent = 'Learning stopped. Start again when you are ready.';
+    return;
+  }
   learningDraft = null;
   learnCapabilities.replaceChildren();
   learnName.hidden = true;
@@ -127,7 +134,13 @@ learnSave.addEventListener('click', async () => {
   }
   const profile = { ...learningDraft.profile, id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), name };
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_SAVE', profile, origin: origin.value });
+    const agentId = `${profile.id}-browser`;
+    const response = await chrome.runtime.sendMessage({
+      type: 'ROVER_LEARN_SAVE',
+      profile,
+      agent: { id: agentId, name: `${name} browser`, url: origin.value },
+      origin: origin.value
+    });
     if (!response?.ok) throw new Error(response?.error ?? 'Could not save provider.');
     learnStatus.textContent = `Saved ${name} to MCPLab.`;
     learnSave.hidden = true;
@@ -183,6 +196,10 @@ function selectedItem(): LiveTestCatalogItem | undefined {
 
 async function setMode(next: 'manual' | 'queue' | 'learn' | 'debug'): Promise<void> {
   if (next === mode) return;
+  if (mode === 'learn' && next !== 'learn') {
+    await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_STOP' });
+    learnStart.textContent = 'Start learning';
+  }
   if (mode === 'debug') void chrome.runtime.sendMessage({ type: 'ROVER_DEBUG_SUBSCRIBE', enabled: false });
   if (next === 'queue' || next === 'learn') {
     if (current) {
@@ -515,6 +532,7 @@ chrome.runtime.onMessage.addListener((message: { type?: string }) => {
     const event = message as { draft?: BrowserProviderLearningDraft };
     if (!event.draft) return;
     learningDraft = event.draft;
+    void chrome.storage.local.set({ [LEARNING_DRAFT_KEY]: event.draft });
     learnStart.textContent = 'Start learning again';
     learnStatus.textContent = 'Sample captured. Review the capabilities, name the provider, and save it.';
     learnName.hidden = false;
@@ -537,4 +555,19 @@ void chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_GET' }).then((queue: RoverQ
   renderQueue(queue);
   if (queue) void setMode('queue');
   else queueMode.click();
+});
+void chrome.storage.local.get(LEARNING_DRAFT_KEY).then((stored) => {
+  const draft = stored[LEARNING_DRAFT_KEY] as BrowserProviderLearningDraft | undefined;
+  if (!draft) return;
+  learningDraft = draft;
+  learnName.value = draft.profile.name;
+  learnName.hidden = false;
+  learnSave.hidden = false;
+  learnStatus.textContent = 'A saved learning draft is ready to review.';
+  learnCapabilities.replaceChildren(...draft.capabilities.map((capability) => {
+    const item = document.createElement('span');
+    item.className = 'debug-indicator';
+    item.textContent = `${capability.label}: ${capability.confidence}`;
+    return item;
+  }));
 });

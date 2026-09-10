@@ -43,10 +43,10 @@ export class McplabClient {
     return value.providers;
   }
 
-  saveLearnedBrowserProvider(profile: BrowserProviderProfile): Promise<{ provider: BrowserProviderProfile; revision: string }> {
+  saveLearnedBrowserProvider(profile: BrowserProviderProfile, agent?: { id: string; name: string; url: string }): Promise<{ provider: BrowserProviderProfile; revision: string }> {
     return this.request('/api/browser-providers/learned', {
       method: 'POST',
-      body: JSON.stringify({ profile })
+      body: JSON.stringify({ profile, ...(agent ? { agent } : {}) })
     });
   }
 
