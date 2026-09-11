@@ -61,3 +61,10 @@ export interface LiveTestCompletion {
   resultUrl: string;
   error?: string;
 }
+
+export interface McplabQueueSnapshot {
+  active?: { jobId: string } | null;
+  active_jobs?: Array<{ jobId: string }>;
+  admitting_jobs?: Array<{ jobId: string }>;
+  queued?: Array<{ jobId: string }>;
+}

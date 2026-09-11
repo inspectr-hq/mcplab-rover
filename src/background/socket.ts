@@ -5,11 +5,41 @@ import { activeTab, detectProvider } from './browser';
 import { cancelActiveQueueItem, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
 import { registrationPayload } from '../mcplab/rover-protocol';
 import { getQueue, resolveOrigin, saveQueue } from './store';
+import type { RoverQueueState } from '../queue/state';
 
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
 let roverReconnectAttempt = 0;
 const loadedProviders = new Map<string, import('../mcplab/types').BrowserProviderProfile>();
+
+async function reconcileQueueAfterRegistration(origin: string): Promise<void> {
+  const queue = await getQueue();
+  if (!queue || queue.status !== 'running') return;
+  try {
+    const snapshot = await new McplabClient(origin).getQueue();
+    const liveJobIds = [
+      snapshot.active?.jobId,
+      ...(snapshot.active_jobs ?? []).map((job) => job.jobId),
+      ...(snapshot.admitting_jobs ?? []).map((job) => job.jobId),
+      ...(snapshot.queued ?? []).map((job) => job.jobId)
+    ].filter((jobId): jobId is string => Boolean(jobId));
+    if (liveJobIds.includes(queue.queueId)) return;
+    const paused: RoverQueueState = {
+      ...queue,
+      status: 'paused',
+      error: { stage: 'mcplab', message: 'MCPLab restarted and cleared its queue. Restart this Rover queue.' },
+      items: queue.items.map((item) =>
+        item.queueItemId === queue.activeItemId && item.status === 'running'
+          ? { ...item, status: 'error' as const }
+          : item
+      ),
+      updatedAt: new Date().toISOString()
+    };
+    await saveQueue(paused);
+  } catch {
+    // Preserve local state if MCPLab is temporarily unreachable.
+  }
+}
 
 export function currentSocket(): WebSocket | null {
   return roverSocket;
@@ -55,7 +85,10 @@ export async function connectToMcplab(): Promise<void> {
   socket.onmessage = (event) => {
     try {
       const message = JSON.parse(String(event.data)) as { type?: string; jobId?: string; scenarioId?: string; evaluationRunId?: string; agent?: { provider?: ProviderId; providerRevision?: string }; provider?: import('../mcplab/types').BrowserProviderProfile; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
-      if (message.type === 'registered' && roverSocket === socket) registeredSocket = socket;
+      if (message.type === 'registered' && roverSocket === socket) {
+        registeredSocket = socket;
+        void reconcileQueueAfterRegistration(origin);
+      }
       if (message.type === 'provider_updated' && message.provider) {
         loadedProviders.set(message.provider.id, message.provider);
         void activeTab().then((tab) => typeof tab?.id === 'number'

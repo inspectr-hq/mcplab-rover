@@ -1,4 +1,4 @@
-import type { BrowserProviderProfile, LiveTestCatalogItem, LiveTestCompletion, LiveTestSessionView } from './types';
+import type { BrowserProviderProfile, LiveTestCatalogItem, LiveTestCompletion, LiveTestSessionView, McplabQueueSnapshot } from './types';
 
 export const DEFAULT_MCPLAB_ORIGIN = 'http://127.0.0.1:8787';
 
@@ -70,6 +70,10 @@ export class McplabClient {
 
   cancel(sessionId: string): Promise<LiveTestSessionView> {
     return this.request(`/api/live-tests/sessions/${encodeURIComponent(sessionId)}/cancel`, { method: 'POST' });
+  }
+
+  getQueue(): Promise<McplabQueueSnapshot> {
+    return this.request('/api/runs/queue');
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
