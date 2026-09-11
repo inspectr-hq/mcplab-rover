@@ -1,6 +1,6 @@
 import type { ProviderId } from '../contracts';
 import { McplabClient } from '../mcplab/api-client';
-import { createQueue, startQueue, stopQueue, stopScenario } from '../queue/state';
+import { archiveCompletedQueueItems, createQueue, startQueue, stopQueue, stopScenario } from '../queue/state';
 import { activeTab, detectProvider } from './browser';
 import { cancelActiveQueueItem, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
 import { registrationPayload } from '../mcplab/rover-protocol';
@@ -193,8 +193,10 @@ export async function connectToMcplab(): Promise<void> {
           reportAssignmentError('Assignment scenarios must have unique IDs.');
           return;
         }
+        const previous = await getQueue();
+        const history = previous ? archiveCompletedQueueItems(previous).recentHistory : undefined;
         const queue = createQueue(origin, message.agent!.provider!, message.newConversationBetweenScenarios !== false, new Date().toISOString());
-        const assigned = { ...queue, queueId: message.jobId!, evaluationRunId: message.evaluationRunId, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
+        const assigned = { ...queue, recentHistory: history, queueId: message.jobId!, evaluationRunId: message.evaluationRunId, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
         await saveQueue(assigned);
         for (const item of assigned.items) sendScenarioStatus(assigned, item);
         const started = startQueue(assigned, new Date().toISOString());

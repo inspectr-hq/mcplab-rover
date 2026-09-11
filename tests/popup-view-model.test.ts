@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility, splitQueueItems } from '../src/popup/view-model';
+import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility, projectQueueForProvider, splitQueueItems } from '../src/popup/view-model';
 
 const cases = [
   { id: 'alpha', name: 'Restaurant search', tags: ['food'], assertionCount: 2, eligible: true },
@@ -56,5 +56,13 @@ describe('popup view model', () => {
   it('identifies queues managed by MCPLab', () => {
     expect(splitQueueItems([], 'run-123').managed).toBe(true);
     expect(splitQueueItems([], undefined).managed).toBe(false);
+  });
+
+  it('projects only the active provider queue and its recent history', () => {
+    const claudeItem = { queueItemId: 'claude-1', testCaseId: 'a', id: 'a', name: 'Claude', prompt: '', assertionCount: 0, status: 'passed' as const };
+    const copilotItem = { queueItemId: 'copilot-1', testCaseId: 'b', id: 'b', name: 'Copilot', prompt: '', assertionCount: 0, status: 'passed' as const };
+    const queue = { provider: 'claude', evaluationRunId: 'run-1', items: [claudeItem], recentHistory: { claude: [claudeItem], copilot: [copilotItem] } };
+    expect(projectQueueForProvider(queue, 'claude')).toMatchObject({ matchesCurrentAssignment: true, active: [], completed: [claudeItem], managed: true });
+    expect(projectQueueForProvider(queue, 'copilot')).toMatchObject({ matchesCurrentAssignment: false, active: [], completed: [copilotItem], managed: true });
   });
 });

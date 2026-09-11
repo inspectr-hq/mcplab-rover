@@ -46,3 +46,24 @@ export function splitQueueItems(items: RoverQueueItem[], evaluationRunId?: strin
     managed: Boolean(evaluationRunId)
   };
 }
+
+export function projectQueueForProvider(queue: {
+  provider: string;
+  items: RoverQueueItem[];
+  recentHistory?: Record<string, RoverQueueItem[]>;
+  evaluationRunId?: string;
+}, provider?: string): {
+  active: RoverQueueItem[];
+  completed: RoverQueueItem[];
+  managed: boolean;
+  matchesCurrentAssignment: boolean;
+} {
+  const matchesCurrentAssignment = Boolean(provider && queue.provider === provider);
+  const split = splitQueueItems(matchesCurrentAssignment ? queue.items : [], queue.evaluationRunId);
+  return {
+    active: split.active,
+    completed: queue.recentHistory?.[provider ?? ''] ?? (matchesCurrentAssignment ? split.completed : []),
+    managed: split.managed,
+    matchesCurrentAssignment
+  };
+}

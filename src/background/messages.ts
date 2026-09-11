@@ -68,6 +68,14 @@ export function installMessageHandler(): void {
       return true;
     }
 
+    if (message.type === 'ROVER_GET_ACTIVE_PROVIDER') {
+      return respond(sendResponse, async () => {
+        const tab = await activeTab();
+        const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
+        return { provider, tabId: tab?.id, url: tab?.url };
+      });
+    }
+
     if (message.type === 'ROVER_GET_CATALOG') {
       return respond(sendResponse, async () => {
         const origin = await resolveOrigin(message.origin);

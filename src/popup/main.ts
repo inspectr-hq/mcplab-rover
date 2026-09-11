@@ -1,7 +1,7 @@
 import type { BrowserProviderDiscoveryDraft, DebugElementCheck, DebugSnapshot, RoverState } from '../contracts';
 import type { LiveTestCatalogItem } from '../mcplab/types';
 import type { RoverQueueState } from '../queue/state';
-import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility, splitQueueItems } from './view-model';
+import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility, projectQueueForProvider } from './view-model';
 import './style.css';
 
 const shell = document.querySelector<HTMLElement>('.shell')!;
@@ -61,6 +61,7 @@ const debugIndicators = document.querySelector<HTMLElement>('#debug-indicators')
 let items: LiveTestCatalogItem[] = [];
 let current: RoverState | null = null;
 let currentQueue: RoverQueueState | null = null;
+let activeProvider: string | undefined;
 let mode: 'manual' | 'queue' | 'learn' | 'debug' = 'manual';
 let discoveryDraft: BrowserProviderDiscoveryDraft | null = null;
 const DISCOVERY_DRAFT_KEY = 'rover.provider-discovery-draft';
@@ -259,10 +260,12 @@ function renderQueue(queue: RoverQueueState | null): void {
     queueStart.hidden = false;
     return;
   }
-  const { active, completed, managed } = splitQueueItems(queue.items, queue.evaluationRunId);
+  const providerForView = activeProvider ?? queue.provider;
+  const { active, completed, managed, matchesCurrentAssignment } = projectQueueForProvider(queue, providerForView);
   const addRow = queueEvaluation.closest('.queue-add-row') as HTMLElement | null;
-  addRow?.toggleAttribute('hidden', managed);
-  queueNewChat.closest('.checkbox-row')?.toggleAttribute('hidden', managed);
+  const editable = !managed && matchesCurrentAssignment;
+  addRow?.toggleAttribute('hidden', !editable);
+  queueNewChat.closest('.checkbox-row')?.toggleAttribute('hidden', !editable);
   queueNewChat.checked = queue.newConversationBetweenItems;
   const renderGroup = (title: string, items: RoverQueueState['items'], editable: boolean): HTMLElement => {
     const group = document.createElement('section');
@@ -307,18 +310,26 @@ function renderQueue(queue: RoverQueueState | null): void {
     return group;
   };
   const groups: HTMLElement[] = [];
-  if (active.length) groups.push(renderGroup(managed ? 'MCPLab queue' : 'Up next', active, !managed));
-  if (completed.length) groups.push(renderGroup('Completed', completed, false));
+  if (active.length) groups.push(renderGroup(managed ? `${providerForView} queue` : 'Up next', active, editable));
+  if (completed.length) groups.push(renderGroup(`Recent ${providerForView} evaluations`, completed, false));
   queueItems.replaceChildren(...groups);
   queueItems.parentElement?.classList.toggle('queue-managed', managed);
-  queueStart.hidden = managed;
-  queueStatus.textContent = queue.status === 'paused'
+  queueStart.hidden = !editable;
+  queueStatus.textContent = !matchesCurrentAssignment && managed
+    ? `Waiting for ${providerForView} jobs.`
+    : queue.status === 'paused'
     ? `Paused: ${queue.error?.message ?? 'Queue needs attention.'}`
     : queue.status === 'completed' ? 'Queue completed.' : `${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} evaluations processed.`;
   queueStart.disabled = queue.items.length === 0 || queue.status === 'running' || queue.status === 'paused';
   queueRetry.hidden = queue.status !== 'paused';
   queueSkip.hidden = queue.status !== 'paused';
   queueStop.hidden = !['running', 'paused'].includes(queue.status);
+}
+
+async function refreshActiveProvider(): Promise<void> {
+  const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_ACTIVE_PROVIDER' }) as { provider?: string } | undefined;
+  activeProvider = response?.provider;
+  if (mode === 'queue') renderQueue(currentQueue);
 }
 
 function renderCatalog(): void {
@@ -604,6 +615,7 @@ void chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_GET' }).then((queue: RoverQ
   if (queue) void setMode('queue');
   else queueMode.click();
 });
+void refreshActiveProvider();
 void chrome.storage.local.get([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]).then((stored) => {
   const draft = (stored[DISCOVERY_DRAFT_KEY] ?? stored[LEGACY_LEARNING_DRAFT_KEY]) as BrowserProviderDiscoveryDraft | undefined;
   if (!draft) return;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addQueueItem,
+  archiveCompletedQueueItems,
   createQueue,
   moveQueueItem,
   removeQueueItem,
@@ -16,6 +17,35 @@ const alpha: QueueCatalogItem = { id: 'alpha', name: 'Alpha', prompt: 'A', asser
 const beta: QueueCatalogItem = { id: 'beta', name: 'Beta', prompt: 'B', assertionCount: 2 };
 
 describe('queue state', () => {
+  it('archives completed items by provider and caps history at five', () => {
+    const queue = createQueue('http://127.0.0.1:8787', 'claude', true, '2026-09-11T00:00:00.000Z');
+    const items = Array.from({ length: 7 }, (_, index) => ({
+      queueItemId: `item-${index}`,
+      testCaseId: `case-${index}`,
+      id: `case-${index}`,
+      name: `Case ${index}`,
+      prompt: '',
+      assertionCount: 0,
+      status: 'passed' as const
+    }));
+    const archived = archiveCompletedQueueItems({ ...queue, items });
+    expect(archived.recentHistory?.claude.map((item) => item.queueItemId)).toEqual(['item-0', 'item-1', 'item-2', 'item-3', 'item-4']);
+  });
+
+  it('does not archive queued or running items', () => {
+    const queue = createQueue('http://127.0.0.1:8787', 'claude', true, '2026-09-11T00:00:00.000Z');
+    const item = { queueItemId: 'item-1', testCaseId: 'case-1', id: 'case-1', name: 'Case', prompt: '', assertionCount: 0, status: 'running' as const };
+    const withItem = { ...queue, items: [item] };
+    expect(archiveCompletedQueueItems(withItem)).toEqual(withItem);
+  });
+
+  it('archives an item as soon as its outcome is recorded', () => {
+    let queue = createQueue('http://127.0.0.1:8787', 'claude', true, '2026-09-11T00:00:00.000Z');
+    queue = addQueueItem(queue, alpha);
+    queue = startQueue(queue, '2026-09-11T00:01:00.000Z');
+    const completed = recordQueueItemOutcome(queue, queue.activeItemId!, 'passed', {}, '2026-09-11T00:02:00.000Z');
+    expect(completed.recentHistory?.claude[0]?.testCaseId).toBe('alpha');
+  });
   it('supports duplicate evaluations and explicit ordering', () => {
     let queue = createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z');
     queue = addQueueItem(queue, alpha);

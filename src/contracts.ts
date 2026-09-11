@@ -58,6 +58,7 @@ export type ExtensionMessage =
   | { type: 'ROVER_DEBUG_SUBSCRIBE'; enabled: boolean }
   | { type: 'ROVER_DEBUG_CHANGED' }
   | { type: 'ROVER_GET_STATE' }
+  | { type: 'ROVER_GET_ACTIVE_PROVIDER' }
   | { type: 'ROVER_QUEUE_GET' }
   | { type: 'ROVER_QUEUE_CLEAR' }
   | { type: 'ROVER_QUEUE_CREATE'; origin?: string; newConversationBetweenItems: boolean }
