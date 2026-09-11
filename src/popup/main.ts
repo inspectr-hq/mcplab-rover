@@ -298,7 +298,7 @@ function renderQueue(queue: RoverQueueState | null): void {
       if (item.resultUrl) {
         const link = document.createElement('a');
         link.className = 'queue-result-link';
-        link.href = item.resultUrl;
+        link.href = `${queue.origin}${item.resultUrl}`;
         link.target = '_blank';
         link.rel = 'noreferrer';
         link.textContent = 'View result';
@@ -317,6 +317,8 @@ function renderQueue(queue: RoverQueueState | null): void {
   queueStart.hidden = !editable;
   queueStatus.textContent = !matchesCurrentAssignment && managed
     ? `Waiting for ${providerForView} jobs.`
+    : !matchesCurrentAssignment
+      ? `Switch to ${queue.provider} to edit or run this queue.`
     : queue.status === 'paused'
     ? `Paused: ${queue.error?.message ?? 'Queue needs attention.'}`
     : queue.status === 'completed' ? 'Queue completed.' : `${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} evaluations processed.`;
