@@ -326,8 +326,15 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
   if (message.queueId && message.queueItemId) {
     const queue = await getQueue();
     const item = queue?.items.find((candidate) => candidate.queueItemId === message.queueItemId);
-    if (!queue || queue.queueId !== message.queueId || queue.activeItemId !== message.queueItemId || item?.requestId !== message.requestId || item.sessionId !== message.sessionId) return;
-    if (item.cancelRequestedAt) return;
+    if (!queue || queue.queueId !== message.queueId || queue.activeItemId !== message.queueItemId || item?.requestId !== message.requestId || item.sessionId !== message.sessionId) {
+      console.info('[Rover debug] ignored stale result', { queueId: message.queueId, queueItemId: message.queueItemId, requestId: message.requestId, sessionId: message.sessionId });
+      return;
+    }
+    if (item.cancelRequestedAt) {
+      console.info('[Rover debug] ignored cancelled result', { queueId: message.queueId, queueItemId: message.queueItemId });
+      return;
+    }
+    console.info('[Rover debug] result received', { queueId: message.queueId, queueItemId: message.queueItemId, ok: message.result.ok });
     if (!message.result.ok) {
       await pauseQueue(queue, new Error(message.result.error));
       return;
