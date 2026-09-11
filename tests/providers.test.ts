@@ -81,6 +81,19 @@ describe('ChatGPT adapter', () => {
     expect(chatgptAdapter.getAssistantCandidates()[0]?.text).toContain('ChatGPT answer');
     expect(chatgptAdapter.getResponseState(chatgptAdapter.getAssistantCandidates())).toMatchObject({ isGenerating: false, isIdle: true });
   });
+
+  it('starts a new conversation through the native control', async () => {
+    document.body.innerHTML = `
+      <div aria-label="Chat with ChatGPT" contenteditable="true"></div>
+      <button aria-label="New chat">New chat</button>
+    `;
+    let clicks = 0;
+    document.querySelector('button')!.addEventListener('click', () => clicks++);
+
+    await chatgptAdapter.startNewConversation?.();
+
+    expect(clicks).toBe(1);
+  });
 });
 
 describe('Claude adapter', () => {

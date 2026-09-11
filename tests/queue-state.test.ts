@@ -115,4 +115,15 @@ describe('queue state', () => {
     expect(repeated.items[0]).toMatchObject({ status: 'passed', runId: 'run-1', text: 'done' });
     expect(repeated.items[1]).toMatchObject({ status: 'stopped', completedAt: '2026-09-09T10:03:00.000Z' });
   });
+
+  it('stops the active duplicate instead of an earlier completed duplicate', () => {
+    let queue = createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z');
+    queue = addQueueItem(addQueueItem(queue, alpha), alpha);
+    queue = startQueue(queue, '2026-09-09T10:01:00.000Z');
+    queue = recordQueueItemOutcome(queue, queue.activeItemId!, 'passed', { runId: 'run-1' }, '2026-09-09T10:02:00.000Z');
+
+    const stopped = stopScenario(queue, 'alpha', '2026-09-09T10:03:00.000Z');
+
+    expect(stopped.items.map((item) => item.status)).toEqual(['passed', 'stopped']);
+  });
 });

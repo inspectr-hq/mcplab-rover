@@ -27,6 +27,7 @@ export interface RoverQueueItem extends QueueCatalogItem, QueueItemResult {
   startedAt?: string;
   completedAt?: string;
   error?: string;
+  cancelRequestedAt?: string;
 }
 
 export interface QueueFailure {
@@ -100,7 +101,7 @@ export function removeQueueItem(queue: RoverQueueState, queueItemId: string): Ro
 export function startQueue(queue: RoverQueueState, now: string): RoverQueueState {
   const restart = queue.status === 'completed' || queue.status === 'stopped';
   const candidates = restart
-    ? queue.items.map((item) => ({ ...item, status: 'queued' as const, sessionId: undefined, requestId: undefined, startedAt: undefined, completedAt: undefined, runId: undefined, resultUrl: undefined, checkCounts: undefined, text: undefined }))
+    ? queue.items.map((item) => ({ ...item, status: 'queued' as const, sessionId: undefined, requestId: undefined, startedAt: undefined, completedAt: undefined, cancelRequestedAt: undefined, runId: undefined, resultUrl: undefined, checkCounts: undefined, text: undefined }))
     : queue.items;
   const first = candidates.find((item) => item.status === 'queued');
   if (!first) throw new Error('Queue must contain at least one evaluation.');
@@ -133,13 +134,16 @@ export function skipQueueItem(queue: RoverQueueState, queueItemId: string, now: 
 }
 
 export function stopScenario(queue: RoverQueueState, scenarioId: string, now: string): RoverQueueState {
-  const item = queue.items.find((candidate) => candidate.testCaseId === scenarioId && candidate.status !== 'stopped');
-  if (!item) return queue;
-  if (['passed', 'failed', 'incomplete', 'skipped', 'error'].includes(item.status)) return queue;
-  const items = queue.items.map((candidate) => candidate.queueItemId === item.queueItemId
-    ? { ...candidate, status: 'stopped' as const, completedAt: now }
+  const item = queue.activeItemId
+    ? queue.items.find((candidate) => candidate.queueItemId === queue.activeItemId && candidate.testCaseId === scenarioId)
+    : undefined;
+  const target = item ?? queue.items.find((candidate) => candidate.testCaseId === scenarioId && candidate.status === 'queued');
+  if (!target) return queue;
+  if (['passed', 'failed', 'incomplete', 'skipped', 'error', 'stopped'].includes(target.status)) return queue;
+  const items = queue.items.map((candidate) => candidate.queueItemId === target.queueItemId
+    ? { ...candidate, status: 'stopped' as const, completedAt: now, cancelRequestedAt: now }
     : candidate);
-  if (queue.activeItemId !== item.queueItemId) return updated(queue, { items });
+  if (queue.activeItemId !== target.queueItemId) return updated(queue, { items });
   const next = items.find((candidate) => candidate.status === 'queued');
   return updated(queue, next
     ? { items, status: 'running', activeItemId: next.queueItemId, error: undefined }
@@ -147,5 +151,5 @@ export function stopScenario(queue: RoverQueueState, scenarioId: string, now: st
 }
 
 export function stopQueue(queue: RoverQueueState, now: string): RoverQueueState {
-  return updated(queue, { status: 'stopped', activeItemId: undefined, error: undefined, items: queue.items.map((item) => item.status === 'running' || item.status === 'evaluating' ? { ...item, status: 'error', completedAt: now } : item) });
+  return updated(queue, { status: 'stopped', activeItemId: undefined, error: undefined, items: queue.items.map((item) => item.status === 'running' || item.status === 'evaluating' ? { ...item, status: 'error', completedAt: now, cancelRequestedAt: now } : item) });
 }

@@ -59,4 +59,5 @@ export interface LiveTestCompletion {
   outcome: RunOutcome;
   checkCounts: CheckCounts;
   resultUrl: string;
+  error?: string;
 }

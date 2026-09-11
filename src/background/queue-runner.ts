@@ -5,29 +5,15 @@ import {
 import { detectProvider } from './browser';
 import type { RoverStage } from '../contracts';
 import { errorMessage } from './errors';
-import { saveQueue } from './store';
+import { getQueue, saveQueue } from './store';
 import { currentSocket } from './socket';
 import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover-protocol';
-
-const cancelledScenarios = new Set<string>();
 
 function sendStage(queue: RoverQueueState, itemId: string, stage: RoverStage): void {
   const socket = currentSocket();
   if (socket?.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: 'stage', jobId: queue.queueId, scenarioId: itemId, stage }));
   }
-}
-
-export function markScenarioCancelled(queueId: string, queueItemId: string): void {
-  cancelledScenarios.add(`${queueId}:${queueItemId}`);
-}
-
-export function isScenarioCancelled(queueId: string, queueItemId: string): boolean {
-  return cancelledScenarios.has(`${queueId}:${queueItemId}`);
-}
-
-export function clearScenarioCancelled(queueId: string, queueItemId: string): void {
-  cancelledScenarios.delete(`${queueId}:${queueItemId}`);
 }
 
 export function sendScenarioStatus(queue: RoverQueueState, item: RoverQueueState['items'][number], lastDurationMs?: number): void {
@@ -68,7 +54,7 @@ export async function pauseQueue(queue: RoverQueueState, error: unknown, stage: 
 export async function runQueueItem(queue: RoverQueueState): Promise<void> {
   const item = queue.items.find((candidate) => candidate.queueItemId === queue.activeItemId);
   if (!item || typeof queue.tabId !== 'number') return;
-  if (isScenarioCancelled(queue.queueId, item.queueItemId)) return;
+  if (item.cancelRequestedAt) return;
   try {
     const client = new McplabClient(queue.origin);
     if (queue.provider !== 'claude' && queue.provider !== 'trendminer') {
@@ -90,7 +76,9 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
         : candidate),
       updatedAt: new Date().toISOString()
     };
-    if (isScenarioCancelled(queue.queueId, item.queueItemId)) return;
+    const latest = await getQueue();
+    const latestItem = latest?.items.find((candidate) => candidate.queueItemId === item.queueItemId);
+    if (!latest || latest.queueId !== queue.queueId || latest.activeItemId !== item.queueItemId || latestItem?.cancelRequestedAt) return;
     await saveQueue(running);
     sendScenarioStatus(running, running.items.find((candidate) => candidate.queueItemId === item.queueItemId)!);
     sendStage(queue, item.testCaseId, 'prompt_sent');
@@ -140,6 +128,11 @@ export async function startQueueConversation(queue: RoverQueueState): Promise<vo
   if (queue.provider === 'trendminer') {
     const response = await chrome.tabs.sendMessage(queue.tabId, { type: 'ROVER_NEW_CHAT', requestId: crypto.randomUUID(), queueId: queue.queueId });
     if (!response?.ok) throw new Error(response?.error ?? 'Could not start a new TrendMiner conversation.');
+    return;
+  }
+  if (queue.provider === 'chatgpt-com') {
+    const response = await chrome.tabs.sendMessage(queue.tabId, { type: 'ROVER_NEW_CHAT', requestId: crypto.randomUUID(), queueId: queue.queueId });
+    if (!response?.ok) throw new Error(response?.error ?? 'Could not start a new ChatGPT conversation.');
     return;
   }
   if (queue.provider !== 'claude') {

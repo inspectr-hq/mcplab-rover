@@ -16,7 +16,7 @@ import { activeTab, detectProvider, expectedProviderForUrl } from './browser';
 import { createDebugSnapshot } from './debug';
 import { errorMessage } from './errors';
 import { complete, fail } from './live-test';
-import { cancelActiveQueueItem, clearScenarioCancelled, isScenarioCancelled, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
+import { cancelActiveQueueItem, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
 import { currentSocket, loadedProvider } from './socket';
 import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, saveState, STATE_KEY } from './store';
 
@@ -204,7 +204,6 @@ export function installMessageHandler(): void {
         if (!queue) throw new Error('No queue has been created.');
         const started = startQueue(queue, new Date().toISOString());
         await saveQueue(started);
-        if (started.activeItemId) clearScenarioCancelled(started.queueId, started.activeItemId);
         sendResponse({ ok: true, queue: started });
         await runQueueItem(started);
       })().catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
@@ -222,7 +221,6 @@ export function installMessageHandler(): void {
         await saveQueue(next);
         sendResponse({ ok: true, queue: next });
         if (message.type === 'ROVER_QUEUE_SKIP' && next.status === 'running') {
-          clearScenarioCancelled(next.queueId, next.activeItemId!);
           await runQueueItem(next);
         }
       })().catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
@@ -235,7 +233,6 @@ export function installMessageHandler(): void {
         if (!queue || queue.status !== 'paused' || !queue.activeItemId) throw new Error('No paused queue item to retry.');
         const retrying: RoverQueueState = { ...queue, status: 'running', error: undefined, items: queue.items.map((item) => item.queueItemId === queue.activeItemId ? { ...item, status: 'running' as const } : item), updatedAt: new Date().toISOString() };
         await saveQueue(retrying);
-        clearScenarioCancelled(retrying.queueId, retrying.activeItemId!);
         sendResponse({ ok: true, queue: retrying });
         await runQueueItem(retrying);
       })().catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
@@ -330,7 +327,7 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
     const queue = await getQueue();
     const item = queue?.items.find((candidate) => candidate.queueItemId === message.queueItemId);
     if (!queue || queue.queueId !== message.queueId || queue.activeItemId !== message.queueItemId || item?.requestId !== message.requestId || item.sessionId !== message.sessionId) return;
-    if (isScenarioCancelled(queue.queueId, message.queueItemId)) return;
+    if (item.cancelRequestedAt) return;
     if (!message.result.ok) {
       await pauseQueue(queue, new Error(message.result.error));
       return;
@@ -344,11 +341,13 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
       sendQueueStage(queue, item.testCaseId, 'evaluating');
       const result = await new McplabClient(queue.origin).complete(item.sessionId, { finalText, startedAt: item.startedAt ?? new Date().toISOString(), completedAt: new Date().toISOString() });
       const latest = await getQueue();
-      if (!latest || latest.queueId !== queue.queueId || latest.activeItemId !== item.queueItemId || isScenarioCancelled(queue.queueId, item.queueItemId)) return;
+      if (!latest || latest.queueId !== queue.queueId || latest.activeItemId !== item.queueItemId) return;
+      const latestItem = latest.items.find((candidate) => candidate.queueItemId === item.queueItemId);
+      if (latestItem?.cancelRequestedAt) return;
       const resultUrl = queue.evaluationRunId
         ? `/results/${encodeURIComponent(queue.evaluationRunId)}`
         : result.resultUrl;
-      const completed = recordQueueItemOutcome(latest, item.queueItemId, result.outcome, { runId: result.runId, resultUrl, checkCounts: result.checkCounts, text: finalText, ...(result.outcome === 'error' ? { error: result.outcome } : {}) }, new Date().toISOString());
+      const completed = recordQueueItemOutcome(latest, item.queueItemId, result.outcome, { runId: result.runId, resultUrl, checkCounts: result.checkCounts, text: finalText, ...(result.outcome === 'error' ? { error: result.error ?? 'Evaluation returned an error.' } : {}) }, new Date().toISOString());
       await saveQueue(completed);
       sendScenarioStatus(completed, completed.items.find((candidate) => candidate.queueItemId === item.queueItemId)!, item.startedAt ? Math.max(0, Date.now() - Date.parse(item.startedAt)) : undefined);
       sendQueueStage(queue, item.testCaseId, 'persisted');

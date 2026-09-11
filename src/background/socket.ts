@@ -2,7 +2,7 @@ import type { ProviderId } from '../contracts';
 import { McplabClient } from '../mcplab/api-client';
 import { createQueue, startQueue, stopQueue, stopScenario } from '../queue/state';
 import { activeTab, detectProvider } from './browser';
-import { cancelActiveQueueItem, markScenarioCancelled, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
+import { cancelActiveQueueItem, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
 import { registrationPayload } from '../mcplab/rover-protocol';
 import { getQueue, resolveOrigin, saveQueue } from './store';
 
@@ -67,10 +67,6 @@ export async function connectToMcplab(): Promise<void> {
         void (async () => {
           const queue = await getQueue();
           if (!queue || queue.queueId !== message.jobId) return;
-          if (queue.activeItemId) {
-            const active = queue.items.find((candidate) => candidate.queueItemId === queue.activeItemId);
-            if (active) markScenarioCancelled(queue.queueId, active.queueItemId);
-          }
           await cancelActiveQueueItem(queue);
           await saveQueue(stopQueue(queue, new Date().toISOString()));
         })();
@@ -79,10 +75,12 @@ export async function connectToMcplab(): Promise<void> {
       if (message.type === 'stop_scenario' && message.jobId && message.scenarioId) {
         void (async () => {
           const queue = await getQueue();
-          const item = queue?.items.find((candidate) => candidate.testCaseId === message.scenarioId);
+          const item = queue?.activeItemId
+            ? queue.items.find((candidate) => candidate.queueItemId === queue.activeItemId && candidate.testCaseId === message.scenarioId)
+              ?? queue.items.find((candidate) => candidate.testCaseId === message.scenarioId && candidate.status === 'queued')
+            : queue?.items.find((candidate) => candidate.testCaseId === message.scenarioId && candidate.status === 'queued');
           if (!queue || queue.queueId !== message.jobId || !item) return;
           const wasActive = queue.activeItemId === item.queueItemId;
-          if (wasActive) markScenarioCancelled(queue.queueId, item.queueItemId);
           const next = stopScenario(queue, message.scenarioId!, new Date().toISOString());
           await saveQueue(next);
           const stopped = next.items.find((candidate) => candidate.queueItemId === item.queueItemId);
