@@ -3,6 +3,7 @@ import { isVisible, setTextValue, textFrom } from './dom';
 
 const composerSelectors = ['[aria-label="Chat with ChatGPT"]', '[contenteditable="true"]'];
 const assistantSelector = '[data-message-author-role="assistant"], [data-testid^="conversation-turn-"]';
+const newConversationSelectors = ['a[href="/"], a[href="/new"]', 'button[aria-label*="New chat"]', 'button[aria-label*="New conversation"]'];
 
 function first<T extends Element>(selectors: string[]): T | null {
   for (const selector of selectors) {
@@ -20,7 +21,7 @@ export const chatgptAdapter: ChatProviderAdapter = {
     debugCheck('composer', 'Composer', composerSelectors),
     { id: 'submit', label: 'Submit', present: true, detail: 'Uses Enter to submit', selector: 'Enter' },
     debugCheck('assistant-response', 'Assistant response', [assistantSelector]),
-    debugCheck('new-chat', 'New conversation', ['a[href="/"], a[href="/new"], button[aria-label*="New chat"]'])
+    debugCheck('new-chat', 'New conversation', newConversationSelectors)
   ],
   findComposer: () => first<HTMLElement>(composerSelectors),
   setComposerText: async (text) => {
@@ -35,6 +36,11 @@ export const chatgptAdapter: ChatProviderAdapter = {
     composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
   },
   startNewConversation: async () => {
+    const control = first<HTMLElement>(newConversationSelectors);
+    if (control) {
+      control.click();
+      return;
+    }
     location.assign('https://chatgpt.com/');
   },
   getAssistantCandidates: () => Array.from(document.querySelectorAll<HTMLElement>(assistantSelector)).map((element, index) => ({

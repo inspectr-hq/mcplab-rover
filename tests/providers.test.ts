@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { trendminerAdapter } from '../src/providers/trendminer';
+import { chatgptAdapter } from '../src/providers/chatgpt';
 import { claudeAdapter } from '../src/providers/claude';
 import { createLearnedAdapter } from '../src/providers/learned';
 import { findAdapter, findPageAdapter, setLearnedProfiles } from '../src/providers';
@@ -65,6 +66,20 @@ describe('TrendMiner adapter', () => {
     await trendminerAdapter.startNewConversation?.();
 
     expect(clicks).toBe(1);
+  });
+});
+
+describe('ChatGPT adapter', () => {
+  it('detects the composer and assistant response markers', () => {
+    document.body.innerHTML = `
+      <div aria-label="Chat with ChatGPT" contenteditable="true"></div>
+      <div data-message-author-role="assistant">ChatGPT answer</div>
+    `;
+
+    expect(chatgptAdapter.canHandle()).toBe(true);
+    expect(chatgptAdapter.findComposer()).toBeTruthy();
+    expect(chatgptAdapter.getAssistantCandidates()[0]?.text).toContain('ChatGPT answer');
+    expect(chatgptAdapter.getResponseState(chatgptAdapter.getAssistantCandidates())).toMatchObject({ isGenerating: false, isIdle: true });
   });
 });
 
