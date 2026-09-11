@@ -1,7 +1,7 @@
 import type { CheckCounts, RunOutcome } from '../mcplab/types';
 import type { ProviderId } from '../contracts';
 
-export type QueueItemStatus = 'queued' | 'running' | 'evaluating' | 'passed' | 'failed' | 'incomplete' | 'skipped' | 'error';
+export type QueueItemStatus = 'queued' | 'running' | 'evaluating' | 'passed' | 'failed' | 'incomplete' | 'skipped' | 'stopped' | 'error';
 export type QueueStatus = 'draft' | 'running' | 'paused' | 'completed' | 'stopped';
 
 export interface QueueCatalogItem {
@@ -26,6 +26,7 @@ export interface RoverQueueItem extends QueueCatalogItem, QueueItemResult {
   requestId?: string;
   startedAt?: string;
   completedAt?: string;
+  error?: string;
 }
 
 export interface QueueFailure {
@@ -129,6 +130,20 @@ export function skipQueueItem(queue: RoverQueueState, queueItemId: string, now: 
   const items = queue.items.map((item) => item.queueItemId === queueItemId ? { ...item, status: 'skipped' as const, completedAt: now } : item);
   const next = items.find((item) => item.status === 'queued');
   return updated(queue, next ? { items, status: 'running', activeItemId: next.queueItemId, error: undefined } : { items, status: 'completed', activeItemId: undefined, error: undefined });
+}
+
+export function stopScenario(queue: RoverQueueState, scenarioId: string, now: string): RoverQueueState {
+  const item = queue.items.find((candidate) => candidate.testCaseId === scenarioId && candidate.status !== 'stopped');
+  if (!item) return queue;
+  if (['passed', 'failed', 'incomplete', 'skipped', 'error'].includes(item.status)) return queue;
+  const items = queue.items.map((candidate) => candidate.queueItemId === item.queueItemId
+    ? { ...candidate, status: 'stopped' as const, completedAt: now }
+    : candidate);
+  if (queue.activeItemId !== item.queueItemId) return updated(queue, { items });
+  const next = items.find((candidate) => candidate.status === 'queued');
+  return updated(queue, next
+    ? { items, status: 'running', activeItemId: next.queueItemId, error: undefined }
+    : { items, status: 'completed', activeItemId: undefined, error: undefined });
 }
 
 export function stopQueue(queue: RoverQueueState, now: string): RoverQueueState {

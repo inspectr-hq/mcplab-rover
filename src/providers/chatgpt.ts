@@ -35,6 +35,9 @@ export const chatgptAdapter: ChatProviderAdapter = {
     if (!composer) throw new Error('ChatGPT composer was not found');
     composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
   },
+  stopGeneration: async () => {
+    document.querySelector<HTMLButtonElement>('button[aria-label*="Stop"], [data-testid="stop-button"]')?.click();
+  },
   startNewConversation: async () => {
     const control = first<HTMLElement>(newConversationSelectors);
     if (control) {

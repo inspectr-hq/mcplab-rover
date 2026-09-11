@@ -61,6 +61,10 @@ export const claudeAdapter: ChatProviderAdapter = {
     const button = await waitForEnabledButton();
     button.click();
   },
+  stopGeneration: async () => {
+    const stop = document.querySelector<HTMLButtonElement>('[aria-label*="Stop"], button[data-is-streaming="true"]');
+    stop?.click();
+  },
   getAssistantCandidates: () => {
     const elements = Array.from(document.querySelectorAll<HTMLElement>(assistantSelectors.join(',')));
     return elements.map((element, index) => ({

@@ -11,6 +11,7 @@ export interface ChatProviderAdapter {
   setComposerText(text: string): Promise<void>;
   findSubmitButton(): HTMLButtonElement | null;
   submit(): Promise<void>;
+  stopGeneration?(): Promise<void>;
   startNewConversation?(): Promise<void>;
   getAssistantCandidates(): ResponseCandidate[];
   getResponseState(candidates: ResponseCandidate[]): ResponseState;

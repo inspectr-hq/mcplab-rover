@@ -25,6 +25,9 @@ export const trendminerAdapter: ChatProviderAdapter = {
     if (!button || button.disabled) throw new Error('TrendMiner submit button is unavailable');
     button.click();
   },
+  stopGeneration: async () => {
+    document.querySelector<HTMLButtonElement>('button[aria-label*="Stop"], button[aria-label*="Cancel"]')?.click();
+  },
   startNewConversation: async () => {
     const button = document.querySelector<HTMLButtonElement>('button[aria-label="New chat"]');
     if (!button) throw new Error('TrendMiner New chat button is unavailable');

@@ -7,6 +7,7 @@ import {
   recordQueueItemOutcome,
   skipQueueItem,
   startQueue,
+  stopScenario,
   stopQueue,
   type QueueCatalogItem
 } from '../src/queue/state';
@@ -73,5 +74,45 @@ describe('queue state', () => {
     expect(restarted.status).toBe('running');
     expect(restarted.items[0]?.status).toBe('running');
     expect(restarted.items[0]?.runId).toBeUndefined();
+  });
+
+  it('stops a pending scenario without disturbing the active scenario', () => {
+    let queue = createQueue('http://127.0.0.1:8787', 'claude', true, '2026-09-09T10:00:00.000Z');
+    queue = addQueueItem(addQueueItem(queue, alpha), beta);
+    queue = startQueue(queue, '2026-09-09T10:01:00.000Z');
+    const pendingId = queue.items[1]!.queueItemId;
+
+    const stopped = stopScenario(queue, 'beta', '2026-09-09T10:02:00.000Z');
+
+    expect(stopped.activeItemId).toBe(queue.activeItemId);
+    expect(stopped.status).toBe('running');
+    expect(stopped.items[1]).toMatchObject({ testCaseId: 'beta', status: 'stopped', completedAt: '2026-09-09T10:02:00.000Z' });
+    expect(stopped.items[1]!.queueItemId).toBe(pendingId);
+  });
+
+  it('stops the active scenario and advances to the next queued scenario', () => {
+    let queue = createQueue('http://127.0.0.1:8787', 'claude', true, '2026-09-09T10:00:00.000Z');
+    queue = addQueueItem(addQueueItem(queue, alpha), beta);
+    queue = startQueue(queue, '2026-09-09T10:01:00.000Z');
+
+    const stopped = stopScenario(queue, 'alpha', '2026-09-09T10:02:00.000Z');
+
+    expect(stopped.status).toBe('running');
+    expect(stopped.activeItemId).toBe(stopped.items[1]!.queueItemId);
+    expect(stopped.newConversationBetweenItems).toBe(true);
+    expect(stopped.items.map((item) => item.status)).toEqual(['stopped', 'queued']);
+  });
+
+  it('preserves completed scenarios and is idempotent for stopped scenarios', () => {
+    let queue = createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z');
+    queue = addQueueItem(addQueueItem(queue, alpha), beta);
+    queue = startQueue(queue, '2026-09-09T10:01:00.000Z');
+    queue = recordQueueItemOutcome(queue, queue.activeItemId!, 'passed', { runId: 'run-1', text: 'done' }, '2026-09-09T10:02:00.000Z');
+
+    const stopped = stopScenario(queue, 'beta', '2026-09-09T10:03:00.000Z');
+    const repeated = stopScenario(stopped, 'beta', '2026-09-09T10:04:00.000Z');
+
+    expect(repeated.items[0]).toMatchObject({ status: 'passed', runId: 'run-1', text: 'done' });
+    expect(repeated.items[1]).toMatchObject({ status: 'stopped', completedAt: '2026-09-09T10:03:00.000Z' });
   });
 });

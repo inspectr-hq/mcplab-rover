@@ -70,6 +70,7 @@ export type ExtensionMessage =
   | { type: 'ROVER_QUEUE_RETRY' }
   | { type: 'ROVER_QUEUE_SKIP' }
   | { type: 'ROVER_NEW_CHAT'; requestId: string; queueId: string }
+  | { type: 'ROVER_CANCEL_ASK'; requestId: string }
   | { type: 'ROVER_PREPARE'; testCaseId: string; origin?: string }
   | { type: 'ROVER_EXECUTE' }
   | { type: 'ROVER_COMPLETE_MANUAL'; text: string }

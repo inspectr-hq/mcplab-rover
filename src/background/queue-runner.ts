@@ -7,6 +7,9 @@ import type { RoverStage } from '../contracts';
 import { errorMessage } from './errors';
 import { saveQueue } from './store';
 import { currentSocket } from './socket';
+import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover-protocol';
+
+const cancelledScenarios = new Set<string>();
 
 function sendStage(queue: RoverQueueState, itemId: string, stage: RoverStage): void {
   const socket = currentSocket();
@@ -15,25 +18,57 @@ function sendStage(queue: RoverQueueState, itemId: string, stage: RoverStage): v
   }
 }
 
+export function markScenarioCancelled(queueId: string, queueItemId: string): void {
+  cancelledScenarios.add(`${queueId}:${queueItemId}`);
+}
+
+export function isScenarioCancelled(queueId: string, queueItemId: string): boolean {
+  return cancelledScenarios.has(`${queueId}:${queueItemId}`);
+}
+
+export function clearScenarioCancelled(queueId: string, queueItemId: string): void {
+  cancelledScenarios.delete(`${queueId}:${queueItemId}`);
+}
+
+export function sendScenarioStatus(queue: RoverQueueState, item: RoverQueueState['items'][number], lastDurationMs?: number): void {
+  const socket = currentSocket();
+  if (socket?.readyState !== WebSocket.OPEN) return;
+  const event: ScenarioStatusEvent = {
+    type: 'scenario_status',
+    jobId: queue.queueId,
+    scenarioId: item.testCaseId,
+    ...scenarioStatusForItem(item),
+    ...(lastDurationMs === undefined ? {} : { lastDurationMs })
+  };
+  socket.send(JSON.stringify(event));
+}
+
 export async function cancelActiveQueueItem(queue: RoverQueueState): Promise<void> {
   const item = queue.activeItemId ? queue.items.find((candidate) => candidate.queueItemId === queue.activeItemId) : undefined;
+  if (item?.requestId && typeof queue.tabId === 'number') {
+    await chrome.tabs.sendMessage(queue.tabId, { type: 'ROVER_CANCEL_ASK', requestId: item.requestId }).catch(() => undefined);
+  }
   if (item?.sessionId) await new McplabClient(queue.origin).cancel(item.sessionId).catch(() => undefined);
 }
 
 export async function pauseQueue(queue: RoverQueueState, error: unknown, stage: 'browser' | 'mcplab' = 'browser'): Promise<void> {
+  const message = errorMessage(error);
   const paused: RoverQueueState = {
     ...queue,
     status: 'paused',
-    error: { stage, message: errorMessage(error) },
-    items: queue.items.map((item) => item.queueItemId === queue.activeItemId ? { ...item, status: 'error' as const } : item),
+    error: { stage, message },
+    items: queue.items.map((item) => item.queueItemId === queue.activeItemId ? { ...item, status: 'error' as const, error: message } : item),
     updatedAt: new Date().toISOString()
   };
   await saveQueue(paused);
+  const item = paused.items.find((candidate) => candidate.queueItemId === paused.activeItemId);
+  if (item) sendScenarioStatus(paused, item);
 }
 
 export async function runQueueItem(queue: RoverQueueState): Promise<void> {
   const item = queue.items.find((candidate) => candidate.queueItemId === queue.activeItemId);
   if (!item || typeof queue.tabId !== 'number') return;
+  if (isScenarioCancelled(queue.queueId, item.queueItemId)) return;
   try {
     const client = new McplabClient(queue.origin);
     if (queue.provider !== 'claude' && queue.provider !== 'trendminer') {
@@ -55,7 +90,9 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
         : candidate),
       updatedAt: new Date().toISOString()
     };
+    if (isScenarioCancelled(queue.queueId, item.queueItemId)) return;
     await saveQueue(running);
+    sendScenarioStatus(running, running.items.find((candidate) => candidate.queueItemId === item.queueItemId)!);
     sendStage(queue, item.testCaseId, 'prompt_sent');
     await chrome.tabs.sendMessage(queue.tabId, {
       type: 'ROVER_ASK',

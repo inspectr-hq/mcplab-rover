@@ -5,6 +5,7 @@ import { ask } from './runtime/ask';
 import { startProviderDiscovery } from './providers/provider-discovery';
 
 const runtime = globalThis as typeof globalThis & { __mcplabRoverInstalled?: boolean };
+const activeAskControllers = new Map<string, AbortController>();
 let debugObserver: MutationObserver | null = null;
 let debugNotifyTimer: number | undefined;
 let stopProviderDiscovery: (() => void) | null = null;
@@ -157,12 +158,21 @@ if (runtime.__mcplabRoverInstalled) {
       })().catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
       return true;
     }
+    if (message.type === 'ROVER_CANCEL_ASK') {
+      const controller = activeAskControllers.get(message.requestId);
+      controller?.abort();
+      void findAdapter()?.stopGeneration?.();
+      sendResponse({ ok: true });
+      return true;
+    }
     if (message.type !== 'ROVER_ASK') return;
     void (async () => {
+      const controller = new AbortController();
+      activeAskControllers.set(message.requestId, controller);
       try {
         const adapter = findAdapter();
         if (!adapter) throw new Error('The active page is not a supported chat provider');
-        const text = await ask(adapter, message.prompt);
+        const text = await ask(adapter, message.prompt, controller.signal);
         await chrome.runtime.sendMessage({
           type: 'ROVER_RESULT',
           requestId: message.requestId,
@@ -180,6 +190,8 @@ if (runtime.__mcplabRoverInstalled) {
           queueItemId: message.queueItemId,
           result: { ok: false, error: error instanceof Error ? error.message : String(error) }
         });
+      } finally {
+        activeAskControllers.delete(message.requestId);
       }
     })();
   });

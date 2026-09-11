@@ -1,8 +1,9 @@
 import type { ProviderId } from '../contracts';
 import { McplabClient } from '../mcplab/api-client';
-import { createQueue, startQueue, stopQueue } from '../queue/state';
+import { createQueue, startQueue, stopQueue, stopScenario } from '../queue/state';
 import { activeTab, detectProvider } from './browser';
-import { cancelActiveQueueItem, runQueueItem } from './queue-runner';
+import { cancelActiveQueueItem, markScenarioCancelled, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
+import { registrationPayload } from '../mcplab/rover-protocol';
 import { getQueue, resolveOrigin, saveQueue } from './store';
 
 let roverSocket: WebSocket | null = null;
@@ -49,11 +50,11 @@ export async function connectToMcplab(): Promise<void> {
       socket.close(1000, 'No supported Rover provider is active');
       return;
     }
-    socket.send(JSON.stringify({ type: 'register', protocolVersion: 1, provider, pageUrl: tab?.url ?? '', extensionVersion: chrome.runtime.getManifest().version }));
+    socket.send(JSON.stringify(registrationPayload(provider, tab?.url ?? '', chrome.runtime.getManifest().version)));
   };
   socket.onmessage = (event) => {
     try {
-      const message = JSON.parse(String(event.data)) as { type?: string; jobId?: string; evaluationRunId?: string; agent?: { provider?: ProviderId; providerRevision?: string }; provider?: import('../mcplab/types').BrowserProviderProfile; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
+      const message = JSON.parse(String(event.data)) as { type?: string; jobId?: string; scenarioId?: string; evaluationRunId?: string; agent?: { provider?: ProviderId; providerRevision?: string }; provider?: import('../mcplab/types').BrowserProviderProfile; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
       if (message.type === 'registered' && roverSocket === socket) registeredSocket = socket;
       if (message.type === 'provider_updated' && message.provider) {
         loadedProviders.set(message.provider.id, message.provider);
@@ -66,8 +67,48 @@ export async function connectToMcplab(): Promise<void> {
         void (async () => {
           const queue = await getQueue();
           if (!queue || queue.queueId !== message.jobId) return;
+          if (queue.activeItemId) {
+            const active = queue.items.find((candidate) => candidate.queueItemId === queue.activeItemId);
+            if (active) markScenarioCancelled(queue.queueId, active.queueItemId);
+          }
           await cancelActiveQueueItem(queue);
           await saveQueue(stopQueue(queue, new Date().toISOString()));
+        })();
+        return;
+      }
+      if (message.type === 'stop_scenario' && message.jobId && message.scenarioId) {
+        void (async () => {
+          const queue = await getQueue();
+          const item = queue?.items.find((candidate) => candidate.testCaseId === message.scenarioId);
+          if (!queue || queue.queueId !== message.jobId || !item) return;
+          const wasActive = queue.activeItemId === item.queueItemId;
+          if (wasActive) markScenarioCancelled(queue.queueId, item.queueItemId);
+          const next = stopScenario(queue, message.scenarioId!, new Date().toISOString());
+          await saveQueue(next);
+          const stopped = next.items.find((candidate) => candidate.queueItemId === item.queueItemId);
+          if (stopped?.status === 'stopped') sendScenarioStatus(next, stopped);
+          if (roverSocket?.readyState === WebSocket.OPEN) {
+            roverSocket.send(JSON.stringify({
+              type: 'progress',
+              jobId: next.queueId,
+              completed: next.items.filter((candidate) => ['passed', 'failed', 'incomplete', 'skipped', 'stopped'].includes(candidate.status)).length,
+              total: next.items.length,
+              currentScenarioId: next.activeItemId ? next.items.find((candidate) => candidate.queueItemId === next.activeItemId)?.testCaseId : undefined
+            }));
+          }
+          if (wasActive) {
+            await cancelActiveQueueItem(queue);
+            if (next.status === 'running') {
+              try {
+                if (next.newConversationBetweenItems) await startQueueConversation(next);
+                await runQueueItem(next);
+              } catch (error) {
+                await pauseQueue(next, error);
+              }
+            } else if (next.status === 'completed' && roverSocket?.readyState === WebSocket.OPEN) {
+              roverSocket.send(JSON.stringify({ type: 'complete', jobId: next.queueId, outcome: 'incomplete' }));
+            }
+          }
         })();
         return;
       }
@@ -90,9 +131,15 @@ export async function connectToMcplab(): Promise<void> {
             return;
           }
         }
+        const scenarioIds = message.scenarios!.map((scenario) => scenario.id);
+        if (new Set(scenarioIds).size !== scenarioIds.length) {
+          reportAssignmentError('Assignment scenarios must have unique IDs.');
+          return;
+        }
         const queue = createQueue(origin, message.agent!.provider!, message.newConversationBetweenScenarios !== false, new Date().toISOString());
         const assigned = { ...queue, queueId: message.jobId!, evaluationRunId: message.evaluationRunId, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
         await saveQueue(assigned);
+        for (const item of assigned.items) sendScenarioStatus(assigned, item);
         const started = startQueue(assigned, new Date().toISOString());
         await saveQueue(started);
         await runQueueItem(started);
@@ -122,7 +169,7 @@ export async function updateRoverRegistration(tabId: number): Promise<void> {
   if (!provider) return;
   const tab = await chrome.tabs.get(tabId).catch(() => undefined);
   if (registeredSocket !== roverSocket) {
-    roverSocket.send(JSON.stringify({ type: 'register', protocolVersion: 1, provider, pageUrl: tab?.url ?? '', extensionVersion: chrome.runtime.getManifest().version }));
+    roverSocket.send(JSON.stringify(registrationPayload(provider, tab?.url ?? '', chrome.runtime.getManifest().version)));
     return;
   }
   roverSocket.send(JSON.stringify({ type: 'register_update', provider, pageUrl: tab?.url ?? '' }));
