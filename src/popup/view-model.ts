@@ -1,5 +1,6 @@
 import type { CheckCounts, LiveTestCatalogItem } from '../mcplab/types';
 import type { DebugSnapshot } from '../contracts';
+import type { RoverQueueItem } from '../queue/state';
 
 export type PopupMode = 'manual' | 'queue' | 'learn' | 'debug';
 
@@ -30,4 +31,18 @@ export function debugFingerprint(snapshot: DebugSnapshot): string {
     elements: snapshot.elements,
     rover: snapshot.rover
   });
+}
+
+const completedQueueStatuses = new Set<RoverQueueItem['status']>(['passed', 'failed', 'incomplete', 'skipped', 'stopped', 'error']);
+
+export function splitQueueItems(items: RoverQueueItem[], evaluationRunId?: string): {
+  active: RoverQueueItem[];
+  completed: RoverQueueItem[];
+  managed: boolean;
+} {
+  return {
+    active: items.filter((item) => !completedQueueStatuses.has(item.status)),
+    completed: items.filter((item) => completedQueueStatuses.has(item.status)),
+    managed: Boolean(evaluationRunId)
+  };
 }

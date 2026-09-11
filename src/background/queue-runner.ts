@@ -82,6 +82,7 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
         queue = { ...queue, tabId: executionTabId };
       }
     }
+    await waitForProviderReady(executionTabId, queue.provider);
     const session = item.sessionId ? await client.get(item.sessionId) : await client.start(item.testCaseId, queue.provider, queue.evaluationRunId);
     const prompt = item.prompt || session.prompt;
     const requestId = crypto.randomUUID();
@@ -132,13 +133,14 @@ export async function waitForTabComplete(tabId: number): Promise<void> {
   });
 }
 
-async function waitForProviderReady(tabId: number): Promise<void> {
+async function waitForProviderReady(tabId: number, expectedProvider?: string): Promise<void> {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
-    if (await detectProvider(tabId)) return;
+    const provider = await detectProvider(tabId);
+    if (provider && (!expectedProvider || provider === expectedProvider)) return;
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  throw new Error('Browser provider composer was not ready after starting a new conversation.');
+  throw new Error(`Browser provider '${expectedProvider ?? 'unknown'}' was not ready on the active tab.`);
 }
 
 export async function startQueueConversation(queue: RoverQueueState): Promise<void> {

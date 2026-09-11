@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility } from '../src/popup/view-model';
+import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility, splitQueueItems } from '../src/popup/view-model';
 
 const cases = [
   { id: 'alpha', name: 'Restaurant search', tags: ['food'], assertionCount: 2, eligible: true },
@@ -38,5 +38,23 @@ describe('popup view model', () => {
 
     expect(debugFingerprint(first)).toBe(debugFingerprint(second));
     expect(debugFingerprint(first)).not.toBe(debugFingerprint(changed));
+  });
+
+  it('separates completed queue items from active items', () => {
+    const items = [
+      { queueItemId: '1', testCaseId: 'a', id: 'a', name: 'A', prompt: '', assertionCount: 0, status: 'passed' as const },
+      { queueItemId: '2', testCaseId: 'b', id: 'b', name: 'B', prompt: '', assertionCount: 0, status: 'queued' as const },
+      { queueItemId: '3', testCaseId: 'c', id: 'c', name: 'C', prompt: '', assertionCount: 0, status: 'running' as const }
+    ];
+    expect(splitQueueItems(items)).toEqual({
+      active: [items[1], items[2]],
+      completed: [items[0]],
+      managed: false
+    });
+  });
+
+  it('identifies queues managed by MCPLab', () => {
+    expect(splitQueueItems([], 'run-123').managed).toBe(true);
+    expect(splitQueueItems([], undefined).managed).toBe(false);
   });
 });

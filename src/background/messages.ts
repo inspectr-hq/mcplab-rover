@@ -334,7 +334,12 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
       console.info('[Rover debug] ignored cancelled result', { queueId: message.queueId, queueItemId: message.queueItemId });
       return;
     }
-    console.info('[Rover debug] result received', { queueId: message.queueId, queueItemId: message.queueItemId, ok: message.result.ok });
+    console.info('[Rover debug] result received', {
+      queueId: message.queueId,
+      queueItemId: message.queueItemId,
+      ok: message.result.ok,
+      error: message.result.ok ? undefined : message.result.error
+    });
     if (!message.result.ok) {
       await pauseQueue(queue, new Error(message.result.error));
       return;

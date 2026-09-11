@@ -1,7 +1,7 @@
 import type { BrowserProviderDiscoveryDraft, DebugElementCheck, DebugSnapshot, RoverState } from '../contracts';
 import type { LiveTestCatalogItem } from '../mcplab/types';
 import type { RoverQueueState } from '../queue/state';
-import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility } from './view-model';
+import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility, splitQueueItems } from './view-model';
 import './style.css';
 
 const shell = document.querySelector<HTMLElement>('.shell')!;
@@ -256,30 +256,62 @@ function renderQueue(queue: RoverQueueState | null): void {
     queueRetry.hidden = true;
     queueSkip.hidden = true;
     queueStop.hidden = true;
+    queueStart.hidden = false;
     return;
   }
+  const { active, completed, managed } = splitQueueItems(queue.items, queue.evaluationRunId);
+  const addRow = queueEvaluation.closest('.queue-add-row') as HTMLElement | null;
+  addRow?.toggleAttribute('hidden', managed);
+  queueNewChat.closest('.checkbox-row')?.toggleAttribute('hidden', managed);
   queueNewChat.checked = queue.newConversationBetweenItems;
-  queueItems.replaceChildren(...queue.items.map((item, index) => {
-    const row = document.createElement('div');
-    row.className = 'queue-item';
-    const name = document.createElement('span');
-    name.className = 'queue-item-name';
-    name.textContent = `${index + 1}. ${item.name}`;
-    const itemStatus = document.createElement('span');
-    itemStatus.className = 'queue-item-status';
-    itemStatus.textContent = item.status;
-    row.append(name, itemStatus);
-    for (const [action, label] of [['up', '↑'], ['down', '↓'], ['remove', '×']] as const) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.textContent = label;
-      button.title = action;
-      button.disabled = item.status !== 'queued' || (action === 'up' && index === 0) || (action === 'down' && index === queue.items.length - 1);
-      button.addEventListener('click', () => void chrome.runtime.sendMessage({ type: action === 'remove' ? 'ROVER_QUEUE_REMOVE' : 'ROVER_QUEUE_MOVE', queueItemId: item.queueItemId, ...(action === 'remove' ? {} : { direction: action }) }));
-      row.append(button);
-    }
-    return row;
-  }));
+  const renderGroup = (title: string, items: RoverQueueState['items'], editable: boolean): HTMLElement => {
+    const group = document.createElement('section');
+    group.className = 'queue-group';
+    const heading = document.createElement('strong');
+    heading.className = 'queue-group-title';
+    heading.textContent = `${title} (${items.length})`;
+    group.append(heading);
+    const rows = items.map((item, index) => {
+      const row = document.createElement('div');
+      row.className = 'queue-item';
+      const name = document.createElement('span');
+      name.className = 'queue-item-name';
+      name.textContent = `${queue.items.indexOf(item) + 1}. ${item.name}`;
+      const itemStatus = document.createElement('span');
+      itemStatus.className = 'queue-item-status';
+      itemStatus.textContent = item.status;
+      row.append(name, itemStatus);
+      if (editable) {
+        for (const [action, label] of [['up', '↑'], ['down', '↓'], ['remove', '×']] as const) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = label;
+          button.title = action;
+          button.disabled = item.status !== 'queued' || (action === 'up' && index === 0) || (action === 'down' && index === items.length - 1);
+          button.addEventListener('click', () => void chrome.runtime.sendMessage({ type: action === 'remove' ? 'ROVER_QUEUE_REMOVE' : 'ROVER_QUEUE_MOVE', queueItemId: item.queueItemId, ...(action === 'remove' ? {} : { direction: action }) }));
+          row.append(button);
+        }
+      }
+      if (item.resultUrl) {
+        const link = document.createElement('a');
+        link.className = 'queue-result-link';
+        link.href = item.resultUrl;
+        link.target = '_blank';
+        link.rel = 'noreferrer';
+        link.textContent = 'View result';
+        row.append(link);
+      }
+      return row;
+    });
+    group.append(...rows);
+    return group;
+  };
+  const groups: HTMLElement[] = [];
+  if (active.length) groups.push(renderGroup(managed ? 'MCPLab queue' : 'Up next', active, !managed));
+  if (completed.length) groups.push(renderGroup('Completed', completed, false));
+  queueItems.replaceChildren(...groups);
+  queueItems.parentElement?.classList.toggle('queue-managed', managed);
+  queueStart.hidden = managed;
   queueStatus.textContent = queue.status === 'paused'
     ? `Paused: ${queue.error?.message ?? 'Queue needs attention.'}`
     : queue.status === 'completed' ? 'Queue completed.' : `${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} evaluations processed.`;
