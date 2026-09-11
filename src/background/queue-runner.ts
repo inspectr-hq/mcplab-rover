@@ -9,6 +9,10 @@ import { getQueue, saveQueue } from './store';
 import { currentSocket } from './socket';
 import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover-protocol';
 
+function debugLog(event: string, details: Record<string, unknown> = {}): void {
+  console.info(`[Rover debug] ${event}`, details);
+}
+
 function sendStage(queue: RoverQueueState, itemId: string, stage: RoverStage): void {
   const socket = currentSocket();
   if (socket?.readyState === WebSocket.OPEN) {
@@ -56,6 +60,7 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
   if (!item || typeof queue.tabId !== 'number') return;
   if (item.cancelRequestedAt) return;
   try {
+    debugLog('starting queue item', { queueId: queue.queueId, scenarioId: item.testCaseId, provider: queue.provider, tabId: queue.tabId });
     const client = new McplabClient(queue.origin);
     let executionTabId: number = queue.tabId;
     if (queue.provider !== 'claude' && queue.provider !== 'trendminer') {
@@ -63,6 +68,7 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
       if (!profile) throw new Error(`Learned browser provider '${queue.provider}' is no longer available in MCPLab.`);
       const tab = await chrome.tabs.get(queue.tabId);
       const tabOrigin = tab.url ? new URL(tab.url).origin : undefined;
+      debugLog('checking learned provider tab', { provider: queue.provider, tabId: queue.tabId, tabOrigin, expectedOrigins: profile.match.origins });
       if (!tabOrigin || !profile.match.origins.includes(tabOrigin)) {
         const current = await activeTab();
         const currentOrigin = current?.url ? new URL(current.url).origin : undefined;
@@ -100,8 +106,10 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
       queueItemId: item.queueItemId,
       prompt
     });
+    debugLog('prompt sent to content script', { queueId: queue.queueId, scenarioId: item.testCaseId, tabId: executionTabId });
     sendStage(queue, item.testCaseId, 'waiting_for_response');
   } catch (error) {
+    debugLog('queue item paused after error', { queueId: queue.queueId, scenarioId: item.testCaseId, error: error instanceof Error ? error.message : String(error) });
     await pauseQueue(queue, error);
   }
 }

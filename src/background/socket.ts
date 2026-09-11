@@ -10,7 +10,12 @@ import type { RoverQueueState } from '../queue/state';
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
 let roverReconnectAttempt = 0;
+let roverHeartbeat: ReturnType<typeof setInterval> | null = null;
 const loadedProviders = new Map<string, import('../mcplab/types').BrowserProviderProfile>();
+
+function debugLog(event: string, details: Record<string, unknown> = {}): void {
+  console.info(`[Rover debug] ${event}`, details);
+}
 
 async function reconcileQueueAfterRegistration(origin: string): Promise<void> {
   const queue = await getQueue();
@@ -64,29 +69,41 @@ async function loadProfilesIntoTab(tabId: number, origin: string): Promise<void>
 export async function connectToMcplab(): Promise<void> {
   const origin = await resolveOrigin();
   if (roverSocket && (roverSocket.readyState === WebSocket.OPEN || roverSocket.readyState === WebSocket.CONNECTING)) return;
+  debugLog('connecting', { origin });
   const wsOrigin = origin.replace(/^http/i, 'ws');
   const socket = new WebSocket(`${wsOrigin}/api/rover/ws`);
   roverSocket = socket;
   registeredSocket = null;
   socket.onopen = async () => {
     roverReconnectAttempt = 0;
+    if (roverHeartbeat) clearInterval(roverHeartbeat);
+    // MV3 service workers can be suspended while a WebSocket is otherwise idle.
+    // Keep the connection active while MCPLab has queued or running work.
+    roverHeartbeat = setInterval(() => {
+      if (roverSocket !== socket || socket.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify({ type: 'heartbeat' }));
+    }, 20_000);
     const tab = await activeTab();
     let provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
     if (typeof tab?.id === 'number') {
       await loadProfilesIntoTab(tab.id, origin);
       provider = await detectProvider(tab.id);
     }
+    debugLog('provider detection complete', { tabId: tab?.id, tabOrigin: tab?.url ? new URL(tab.url).origin : undefined, provider });
     if (!provider) {
+      debugLog('closing because no provider is active');
       socket.close(1000, 'No supported Rover provider is active');
       return;
     }
     socket.send(JSON.stringify(registrationPayload(provider, tab?.url ?? '', chrome.runtime.getManifest().version)));
+    debugLog('registration sent', { provider, tabId: tab?.id });
   };
   socket.onmessage = (event) => {
     try {
       const message = JSON.parse(String(event.data)) as { type?: string; jobId?: string; scenarioId?: string; evaluationRunId?: string; agent?: { provider?: ProviderId; providerRevision?: string }; provider?: import('../mcplab/types').BrowserProviderProfile; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
       if (message.type === 'registered' && roverSocket === socket) {
         registeredSocket = socket;
+        debugLog('registration acknowledged');
         void reconcileQueueAfterRegistration(origin);
       }
       if (message.type === 'provider_updated' && message.provider) {
@@ -144,6 +161,7 @@ export async function connectToMcplab(): Promise<void> {
         return;
       }
       if (message.type !== 'assignment' || !message.jobId || !message.agent?.provider || !message.scenarios?.length) return;
+      debugLog('assignment received', { jobId: message.jobId, provider: message.agent.provider, scenarios: message.scenarios.length });
       void (async () => {
         const reportAssignmentError = (reason: string) => {
           if (socket.readyState === WebSocket.OPEN) {
@@ -177,10 +195,15 @@ export async function connectToMcplab(): Promise<void> {
       })();
     } catch { /* ignore malformed server messages */ }
   };
-  socket.onclose = () => {
+  socket.onclose = (event) => {
     if (roverSocket !== socket) return;
+    if (roverHeartbeat) {
+      clearInterval(roverHeartbeat);
+      roverHeartbeat = null;
+    }
     roverSocket = null;
     if (registeredSocket === socket) registeredSocket = null;
+    debugLog('socket closed', { code: event.code, reason: event.reason, wasClean: event.wasClean });
     if (roverReconnectAttempt >= 8) return;
     const delay = Math.min(30_000, 1_000 * 2 ** roverReconnectAttempt);
     roverReconnectAttempt += 1;
