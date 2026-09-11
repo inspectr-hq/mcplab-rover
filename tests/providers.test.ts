@@ -198,11 +198,11 @@ describe('Learned provider adapter', () => {
 
   it('prioritizes a matching learned profile and falls back when cleared', () => {
     document.body.innerHTML = '<div contenteditable="true"></div>';
-    setLearnedProfiles([{ ...learnedProfile, match: { origins: [location.origin] } }]);
+    setLearnedProfiles([{ ...learnedProfile, id: 'm365-cloud-microsoft', name: 'M365', match: { origins: [location.origin] } }]);
 
-    expect(findPageAdapter()?.id).toBe('chatgpt-com');
+    expect(findPageAdapter()?.id).toBe('m365-cloud-microsoft');
 
     setLearnedProfiles([]);
-    expect(findAdapter()?.id).toBe('chatgpt-com');
+    expect(findAdapter()?.id).toBeUndefined();
   });
 });

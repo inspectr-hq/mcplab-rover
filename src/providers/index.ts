@@ -17,9 +17,9 @@ export function setLearnedProfiles(profiles: BrowserProviderProfile[]): void {
 }
 
 export function findAdapter(provider?: ProviderId): ChatProviderAdapter | null {
-  return adapters.find((adapter) => (!provider || adapter.id === provider) && adapter.canHandle()) ?? null;
+  return adapters.find((adapter) => (!provider || adapter.id === provider) && adapter.matchesPage() && adapter.canHandle()) ?? null;
 }
 
 export function findPageAdapter(): ChatProviderAdapter | null {
-  return adapters.find((adapter) => adapter.matchesPage()) ?? null;
+  return adapters.find((adapter) => adapter.matchesPage() && adapter.canHandle()) ?? null;
 }
