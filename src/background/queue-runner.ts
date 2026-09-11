@@ -2,7 +2,7 @@ import { McplabClient } from '../mcplab/api-client';
 import {
   type RoverQueueState
 } from '../queue/state';
-import { detectProvider } from './browser';
+import { activeTab, detectProvider } from './browser';
 import type { RoverStage } from '../contracts';
 import { errorMessage } from './errors';
 import { getQueue, saveQueue } from './store';
@@ -57,13 +57,23 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
   if (item.cancelRequestedAt) return;
   try {
     const client = new McplabClient(queue.origin);
+    let executionTabId: number = queue.tabId;
     if (queue.provider !== 'claude' && queue.provider !== 'trendminer') {
       const profile = (await client.listBrowserProviders()).find((candidate) => candidate.id === queue.provider);
       if (!profile) throw new Error(`Learned browser provider '${queue.provider}' is no longer available in MCPLab.`);
       const tab = await chrome.tabs.get(queue.tabId);
       const tabOrigin = tab.url ? new URL(tab.url).origin : undefined;
       if (!tabOrigin || !profile.match.origins.includes(tabOrigin)) {
-        throw new Error(`${profile.name} is not matched by the active browser tab.`);
+        const current = await activeTab();
+        const currentOrigin = current?.url ? new URL(current.url).origin : undefined;
+        if (typeof current?.id === 'number' && currentOrigin && profile.match.origins.includes(currentOrigin)) {
+          executionTabId = current.id;
+        } else {
+          throw new Error(`${profile.name} is not matched by the active browser tab.`);
+        }
+      }
+      if (executionTabId !== queue.tabId) {
+        queue = { ...queue, tabId: executionTabId };
       }
     }
     const session = item.sessionId ? await client.get(item.sessionId) : await client.start(item.testCaseId, queue.provider, queue.evaluationRunId);
@@ -82,7 +92,7 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
     await saveQueue(running);
     sendScenarioStatus(running, running.items.find((candidate) => candidate.queueItemId === item.queueItemId)!);
     sendStage(queue, item.testCaseId, 'prompt_sent');
-    await chrome.tabs.sendMessage(queue.tabId, {
+    await chrome.tabs.sendMessage(executionTabId, {
       type: 'ROVER_ASK',
       requestId,
       sessionId: session.id,
