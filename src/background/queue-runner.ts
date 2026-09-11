@@ -83,7 +83,11 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
       }
     }
     await waitForProviderReady(executionTabId, queue.provider);
-    const session = item.sessionId ? await client.get(item.sessionId) : await client.start(item.testCaseId, queue.provider, queue.evaluationRunId);
+    const session = item.sessionId ? await client.get(item.sessionId) : await client.start(item.testCaseId, queue.provider, queue.evaluationRunId, {
+      configPath: queue.sourceConfigPath,
+      configName: queue.sourceConfigName,
+      agentName: queue.sourceAgentName
+    });
     const prompt = item.prompt || session.prompt;
     const requestId = crypto.randomUUID();
     const running: RoverQueueState = {

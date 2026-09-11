@@ -32,4 +32,27 @@ describe('McplabClient', () => {
     expect(result[0]?.id).toBe('custom');
     expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:8787/api/rover/providers', expect.any(Object));
   });
+
+  it('passes queued run metadata when starting a Live Test session', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ id: 'session-1' }), { status: 201 }));
+    const client = new McplabClient('http://127.0.0.1:8787', fetcher as typeof fetch);
+    await client.start('case-1', 'm365.cloud.microsoft', 'evaluation-1', {
+      configPath: 'evals/hi-there.yaml',
+      configName: 'Hi There',
+      agentName: 'm365.cloud.microsoft'
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      'http://127.0.0.1:8787/api/live-tests/sessions',
+      expect.objectContaining({
+        body: JSON.stringify({
+          testCaseId: 'case-1',
+          client: 'm365.cloud.microsoft',
+          evaluationRunId: 'evaluation-1',
+          configPath: 'evals/hi-there.yaml',
+          configName: 'Hi There',
+          agentName: 'm365.cloud.microsoft'
+        })
+      })
+    );
+  });
 });

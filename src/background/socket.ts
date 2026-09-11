@@ -108,7 +108,7 @@ export async function connectToMcplab(): Promise<void> {
   };
   socket.onmessage = (event) => {
     try {
-      const message = JSON.parse(String(event.data)) as { type?: string; jobId?: string; scenarioId?: string; evaluationRunId?: string; agent?: { provider?: ProviderId; providerRevision?: string }; provider?: import('../mcplab/types').BrowserProviderProfile; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
+      const message = JSON.parse(String(event.data)) as { type?: string; jobId?: string; scenarioId?: string; evaluationRunId?: string; configPath?: string; evaluationName?: string; agentName?: string; agent?: { provider?: ProviderId; providerRevision?: string }; provider?: import('../mcplab/types').BrowserProviderProfile; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
       if (message.type === 'registered' && roverSocket === socket) {
         registeredSocket = socket;
         debugLog('registration acknowledged');
@@ -196,7 +196,7 @@ export async function connectToMcplab(): Promise<void> {
         const previous = await getQueue();
         const history = previous ? archiveCompletedQueueItems(previous).recentHistory : undefined;
         const queue = createQueue(origin, message.agent!.provider!, message.newConversationBetweenScenarios !== false, new Date().toISOString());
-        const assigned = { ...queue, recentHistory: history, queueId: message.jobId!, evaluationRunId: message.evaluationRunId, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
+        const assigned = { ...queue, recentHistory: history, queueId: message.jobId!, evaluationRunId: message.evaluationRunId, sourceConfigPath: message.configPath, sourceConfigName: message.evaluationName, sourceAgentName: message.agentName, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
         await saveQueue(assigned);
         for (const item of assigned.items) sendScenarioStatus(assigned, item);
         const started = startQueue(assigned, new Date().toISOString());

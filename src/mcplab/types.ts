@@ -51,6 +51,9 @@ export interface LiveTestSessionView {
   createdAt: string;
   expiresAt: string;
   evaluationRunId?: string;
+  configPath?: string;
+  configName?: string;
+  agentName?: string;
   completion?: LiveTestCompletion;
 }
 

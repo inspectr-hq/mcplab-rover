@@ -49,6 +49,9 @@ export interface RoverQueueState {
   createdAt: string;
   updatedAt: string;
   evaluationRunId?: string;
+  sourceConfigPath?: string;
+  sourceConfigName?: string;
+  sourceAgentName?: string;
   recentHistory?: Record<string, RoverQueueItem[]>;
 }
 
