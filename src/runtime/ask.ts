@@ -5,6 +5,9 @@ import type { ChatProviderAdapter } from '../providers/types';
 export async function ask(adapter: ChatProviderAdapter, prompt: string, signal?: AbortSignal): Promise<string> {
   const baseline = adapter.getAssistantCandidates();
   await adapter.setComposerText(prompt);
+  // Give framework-controlled composers time to process the synthetic input event
+  // and enable their submit control before invoking the provider adapter.
+  await new Promise((resolve) => setTimeout(resolve, 150));
   await adapter.submit();
   return waitForCompletedResponse({
     pollMs: 100,

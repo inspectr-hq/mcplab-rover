@@ -3,6 +3,14 @@ import type { ChatProviderAdapter } from './types';
 import type { ResponseCandidate } from '../runtime/candidate-selection';
 import { isVisible, setTextValue, textFrom } from './dom';
 
+function findFallbackSubmit(): HTMLElement | null {
+  return Array.from(document.querySelectorAll<HTMLElement>('button,[role="button"]')).find((element) => {
+    if (!isVisible(element) || (element as HTMLButtonElement).disabled) return false;
+    const label = `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.getAttribute('data-testid') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
+    return /\b(send|submit|ask|run)\b/.test(label) && !/stop|cancel/.test(label);
+  }) ?? null;
+}
+
 function rootsFor(root: Document | ShadowRoot): Array<Document | ShadowRoot> {
   const result: Array<Document | ShadowRoot> = [root];
   for (const element of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
@@ -48,7 +56,13 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
       }
       const composer = findComposer();
       if (!composer) throw new Error(`${profile.name} composer was not found`);
+      const button = findFallbackSubmit();
+      if (button) {
+        button.click();
+        return;
+      }
       composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
+      composer.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
     },
     startNewConversation: profile.newConversation ? async () => {
       if (profile.newConversation?.action === 'navigate') {

@@ -165,6 +165,23 @@ describe('Learned provider adapter', () => {
     expect(adapter.getAssistantCandidates()[0]?.text).toBe('Learned response');
   });
 
+  it('clicks a visible send control when an Enter-based profile exposes one', async () => {
+    document.body.innerHTML = `
+      <div contenteditable="true"></div>
+      <button aria-label="Send message">Send</button>
+    `;
+    const adapter = createLearnedAdapter(learnedProfile);
+    let clicks = 0;
+    const button = document.querySelector('button')!;
+    Object.defineProperty(button, 'getBoundingClientRect', { value: () => ({ width: 10, height: 10 }) });
+    button.addEventListener('click', () => clicks++);
+
+    await adapter.setComposerText('Learned prompt');
+    await adapter.submit();
+
+    expect(clicks).toBe(1);
+  });
+
   it('uses the learned new-conversation control', async () => {
     document.body.innerHTML = `
       <div contenteditable="true"></div>

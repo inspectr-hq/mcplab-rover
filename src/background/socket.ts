@@ -69,6 +69,11 @@ async function loadProfilesIntoTab(tabId: number, origin: string): Promise<void>
 export async function connectToMcplab(): Promise<void> {
   const origin = await resolveOrigin();
   if (roverSocket && (roverSocket.readyState === WebSocket.OPEN || roverSocket.readyState === WebSocket.CONNECTING)) return;
+  const initialTab = await activeTab();
+  if (typeof initialTab?.id !== 'number') {
+    debugLog('waiting for an active tab before connecting');
+    return;
+  }
   debugLog('connecting', { origin });
   const wsOrigin = origin.replace(/^http/i, 'ws');
   const socket = new WebSocket(`${wsOrigin}/api/rover/ws`);
@@ -77,12 +82,7 @@ export async function connectToMcplab(): Promise<void> {
   socket.onopen = async () => {
     roverReconnectAttempt = 0;
     if (roverHeartbeat) clearInterval(roverHeartbeat);
-    // MV3 service workers can be suspended while a WebSocket is otherwise idle.
-    // Keep the connection active while MCPLab has queued or running work.
-    roverHeartbeat = setInterval(() => {
-      if (roverSocket !== socket || socket.readyState !== WebSocket.OPEN) return;
-      socket.send(JSON.stringify({ type: 'heartbeat' }));
-    }, 20_000);
+    roverHeartbeat = null;
     const tab = await activeTab();
     let provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
     if (typeof tab?.id === 'number') {
@@ -91,12 +91,20 @@ export async function connectToMcplab(): Promise<void> {
     }
     debugLog('provider detection complete', { tabId: tab?.id, tabOrigin: tab?.url ? new URL(tab.url).origin : undefined, provider });
     if (!provider) {
-      debugLog('closing because no provider is active');
-      socket.close(1000, 'No supported Rover provider is active');
+      // Chrome can report no active tab while the extension or service-worker
+      // inspector has focus. Keep the transport open and let tab activation or
+      // navigation register the provider once a page is available.
+      debugLog('waiting for an active supported tab');
       return;
     }
     socket.send(JSON.stringify(registrationPayload(provider, tab?.url ?? '', chrome.runtime.getManifest().version)));
     debugLog('registration sent', { provider, tabId: tab?.id });
+    // Start heartbeats only after sending registration. The server rejects
+    // non-registration messages from an unregistered WebSocket.
+    roverHeartbeat = setInterval(() => {
+      if (roverSocket !== socket || socket.readyState !== WebSocket.OPEN) return;
+      socket.send(JSON.stringify({ type: 'heartbeat' }));
+    }, 20_000);
   };
   socket.onmessage = (event) => {
     try {
