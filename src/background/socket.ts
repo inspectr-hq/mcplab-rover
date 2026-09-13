@@ -6,6 +6,7 @@ import { cancelActiveQueueItem, pauseQueue, runQueueItem, sendScenarioStatus, st
 import { registrationPayload } from '../mcplab/rover-protocol';
 import { getQueue, resolveOrigin, saveQueue } from './store';
 import type { RoverQueueState } from '../queue/state';
+import { queueNeedsResume } from '../queue/recovery';
 
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
@@ -28,7 +29,10 @@ async function reconcileQueueAfterRegistration(origin: string): Promise<void> {
       ...(snapshot.admitting_jobs ?? []).map((job) => job.jobId),
       ...(snapshot.queued ?? []).map((job) => job.jobId)
     ].filter((jobId): jobId is string => Boolean(jobId));
-    if (liveJobIds.includes(queue.queueId)) return;
+    if (liveJobIds.includes(queue.queueId)) {
+      if (queueNeedsResume(queue)) await runQueueItem(queue);
+      return;
+    }
     const paused: RoverQueueState = {
       ...queue,
       status: 'paused',
@@ -237,4 +241,5 @@ export async function updateRoverRegistration(tabId: number): Promise<void> {
     return;
   }
   roverSocket.send(JSON.stringify({ type: 'register_update', provider, pageUrl: tab?.url ?? '' }));
+  await reconcileQueueAfterRegistration(origin);
 }

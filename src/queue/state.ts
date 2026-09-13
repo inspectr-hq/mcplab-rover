@@ -117,6 +117,7 @@ export function removeQueueItem(queue: RoverQueueState, queueItemId: string): Ro
 }
 
 export function startQueue(queue: RoverQueueState, now: string): RoverQueueState {
+  if (queue.status === 'running') return queue;
   const restart = queue.status === 'completed' || queue.status === 'stopped';
   const candidates = restart
     ? queue.items.map((item) => ({ ...item, status: 'queued' as const, sessionId: undefined, requestId: undefined, startedAt: undefined, completedAt: undefined, cancelRequestedAt: undefined, runId: undefined, resultUrl: undefined, checkCounts: undefined, text: undefined }))
