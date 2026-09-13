@@ -234,6 +234,7 @@ export async function updateRoverRegistration(tabId: number): Promise<void> {
     return;
   }
   const provider = await detectProvider(tabId);
+  void chrome.runtime.sendMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED', provider }).catch(() => undefined);
   if (!provider) return;
   const tab = await chrome.tabs.get(tabId).catch(() => undefined);
   if (registeredSocket !== roverSocket) {

@@ -31,6 +31,7 @@ const openResult = document.querySelector<HTMLButtonElement>('#open-result')!;
 const reset = document.querySelector<HTMLButtonElement>('#reset')!;
 const connectionStatus = document.querySelector<HTMLSpanElement>('#connection-status')!;
 const connectionDot = document.querySelector<HTMLSpanElement>('#connection-dot')!;
+const newConversation = document.querySelector<HTMLButtonElement>('#new-conversation')!;
 const manualMode = document.querySelector<HTMLButtonElement>('#manual-mode')!;
 const queueMode = document.querySelector<HTMLButtonElement>('#queue-mode')!;
 const queuePanel = document.querySelector<HTMLElement>('#queue-panel')!;
@@ -62,6 +63,7 @@ let items: LiveTestCatalogItem[] = [];
 let current: RoverState | null = null;
 let currentQueue: RoverQueueState | null = null;
 let activeProvider: string | undefined;
+let activeProviderSupportsNewConversation = false;
 let mode: 'manual' | 'queue' | 'learn' | 'debug' = 'manual';
 let discoveryDraft: BrowserProviderDiscoveryDraft | null = null;
 const DISCOVERY_DRAFT_KEY = 'rover.provider-discovery-draft';
@@ -92,6 +94,18 @@ connectionSettings.addEventListener('click', () => {
   const expanded = !connectionControls.hidden;
   connectionControls.hidden = expanded;
   connectionSettings.setAttribute('aria-expanded', String(!expanded));
+});
+newConversation.addEventListener('click', async () => {
+  newConversation.disabled = true;
+  newConversation.textContent = 'Starting…';
+  const response = await chrome.runtime.sendMessage({ type: 'ROVER_START_NEW_CONVERSATION' });
+  newConversation.disabled = false;
+  newConversation.textContent = 'Start new conversation';
+  if (!response?.ok) {
+    status.textContent = response?.error ?? 'Could not start a new conversation.';
+    return;
+  }
+  status.textContent = 'New conversation started.';
 });
 manualMode.addEventListener('click', () => void setMode('manual'));
 queueMode.addEventListener('click', async () => {
@@ -329,8 +343,10 @@ function renderQueue(queue: RoverQueueState | null): void {
 }
 
 async function refreshActiveProvider(): Promise<void> {
-  const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_ACTIVE_PROVIDER' }) as { provider?: string } | undefined;
+  const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_ACTIVE_PROVIDER' }) as { provider?: string; supportsNewConversation?: boolean } | undefined;
   activeProvider = response?.provider;
+  activeProviderSupportsNewConversation = response?.supportsNewConversation === true;
+  newConversation.hidden = !activeProviderSupportsNewConversation;
   if (mode === 'queue') renderQueue(currentQueue);
 }
 
@@ -588,6 +604,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 chrome.runtime.onMessage.addListener((message: { type?: string }) => {
+  if (message.type === 'ROVER_ACTIVE_PROVIDER_CHANGED') void refreshActiveProvider();
   if (message.type === 'ROVER_DEBUG_CHANGED' && mode === 'debug') void refreshDebug(false);
   if (message.type === 'ROVER_LEARN_RESULT') {
     const event = message as { draft?: BrowserProviderDiscoveryDraft };

@@ -72,7 +72,24 @@ export function installMessageHandler(): void {
       return respond(sendResponse, async () => {
         const tab = await activeTab();
         const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
-        return { provider, tabId: tab?.id, url: tab?.url };
+        const origin = await resolveOrigin();
+        return { provider, tabId: tab?.id, url: tab?.url, supportsNewConversation: await supportsNewConversation(provider, origin) };
+      });
+    }
+
+    if (message.type === 'ROVER_START_NEW_CONVERSATION') {
+      return respond(sendResponse, async () => {
+        const queue = await getQueue();
+        if (queue?.status === 'running') throw new Error('Finish or stop the active queue before starting a new conversation.');
+        const tab = await activeTab();
+        if (typeof tab?.id !== 'number') throw new Error('No active browser tab is available.');
+        const provider = await detectProvider(tab.id);
+        const origin = await resolveOrigin();
+        if (!provider || !(await supportsNewConversation(provider, origin))) {
+          throw new Error('The active provider does not support starting a new conversation.');
+        }
+        await startQueueConversation({ ...createQueue(origin, provider, false, new Date().toISOString()), tabId: tab.id });
+        return { ok: true, provider };
       });
     }
 
@@ -322,6 +339,17 @@ export function installMessageHandler(): void {
 
 function createQueueForMessage(origin: string, provider: RoverQueueState['provider'], newConversationBetweenItems: boolean): RoverQueueState {
   return createQueue(origin, provider, newConversationBetweenItems, new Date().toISOString());
+}
+
+async function supportsNewConversation(provider: ProviderId | undefined, origin: string): Promise<boolean> {
+  if (provider === 'claude' || provider === 'chatgpt-com' || provider === 'trendminer') return true;
+  if (!provider) return false;
+  try {
+    const profile = (await new McplabClient(origin).listBrowserProviders()).find((candidate) => candidate.id === provider);
+    return Boolean(profile?.newConversation);
+  } catch {
+    return false;
+  }
 }
 
 function sendQueueStage(queue: RoverQueueState, scenarioId: string, stage: RoverStage): void {
