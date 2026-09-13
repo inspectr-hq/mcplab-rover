@@ -2,14 +2,14 @@ import { installMessageHandler, syncDebugSubscription } from './background/messa
 import { connectToMcplab, updateRoverRegistration } from './background/socket';
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
-  void updateRoverRegistration(tabId);
-  void syncDebugSubscription(tabId);
+  void updateRoverRegistration(tabId).catch((error) => console.warn('[Rover] tab activation registration failed', error));
+  void syncDebugSubscription(tabId).catch((error) => console.warn('[Rover] debug subscription sync failed', error));
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'complete') {
-    void updateRoverRegistration(tabId);
-    void syncDebugSubscription(tabId);
+    void updateRoverRegistration(tabId).catch((error) => console.warn('[Rover] tab update registration failed', error));
+    void syncDebugSubscription(tabId).catch((error) => console.warn('[Rover] debug subscription sync failed', error));
   }
 });
 

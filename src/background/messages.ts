@@ -19,6 +19,7 @@ import { complete, fail } from './live-test';
 import { cancelActiveQueueItem, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
 import { currentSocket, loadedProvider } from './socket';
 import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, saveState, STATE_KEY } from './store';
+import { serializeQueueOperation } from '../queue/operations';
 
 function respond<T>(sendResponse: (response: T | { ok: false; error: string }) => void, work: () => Promise<T>): true {
   void work().then(sendResponse).catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
@@ -80,7 +81,7 @@ export function installMessageHandler(): void {
     if (message.type === 'ROVER_START_NEW_CONVERSATION') {
       return respond(sendResponse, async () => {
         const queue = await getQueue();
-        if (queue?.status === 'running') throw new Error('Finish or stop the active queue before starting a new conversation.');
+        if (queue && ['running', 'paused'].includes(queue.status)) throw new Error('Finish or stop the active queue before starting a new conversation.');
         const tab = await activeTab();
         if (typeof tab?.id !== 'number') throw new Error('No active browser tab is available.');
         const provider = await detectProvider(tab.id);
@@ -225,19 +226,23 @@ export function installMessageHandler(): void {
     }
 
     if (message.type === 'ROVER_QUEUE_START') {
-      void (async () => {
+      void serializeQueueOperation(async () => {
         const queue = await getQueue();
         if (!queue) throw new Error('No queue has been created.');
+        if (queue.status === 'running') {
+          sendResponse({ ok: true, queue });
+          return;
+        }
         const started = startQueue(queue, new Date().toISOString());
         await saveQueue(started);
         sendResponse({ ok: true, queue: started });
         await runQueueItem(started);
-      })().catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
+      }).catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
       return true;
     }
 
     if (message.type === 'ROVER_QUEUE_STOP' || message.type === 'ROVER_QUEUE_SKIP') {
-      void (async () => {
+      void serializeQueueOperation(async () => {
         const queue = await getQueue();
         if (!queue) throw new Error('No queue is active.');
         await cancelActiveQueueItem(queue);
@@ -249,19 +254,19 @@ export function installMessageHandler(): void {
         if (message.type === 'ROVER_QUEUE_SKIP' && next.status === 'running') {
           await runQueueItem(next);
         }
-      })().catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
+      }).catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
       return true;
     }
 
     if (message.type === 'ROVER_QUEUE_RETRY') {
-      void (async () => {
+      void serializeQueueOperation(async () => {
         const queue = await getQueue();
         if (!queue || queue.status !== 'paused' || !queue.activeItemId) throw new Error('No paused queue item to retry.');
         const retrying: RoverQueueState = { ...queue, status: 'running', error: undefined, items: queue.items.map((item) => item.queueItemId === queue.activeItemId ? { ...item, status: 'running' as const } : item), updatedAt: new Date().toISOString() };
         await saveQueue(retrying);
         sendResponse({ ok: true, queue: retrying });
         await runQueueItem(retrying);
-      })().catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
+      }).catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
       return true;
     }
 
@@ -290,7 +295,7 @@ export function installMessageHandler(): void {
     }
 
     if (message.type === 'ROVER_EXECUTE') {
-      void (async () => {
+      void serializeQueueOperation(async () => {
         const state = await getState();
         if (!state || state.status !== 'ready' || !state.provider || typeof state.tabId !== 'number') {
           throw new Error('No prepared Live Test is ready for browser execution.');
@@ -304,7 +309,7 @@ export function installMessageHandler(): void {
           await fail(running, error);
           throw error;
         }
-      })().catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
+      }).catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
       return true;
     }
 
@@ -332,7 +337,7 @@ export function installMessageHandler(): void {
     }
 
     if (message.type === 'ROVER_RESULT') {
-      void handleResult(message);
+      void serializeQueueOperation(() => handleResult(message)).catch((error) => console.error('[Rover] result handling failed', error));
     }
   });
 }

@@ -24,7 +24,9 @@ function startDebugObserver(): void {
     if (debugNotifyTimer !== undefined) window.clearTimeout(debugNotifyTimer);
     debugNotifyTimer = window.setTimeout(() => {
       debugNotifyTimer = undefined;
-      void chrome.runtime.sendMessage({ type: 'ROVER_DEBUG_CHANGED' });
+      void chrome.runtime.sendMessage({ type: 'ROVER_DEBUG_CHANGED' }).catch((error) => {
+        console.warn('[Rover] debug update notification failed', error);
+      });
     }, 250);
   });
   debugObserver.observe(document.body, {
@@ -110,7 +112,9 @@ if (runtime.__mcplabRoverInstalled) {
     if (message.type === 'ROVER_LEARN_START') {
       stopProviderDiscovery?.();
       stopProviderDiscovery = startProviderDiscovery((draft) => {
-        void chrome.runtime.sendMessage({ type: 'ROVER_LEARN_RESULT', draft });
+        void chrome.runtime.sendMessage({ type: 'ROVER_LEARN_RESULT', draft }).catch((error) => {
+          console.warn('[Rover] provider discovery result delivery failed', error);
+        });
       });
       sendResponse({ ok: true });
       return true;
@@ -161,7 +165,9 @@ if (runtime.__mcplabRoverInstalled) {
     if (message.type === 'ROVER_CANCEL_ASK') {
       const controller = activeAskControllers.get(message.requestId);
       controller?.abort();
-      void findAdapter()?.stopGeneration?.();
+      void Promise.resolve(findAdapter()?.stopGeneration?.()).catch((error) => {
+        console.warn('[Rover] provider generation cancellation failed', error);
+      });
       sendResponse({ ok: true });
       return true;
     }

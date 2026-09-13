@@ -156,4 +156,13 @@ describe('queue state', () => {
 
     expect(stopped.items.map((item) => item.status)).toEqual(['passed', 'stopped']);
   });
+
+  it('marks active items stopped when the whole queue is stopped', () => {
+    let queue = createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z');
+    queue = startQueue(addQueueItem(queue, alpha), '2026-09-09T10:01:00.000Z');
+
+    const stopped = stopQueue(queue, '2026-09-09T10:02:00.000Z');
+
+    expect(stopped.items[0]?.status).toBe('stopped');
+  });
 });

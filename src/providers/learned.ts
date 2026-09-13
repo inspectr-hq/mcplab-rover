@@ -78,7 +78,8 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
     getResponseState: (items: ResponseCandidate[]) => {
       const generating = profile.completion.generatingLocator ? Boolean(findPath(profile.completion.generatingLocator)[0]) : false;
       const idle = profile.completion.idleLocator ? Boolean(findPath(profile.completion.idleLocator)[0]) : !generating;
-      return { text: items.at(-1)?.text ?? '', isGenerating: generating, isIdle: idle, error: null };
+      const error = document.querySelector('[role="alert"]')?.textContent?.trim() || null;
+      return { text: items.at(-1)?.text ?? '', isGenerating: generating, isIdle: idle, error };
     },
     getDebugChecks: () => [
       { id: 'composer', label: 'Composer', present: Boolean(findComposer()), detail: profile.learned.confidence.composer ?? 'Learned profile' },

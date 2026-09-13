@@ -293,7 +293,8 @@ function renderQueue(queue: RoverQueueState | null): void {
       row.className = 'queue-item';
       const name = document.createElement('span');
       name.className = 'queue-item-name';
-      name.textContent = `${queue.items.indexOf(item) + 1}. ${item.name}`;
+      const queueIndex = queue.items.findIndex((candidate) => candidate.queueItemId === item.queueItemId);
+      name.textContent = `${queueIndex + 1}. ${item.name}`;
       const itemStatus = document.createElement('span');
       itemStatus.className = 'queue-item-status';
       itemStatus.textContent = item.status;

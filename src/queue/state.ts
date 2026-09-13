@@ -173,5 +173,5 @@ export function stopScenario(queue: RoverQueueState, scenarioId: string, now: st
 }
 
 export function stopQueue(queue: RoverQueueState, now: string): RoverQueueState {
-  return archiveCompletedQueueItems(updated(queue, { status: 'stopped', activeItemId: undefined, error: undefined, items: queue.items.map((item) => item.status === 'running' || item.status === 'evaluating' ? { ...item, status: 'error', completedAt: now, cancelRequestedAt: now } : item) }));
+  return archiveCompletedQueueItems(updated(queue, { status: 'stopped', activeItemId: undefined, error: undefined, items: queue.items.map((item) => item.status === 'running' || item.status === 'evaluating' ? { ...item, status: 'stopped', completedAt: now, cancelRequestedAt: now } : item) }));
 }

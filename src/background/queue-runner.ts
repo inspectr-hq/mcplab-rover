@@ -63,7 +63,7 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
     debugLog('starting queue item', { queueId: queue.queueId, scenarioId: item.testCaseId, provider: queue.provider, tabId: queue.tabId });
     const client = new McplabClient(queue.origin);
     let executionTabId: number = queue.tabId;
-    if (queue.provider !== 'claude' && queue.provider !== 'trendminer') {
+    if (queue.provider !== 'claude' && queue.provider !== 'trendminer' && queue.provider !== 'chatgpt-com') {
       const profile = (await client.listBrowserProviders()).find((candidate) => candidate.id === queue.provider);
       if (!profile) throw new Error(`Learned browser provider '${queue.provider}' is no longer available in MCPLab.`);
       const tab = await chrome.tabs.get(queue.tabId);

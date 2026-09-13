@@ -7,6 +7,7 @@ import { registrationPayload } from '../mcplab/rover-protocol';
 import { getQueue, resolveOrigin, saveQueue } from './store';
 import type { RoverQueueState } from '../queue/state';
 import { queueNeedsResume } from '../queue/recovery';
+import { serializeQueueOperation } from '../queue/operations';
 
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
@@ -21,6 +22,10 @@ function debugLog(event: string, details: Record<string, unknown> = {}): void {
 async function reconcileQueueAfterRegistration(origin: string): Promise<void> {
   const queue = await getQueue();
   if (!queue || queue.status !== 'running') return;
+  if (!queue.evaluationRunId) {
+    if (queueNeedsResume(queue)) await runQueueItem(queue);
+    return;
+  }
   try {
     const snapshot = await new McplabClient(origin).getQueue();
     const liveJobIds = [
@@ -116,7 +121,9 @@ export async function connectToMcplab(): Promise<void> {
       if (message.type === 'registered' && roverSocket === socket) {
         registeredSocket = socket;
         debugLog('registration acknowledged');
-        void reconcileQueueAfterRegistration(origin);
+        void reconcileQueueAfterRegistration(origin).catch((error) => {
+          debugLog('queue reconciliation failed', { error: error instanceof Error ? error.message : String(error) });
+        });
       }
       if (message.type === 'provider_updated' && message.provider) {
         loadedProviders.set(message.provider.id, message.provider);
@@ -126,16 +133,18 @@ export async function connectToMcplab(): Promise<void> {
         return;
       }
       if (message.type === 'stop' && message.jobId) {
-        void (async () => {
+        void serializeQueueOperation(async () => {
           const queue = await getQueue();
           if (!queue || queue.queueId !== message.jobId) return;
           await cancelActiveQueueItem(queue);
           await saveQueue(stopQueue(queue, new Date().toISOString()));
-        })();
+        }).catch((error) => {
+          debugLog('whole queue stop failed', { error: error instanceof Error ? error.message : String(error) });
+        });
         return;
       }
       if (message.type === 'stop_scenario' && message.jobId && message.scenarioId) {
-        void (async () => {
+        void serializeQueueOperation(async () => {
           const queue = await getQueue();
           const item = queue?.activeItemId
             ? queue.items.find((candidate) => candidate.queueItemId === queue.activeItemId && candidate.testCaseId === message.scenarioId)
@@ -169,17 +178,19 @@ export async function connectToMcplab(): Promise<void> {
               roverSocket.send(JSON.stringify({ type: 'complete', jobId: next.queueId, outcome: 'incomplete' }));
             }
           }
-        })();
+        }).catch((error) => {
+          debugLog('scenario stop failed', { error: error instanceof Error ? error.message : String(error) });
+        });
         return;
       }
       if (message.type !== 'assignment' || !message.jobId || !message.agent?.provider || !message.scenarios?.length) return;
       debugLog('assignment received', { jobId: message.jobId, provider: message.agent.provider, scenarios: message.scenarios.length });
-      void (async () => {
-        const reportAssignmentError = (reason: string) => {
-          if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type: 'progress', jobId: message.jobId, completed: 0, total: message.scenarios?.length ?? 0, error: reason, message: `Rover could not start the assignment: ${reason}` }));
-          }
-        };
+      const reportAssignmentError = (reason: string) => {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: 'progress', jobId: message.jobId, completed: 0, total: message.scenarios?.length ?? 0, error: reason, message: `Rover could not start the assignment: ${reason}` }));
+        }
+      };
+      void serializeQueueOperation(async () => {
         const tab = await activeTab();
         if (typeof tab?.id !== 'number') {
           reportAssignmentError('No active browser tab is available.');
@@ -206,7 +217,10 @@ export async function connectToMcplab(): Promise<void> {
         const started = startQueue(assigned, new Date().toISOString());
         await saveQueue(started);
         await runQueueItem(started);
-      })();
+      }).catch((error) => {
+        reportAssignmentError(error instanceof Error ? error.message : String(error));
+        debugLog('assignment handling failed', { error: error instanceof Error ? error.message : String(error) });
+      });
     } catch { /* ignore malformed server messages */ }
   };
   socket.onclose = (event) => {
