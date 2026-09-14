@@ -59,9 +59,12 @@ export function projectQueueForProvider(queue: {
   matchesCurrentAssignment: boolean;
 } {
   const matchesCurrentAssignment = Boolean(provider && queue.provider === provider);
-  const split = splitQueueItems(matchesCurrentAssignment ? queue.items : [], queue.evaluationRunId);
+  // Keep server-managed assignments visible even when the current page is a
+  // different provider. The popup can still filter completed history, but an
+  // active assignment should never look like an empty queue.
+  const split = splitQueueItems(queue.items, queue.evaluationRunId);
   return {
-    active: split.active,
+    active: matchesCurrentAssignment || split.managed ? split.active : [],
     completed: queue.recentHistory?.[provider ?? ''] ?? (matchesCurrentAssignment ? split.completed : []),
     managed: split.managed,
     matchesCurrentAssignment

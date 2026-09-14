@@ -45,7 +45,7 @@ export interface DebugElementCheck {
 export interface DebugSnapshot {
   checkedAt: string;
   endpoint: { origin: string; connected: boolean; checked: boolean; error?: string };
-  page: { tabId?: number; url?: string; matched: boolean; provider?: ProviderId; profile?: { name: string; source: string; revision: string; capabilities: string[] }; error?: string };
+  page: { tabId?: number; url?: string; matched: boolean; provider?: ProviderId; profile?: { name: string; source: string; revision: string; capabilities: string[] }; detection?: { attempts: number; checkedAt: string; provider?: ProviderId; error?: string }; error?: string };
   elements: DebugElementCheck[];
   rover: { manualStatus?: RoverStatus; queueStatus?: string; activeQueueItem?: string };
 }
@@ -57,6 +57,7 @@ export type ExtensionMessage =
   | { type: 'ROVER_GET_DEBUG'; origin?: string; checkEndpoint?: boolean }
   | { type: 'ROVER_DEBUG_SUBSCRIBE'; enabled: boolean }
   | { type: 'ROVER_DEBUG_CHANGED' }
+  | { type: 'ROVER_PAGE_FOCUSED' }
   | { type: 'ROVER_GET_STATE' }
   | { type: 'ROVER_GET_ACTIVE_PROVIDER' }
   | { type: 'ROVER_START_NEW_CONVERSATION' }

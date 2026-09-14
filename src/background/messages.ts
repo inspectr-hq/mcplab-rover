@@ -12,12 +12,12 @@ import {
   stopQueue,
   type RoverQueueState
 } from '../queue/state';
-import { activeTab, detectProvider, expectedProviderForUrl } from './browser';
+import { activeTab, detectProvider, expectedProviderForUrl, getDetectionDiagnostics } from './browser';
 import { createDebugSnapshot } from './debug';
 import { errorMessage } from './errors';
 import { complete, fail } from './live-test';
 import { cancelActiveQueueItem, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
-import { currentSocket, loadedProvider } from './socket';
+import { currentSocket, loadedProvider, updateRoverRegistration } from './socket';
 import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, saveState, STATE_KEY } from './store';
 import { serializeQueueOperation } from '../queue/operations';
 
@@ -50,7 +50,11 @@ export async function syncDebugSubscription(tabId: number): Promise<void> {
 }
 
 export function installMessageHandler(): void {
-  chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
+  chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
+    if (message.type === 'ROVER_PAGE_FOCUSED') {
+      if (typeof sender.tab?.id === 'number') void updateRoverRegistration(sender.tab.id).catch(() => undefined);
+      return;
+    }
     if (message.type === 'ROVER_LEARN_START' || message.type === 'ROVER_LEARN_STOP') {
       return respond(sendResponse, async () => {
         const response = await sendToActiveTab(message);
@@ -116,7 +120,7 @@ export function installMessageHandler(): void {
           }
         }
 
-        let page: { matched: boolean; provider?: ProviderId; profile?: DebugSnapshot['page']['profile']; elements: DebugElementCheck[]; error?: string } | undefined;
+        let page: { matched: boolean; provider?: ProviderId; profile?: DebugSnapshot['page']['profile']; detection?: DebugSnapshot['page']['detection']; elements: DebugElementCheck[]; error?: string } | undefined;
         if (typeof tab?.id === 'number') {
           try {
             await detectProvider(tab.id);
@@ -138,6 +142,7 @@ export function installMessageHandler(): void {
                   ]
                 } : undefined;
               })(),
+              detection: getDetectionDiagnostics(tab.id),
               elements: response?.elements ?? []
             };
           } catch (error) {

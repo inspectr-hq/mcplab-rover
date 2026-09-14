@@ -331,7 +331,7 @@ function renderQueue(queue: RoverQueueState | null): void {
   queueItems.parentElement?.classList.toggle('queue-managed', managed);
   queueStart.hidden = !editable;
   queueStatus.textContent = !matchesCurrentAssignment && managed
-    ? `Waiting for ${providerForView} jobs.`
+    ? `Assignment received for ${queue.provider}. Switch to a matching page to run it (${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} processed).`
     : !matchesCurrentAssignment
       ? `Switch to ${queue.provider} to edit or run this queue.`
     : queue.status === 'paused'
@@ -424,7 +424,8 @@ function renderDebug(snapshot: DebugSnapshot): void {
       state: snapshot.page.matched ? 'pass' : 'fail',
       detail: snapshot.page.error ?? snapshot.page.url ?? 'No active page'
     },
-    { label: 'Active tab', state: snapshot.page.tabId === undefined ? 'unknown' : 'pass', detail: snapshot.page.tabId === undefined ? 'Unavailable' : `Tab ${snapshot.page.tabId}` }
+    { label: 'Active tab', state: snapshot.page.tabId === undefined ? 'unknown' : 'pass', detail: snapshot.page.tabId === undefined ? 'Unavailable' : `Tab ${snapshot.page.tabId}` },
+    ...(snapshot.page.detection ? [{ label: 'Detection attempts', state: snapshot.page.detection.provider ? 'pass' as const : 'fail' as const, detail: `${snapshot.page.detection.attempts} attempt(s), last checked ${new Date(snapshot.page.detection.checkedAt).toLocaleTimeString()}${snapshot.page.detection.error ? `, ${snapshot.page.detection.error}` : ''}` }] : [])
   ]);
   if (snapshot.page.profile) {
     appendDebugGroup('Loaded provider profile', [

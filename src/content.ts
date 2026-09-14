@@ -201,4 +201,17 @@ if (runtime.__mcplabRoverInstalled) {
       }
     })();
   });
+
+  let focusNotifyTimer: number | undefined;
+  const notifyPageFocused = () => {
+    if (focusNotifyTimer !== undefined) window.clearTimeout(focusNotifyTimer);
+    focusNotifyTimer = window.setTimeout(() => {
+      focusNotifyTimer = undefined;
+      void chrome.runtime.sendMessage({ type: 'ROVER_PAGE_FOCUSED' }).catch(() => undefined);
+    }, 250);
+  };
+  window.addEventListener('focus', notifyPageFocused);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') notifyPageFocused();
+  });
 }

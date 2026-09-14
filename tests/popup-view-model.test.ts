@@ -65,4 +65,10 @@ describe('popup view model', () => {
     expect(projectQueueForProvider(queue, 'claude')).toMatchObject({ matchesCurrentAssignment: true, active: [], completed: [claudeItem], managed: true });
     expect(projectQueueForProvider(queue, 'copilot')).toMatchObject({ matchesCurrentAssignment: false, active: [], completed: [copilotItem], managed: true });
   });
+
+  it('keeps a managed assignment visible when the current page is another provider', () => {
+    const queued = { queueItemId: 'm365-1', testCaseId: 'a', id: 'a', name: 'M365 scenario', prompt: '', assertionCount: 0, status: 'queued' as const };
+    const queue = { provider: 'm365-cloud-microsoft', evaluationRunId: 'run-1', items: [queued] };
+    expect(projectQueueForProvider(queue, 'claude')).toMatchObject({ matchesCurrentAssignment: false, active: [queued], managed: true });
+  });
 });

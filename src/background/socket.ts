@@ -11,6 +11,7 @@ import { serializeQueueOperation } from '../queue/operations';
 
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
+let registeredTabId: number | undefined;
 let roverReconnectAttempt = 0;
 let roverHeartbeat: ReturnType<typeof setInterval> | null = null;
 const loadedProviders = new Map<string, import('../mcplab/types').BrowserProviderProfile>();
@@ -88,6 +89,7 @@ export async function connectToMcplab(): Promise<void> {
   const socket = new WebSocket(`${wsOrigin}/api/rover/ws`);
   roverSocket = socket;
   registeredSocket = null;
+  registeredTabId = undefined;
   socket.onopen = async () => {
     roverReconnectAttempt = 0;
     if (roverHeartbeat) clearInterval(roverHeartbeat);
@@ -107,6 +109,7 @@ export async function connectToMcplab(): Promise<void> {
       return;
     }
     socket.send(JSON.stringify(registrationPayload(provider, tab?.url ?? '', chrome.runtime.getManifest().version)));
+    registeredTabId = typeof tab?.id === 'number' ? tab.id : undefined;
     debugLog('registration sent', { provider, tabId: tab?.id });
     // Start heartbeats only after sending registration. The server rejects
     // non-registration messages from an unregistered WebSocket.
@@ -191,7 +194,10 @@ export async function connectToMcplab(): Promise<void> {
         }
       };
       void serializeQueueOperation(async () => {
-        const tab = await activeTab();
+        const registeredTab = typeof registeredTabId === 'number'
+          ? await chrome.tabs.get(registeredTabId).catch(() => undefined)
+          : undefined;
+        const tab = registeredTab ?? await activeTab();
         if (typeof tab?.id !== 'number') {
           reportAssignmentError('No active browser tab is available.');
           return;
@@ -231,6 +237,7 @@ export async function connectToMcplab(): Promise<void> {
     }
     roverSocket = null;
     if (registeredSocket === socket) registeredSocket = null;
+    if (registeredSocket === null) registeredTabId = undefined;
     debugLog('socket closed', { code: event.code, reason: event.reason, wasClean: event.wasClean });
     if (roverReconnectAttempt >= 8) return;
     const delay = Math.min(30_000, 1_000 * 2 ** roverReconnectAttempt);
@@ -253,8 +260,10 @@ export async function updateRoverRegistration(tabId: number): Promise<void> {
   const tab = await chrome.tabs.get(tabId).catch(() => undefined);
   if (registeredSocket !== roverSocket) {
     roverSocket.send(JSON.stringify(registrationPayload(provider, tab?.url ?? '', chrome.runtime.getManifest().version)));
+    registeredTabId = tabId;
     return;
   }
   roverSocket.send(JSON.stringify({ type: 'register_update', provider, pageUrl: tab?.url ?? '' }));
+  registeredTabId = tabId;
   await reconcileQueueAfterRegistration(origin);
 }
