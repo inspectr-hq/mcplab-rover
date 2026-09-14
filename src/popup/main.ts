@@ -343,12 +343,19 @@ function renderQueue(queue: RoverQueueState | null): void {
   queueStop.hidden = !['running', 'paused'].includes(queue.status);
 }
 
-async function refreshActiveProvider(): Promise<void> {
-  const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_ACTIVE_PROVIDER' }) as { provider?: string; supportsNewConversation?: boolean } | undefined;
-  activeProvider = response?.provider;
-  activeProviderSupportsNewConversation = response?.supportsNewConversation === true;
-  newConversation.hidden = !activeProviderSupportsNewConversation;
-  if (mode === 'queue') renderQueue(currentQueue);
+async function refreshActiveProvider(retry = true): Promise<void> {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_ACTIVE_PROVIDER' }) as { provider?: string; supportsNewConversation?: boolean } | undefined;
+    activeProvider = response?.provider;
+    const builtInSupport = response?.provider === 'claude' || response?.provider === 'chatgpt-com' || response?.provider === 'trendminer';
+    activeProviderSupportsNewConversation = response?.supportsNewConversation === true || builtInSupport;
+    newConversation.hidden = !activeProviderSupportsNewConversation;
+    if (mode === 'queue') renderQueue(currentQueue);
+  } catch {
+    // Provider detection can race popup startup while the content script is loading.
+    // Retry once after the content script has had time to initialize.
+    if (retry) window.setTimeout(() => void refreshActiveProvider(false), 500);
+  }
 }
 
 function renderCatalog(): void {
