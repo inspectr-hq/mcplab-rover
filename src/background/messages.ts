@@ -17,7 +17,7 @@ import { createDebugSnapshot } from './debug';
 import { errorMessage } from './errors';
 import { complete, fail } from './live-test';
 import { cancelActiveQueueItem, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
-import { currentSocket, loadedProvider, updateRoverRegistration } from './socket';
+import { currentSocket, loadedProvider, loadProfilesIntoTab, updateRoverRegistration } from './socket';
 import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, saveState, STATE_KEY } from './store';
 import { serializeQueueOperation } from '../queue/operations';
 
@@ -76,8 +76,13 @@ export function installMessageHandler(): void {
     if (message.type === 'ROVER_GET_ACTIVE_PROVIDER') {
       return respond(sendResponse, async () => {
         const tab = await activeTab();
-        const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
         const origin = await resolveOrigin();
+        let provider: ProviderId | undefined;
+        if (typeof tab?.id === 'number') {
+          await detectProvider(tab.id);
+          await loadProfilesIntoTab(tab.id, origin);
+          provider = await detectProvider(tab.id);
+        }
         return { provider, tabId: tab?.id, url: tab?.url, supportsNewConversation: await supportsNewConversation(provider, origin) };
       });
     }
@@ -123,6 +128,8 @@ export function installMessageHandler(): void {
         let page: { matched: boolean; provider?: ProviderId; profile?: DebugSnapshot['page']['profile']; detection?: DebugSnapshot['page']['detection']; elements: DebugElementCheck[]; error?: string } | undefined;
         if (typeof tab?.id === 'number') {
           try {
+            await detectProvider(tab.id);
+            await loadProfilesIntoTab(tab.id, origin);
             await detectProvider(tab.id);
             const response = await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_DEBUG' });
             page = {

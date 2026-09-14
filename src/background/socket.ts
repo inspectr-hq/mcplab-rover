@@ -64,7 +64,7 @@ export function loadedProvider(providerId?: string): import('../mcplab/types').B
   return providerId ? loadedProviders.get(providerId) : undefined;
 }
 
-async function loadProfilesIntoTab(tabId: number, origin: string): Promise<void> {
+export async function loadProfilesIntoTab(tabId: number, origin: string): Promise<void> {
   let profiles: import('../mcplab/types').BrowserProviderProfile[];
   try {
     profiles = await new McplabClient(origin).listBrowserProviders();
