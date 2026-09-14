@@ -55,6 +55,26 @@ export async function pauseQueue(queue: RoverQueueState, error: unknown, stage: 
   if (item) sendScenarioStatus(paused, item);
 }
 
+function isProviderReadinessError(error: unknown): boolean {
+  const message = errorMessage(error).toLowerCase();
+  return message.includes('was not ready on the active tab') || message.includes('is not matched by the active browser tab');
+}
+
+export async function deferQueueItem(queue: RoverQueueState, error: unknown): Promise<void> {
+  const message = errorMessage(error);
+  const deferred: RoverQueueState = {
+    ...queue,
+    status: 'running',
+    error: { stage: 'browser', message: `Waiting for matching provider page. ${message}` },
+    items: queue.items.map((item) => item.queueItemId === queue.activeItemId ? { ...item, status: 'queued' as const, error: undefined, requestId: undefined, sessionId: undefined, startedAt: undefined } : item),
+    updatedAt: new Date().toISOString()
+  };
+  await saveQueue(deferred);
+  const item = deferred.items.find((candidate) => candidate.queueItemId === deferred.activeItemId);
+  if (item) sendScenarioStatus(deferred, item);
+  debugLog('queue item deferred until provider is ready', { queueId: queue.queueId, scenarioId: item?.testCaseId, error: message });
+}
+
 export async function runQueueItem(queue: RoverQueueState): Promise<void> {
   const item = queue.items.find((candidate) => candidate.queueItemId === queue.activeItemId);
   if (!item || typeof queue.tabId !== 'number') return;
@@ -114,6 +134,10 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
     debugLog('prompt sent to content script', { queueId: queue.queueId, scenarioId: item.testCaseId, tabId: executionTabId });
     sendStage(queue, item.testCaseId, 'waiting_for_response');
   } catch (error) {
+    if (queue.evaluationRunId && isProviderReadinessError(error)) {
+      await deferQueueItem(queue, error);
+      return;
+    }
     debugLog('queue item paused after error', { queueId: queue.queueId, scenarioId: item.testCaseId, error: error instanceof Error ? error.message : String(error) });
     await pauseQueue(queue, error);
   }
