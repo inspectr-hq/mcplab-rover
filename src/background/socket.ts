@@ -124,7 +124,7 @@ export async function connectToMcplab(): Promise<void> {
       if (message.type === 'registered' && roverSocket === socket) {
         registeredSocket = socket;
         debugLog('registration acknowledged');
-        void reconcileQueueAfterRegistration(origin).catch((error) => {
+        void serializeQueueOperation(() => reconcileQueueAfterRegistration(origin)).catch((error) => {
           debugLog('queue reconciliation failed', { error: error instanceof Error ? error.message : String(error) });
         });
       }
@@ -265,5 +265,5 @@ export async function updateRoverRegistration(tabId: number): Promise<void> {
   }
   roverSocket.send(JSON.stringify({ type: 'register_update', provider, pageUrl: tab?.url ?? '' }));
   registeredTabId = tabId;
-  await reconcileQueueAfterRegistration(origin);
+  await serializeQueueOperation(() => reconcileQueueAfterRegistration(origin));
 }

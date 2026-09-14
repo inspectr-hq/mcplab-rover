@@ -8,6 +8,7 @@ import { errorMessage } from './errors';
 import { getQueue, saveQueue } from './store';
 import { currentSocket } from './socket';
 import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover-protocol';
+import { selectMatchingExecutionTab } from './execution-tab';
 
 function debugLog(event: string, details: Record<string, unknown> = {}): void {
   console.info(`[Rover debug] ${event}`, details);
@@ -82,25 +83,24 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
   try {
     debugLog('starting queue item', { queueId: queue.queueId, scenarioId: item.testCaseId, provider: queue.provider, tabId: queue.tabId });
     const client = new McplabClient(queue.origin);
-    let executionTabId: number = queue.tabId;
+    const boundProvider = await detectProvider(queue.tabId);
+    const current = await activeTab();
+    const activeProvider = typeof current?.id === 'number'
+      ? current.id === queue.tabId ? boundProvider : await detectProvider(current.id)
+      : undefined;
+    const executionTabId = selectMatchingExecutionTab(
+      queue.provider,
+      { id: queue.tabId, provider: boundProvider },
+      typeof current?.id === 'number' ? { id: current.id, provider: activeProvider } : undefined
+    );
+    if (executionTabId === undefined) throw new Error(`Browser provider '${queue.provider}' was not ready on the active tab.`);
+    if (executionTabId !== queue.tabId) {
+      debugLog('rebinding queue to matching active tab', { queueId: queue.queueId, provider: queue.provider, previousTabId: queue.tabId, tabId: executionTabId });
+      queue = { ...queue, tabId: executionTabId };
+    }
     if (queue.provider !== 'claude' && queue.provider !== 'trendminer' && queue.provider !== 'chatgpt-com') {
       const profile = (await client.listBrowserProviders()).find((candidate) => candidate.id === queue.provider);
       if (!profile) throw new Error(`Learned browser provider '${queue.provider}' is no longer available in MCPLab.`);
-      const tab = await chrome.tabs.get(queue.tabId);
-      const tabOrigin = tab.url ? new URL(tab.url).origin : undefined;
-      debugLog('checking learned provider tab', { provider: queue.provider, tabId: queue.tabId, tabOrigin, expectedOrigins: profile.match.origins });
-      if (!tabOrigin || !profile.match.origins.includes(tabOrigin)) {
-        const current = await activeTab();
-        const currentOrigin = current?.url ? new URL(current.url).origin : undefined;
-        if (typeof current?.id === 'number' && currentOrigin && profile.match.origins.includes(currentOrigin)) {
-          executionTabId = current.id;
-        } else {
-          throw new Error(`${profile.name} is not matched by the active browser tab.`);
-        }
-      }
-      if (executionTabId !== queue.tabId) {
-        queue = { ...queue, tabId: executionTabId };
-      }
     }
     await waitForProviderReady(executionTabId, queue.provider);
     const session = item.sessionId ? await client.get(item.sessionId) : await client.start(item.testCaseId, queue.provider, queue.evaluationRunId, {
