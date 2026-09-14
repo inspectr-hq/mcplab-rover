@@ -55,7 +55,7 @@ function togglePanel(expand = false): void {
   notch.innerHTML = `<img src="${chrome.runtime.getURL('icons/mcplab-favicon.svg')}" alt=""><span></span>`;
   const style = document.createElement('style');
   style.textContent = `
-    :host { position: fixed; top: 30%; right: 12px; z-index: 2147483647; width: 42px; height: 42px; transform: translateY(-50%); overflow: visible; border-radius: 50%; background: transparent; box-shadow: none; transition: width .2s ease, height .2s ease, top .2s ease, right .2s ease, transform .2s ease; }
+    :host { position: fixed; top: 20%; right: 12px; z-index: 2147483647; width: 42px; height: 42px; transform: translateY(-50%); overflow: visible; border-radius: 50%; background: transparent; box-shadow: none; transition: width .2s ease, height .2s ease, top .2s ease, right .2s ease, transform .2s ease; }
     :host(.expanded) { top: 12px; right: 12px; width: 390px; height: 300px; transform: none; overflow: visible; border-radius: 0; background: transparent; box-shadow: none; }
     button { position: absolute; top: 50%; left: 7px; z-index: 2; width: 34px; height: 34px; transform: translateY(-50%); display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: #191919; box-shadow: 0 0 0 4px rgba(255,255,255,.12), 0 8px 24px rgba(0,0,0,.35); cursor: pointer; }
     button img { width: 20px; height: 20px; }
@@ -73,6 +73,13 @@ function togglePanel(expand = false): void {
   frame.title = 'MCPLab Rover';
   frame.src = chrome.runtime.getURL('rover.html');
   notch.addEventListener('click', () => {
+    const expanding = !host.classList.contains('expanded');
+    if (expanding) {
+      host.style.left = '';
+      host.style.top = '';
+      host.style.right = '';
+      host.style.transform = '';
+    }
     host.classList.toggle('expanded');
     notch.title = host.classList.contains('expanded') ? 'Collapse MCPLab Rover' : 'Open MCPLab Rover';
     notch.setAttribute('aria-label', notch.title);
