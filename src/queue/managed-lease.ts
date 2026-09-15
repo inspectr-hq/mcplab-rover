@@ -1,0 +1,33 @@
+import type { RoverQueueState, QueueLeaseState } from './state';
+import { clearLeaseState, leaseOutboxMatches } from './lease-outbox';
+
+export type ManagedLeaseEvent =
+  | { type: 'offer'; leaseId: string; leaseExpiresAt: string }
+  | { type: 'accepted'; leaseId: string }
+  | { type: 'running'; leaseId: string }
+  | { type: 'invalidate'; leaseId: string };
+
+function matches(queue: RoverQueueState, leaseId: string): boolean {
+  return queue.leaseId === leaseId || leaseOutboxMatches(queue, queue.queueId, leaseId);
+}
+
+export function managedLeaseState(queue: RoverQueueState): QueueLeaseState | undefined {
+  return queue.leaseState;
+}
+
+export function transitionManagedLease(queue: RoverQueueState, event: ManagedLeaseEvent): RoverQueueState {
+  if (event.type === 'offer') {
+    if (queue.leaseId || queue.pendingLeaseActions?.length) return queue;
+    return { ...queue, leaseId: event.leaseId, leaseExpiresAt: event.leaseExpiresAt, leaseState: 'offered' };
+  }
+  if (!matches(queue, event.leaseId)) return queue;
+  if (event.type === 'accepted') {
+    if (queue.leaseState !== 'offered') return queue;
+    return { ...queue, leaseState: 'accepted' };
+  }
+  if (event.type === 'running') {
+    if (queue.leaseState !== 'accepted' && queue.leaseState !== 'running') return queue;
+    return { ...queue, leaseState: 'running' };
+  }
+  return clearLeaseState(queue);
+}

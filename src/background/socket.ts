@@ -8,6 +8,7 @@ import { registrationPayload, ROVER_PROTOCOL_VERSION } from '../mcplab/rover-pro
 import { getQueue, QUEUE_KEY, resolveOrigin, saveQueue } from './store';
 import type { RoverQueueState } from '../queue/state';
 import { clearLeaseState, leaseOutboxHead, leaseOutboxMatches, reduceLeaseOutbox } from '../queue/lease-outbox';
+import { transitionManagedLease } from '../queue/managed-lease';
 import { queueNeedsResume } from '../queue/recovery';
 import { serializeQueueOperation } from '../queue/operations';
 
@@ -399,17 +400,24 @@ export async function connectToMcplab(): Promise<void> {
         }
         const history = previous ? archiveCompletedQueueItems(previous).recentHistory : undefined;
         const queue = createQueue(origin, message.agent!.provider!, message.newConversationBetweenScenarios !== false, new Date().toISOString());
-        const assigned = { ...queue, recentHistory: history, queueId: message.jobId!, evaluationRunId: message.evaluationRunId, sourceConfigPath: message.configPath, sourceConfigName: message.evaluationName, sourceAgentName: message.agentName, tabId: tab.id, ...(leaseBearing ? { leaseId: message.leaseId, leaseExpiresAt: message.leaseExpiresAt, leaseState: 'offered' as const } : {}), items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
+        const assignedBase = { ...queue, recentHistory: history, queueId: message.jobId!, evaluationRunId: message.evaluationRunId, sourceConfigPath: message.configPath, sourceConfigName: message.evaluationName, sourceAgentName: message.agentName, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
+        let assigned = leaseBearing
+          ? transitionManagedLease(assignedBase, { type: 'offer', leaseId: message.leaseId!, leaseExpiresAt: message.leaseExpiresAt! })
+          : assignedBase;
         await saveQueue(assigned);
         if (leaseBearing) {
           if (socket.readyState !== WebSocket.OPEN) throw new Error('Rover connection closed before assignment acceptance.');
           socket.send(JSON.stringify({ type: 'assignment_accept', jobId: message.jobId, leaseId: message.leaseId, tabId: tab.id }));
           accepted = true;
+          const acceptedQueue = transitionManagedLease(assigned, { type: 'accepted', leaseId: message.leaseId! });
+          await saveQueue(acceptedQueue);
+          assigned = acceptedQueue;
           lastAssignmentDecision = { decision: 'accepted', at: new Date().toISOString() };
           waitingEvaluations = waitingEvaluations.filter((job) => job.jobId !== message.jobId);
         }
         for (const item of assigned.items) sendScenarioStatus(assigned, item);
-        const started = { ...startQueue(assigned, new Date().toISOString()), ...(leaseBearing ? { leaseState: 'running' as const } : {}) };
+        const startedQueue = startQueue(assigned, new Date().toISOString());
+        const started = leaseBearing ? transitionManagedLease(startedQueue, { type: 'running', leaseId: message.leaseId! }) : startedQueue;
         await saveQueue(started);
         await startLeaseRenewal(started);
         await runQueueItem(started);
