@@ -103,12 +103,13 @@ export type ExtensionMessage =
   | { type: 'ROVER_LEARN_STOP' }
   | { type: 'ROVER_LEARN_SAVE'; profile: import('./mcplab/types').BrowserProviderProfile; agent?: { id: string; name: string; url: string }; origin?: string }
   | { type: 'ROVER_LEARN_RESULT'; draft: BrowserProviderDiscoveryDraft }
-  | { type: 'ROVER_ASK'; requestId: string; sessionId: string; prompt: string; queueId?: string; queueItemId?: string }
+  | { type: 'ROVER_ASK'; requestId: string; sessionId: string; prompt: string; queueId?: string; queueItemId?: string; leaseId?: string }
   | {
       type: 'ROVER_RESULT';
       requestId: string;
       sessionId: string;
       queueId?: string;
       queueItemId?: string;
+      leaseId?: string;
       result: { ok: true; text: string } | { ok: false; error: string };
     };

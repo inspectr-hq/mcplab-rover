@@ -17,7 +17,7 @@ import { createDebugSnapshot } from './debug';
 import { errorMessage } from './errors';
 import { complete, fail } from './live-test';
 import { cancelActiveQueueItem, failManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
-import { currentSocket, leaseDebugState, loadedProvider, loadProfilesIntoTab, releaseLease, updateRoverRegistration, waitingForMatching } from './socket';
+import { clearLease, currentSocket, leaseDebugState, loadedProvider, loadProfilesIntoTab, releaseLease, updateRoverRegistration, waitingForMatching } from './socket';
 import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, saveState, STATE_KEY } from './store';
 import { serializeQueueOperation } from '../queue/operations';
 
@@ -205,8 +205,8 @@ export function installMessageHandler(): void {
         console.info('[Rover debug] queue clear requested', { queueId: queue?.queueId, activeItemId: queue?.activeItemId });
         if (queue) {
           await cancelActiveQueueItem(queue);
-          const released = releaseLease(queue, 'stopped');
-          await saveQueue(released);
+          await saveQueue(clearLease(queue));
+          releaseLease(queue, 'stopped');
         }
         await chrome.storage.session.remove(QUEUE_KEY);
         return { ok: true };
@@ -277,8 +277,9 @@ export function installMessageHandler(): void {
           ? stopQueue(queue, new Date().toISOString())
           : skipQueueItem(queue, queue.activeItemId!, new Date().toISOString());
         const terminal = next.status === 'completed' || next.status === 'stopped';
-        const persisted = terminal ? releaseLease(next, 'stopped') : next;
+        const persisted = terminal ? clearLease(next) : next;
         await saveQueue(persisted);
+        if (terminal) releaseLease(next, 'stopped');
         sendResponse({ ok: true, queue: persisted });
         if (message.type === 'ROVER_QUEUE_SKIP' && next.status === 'running') {
           await runQueueItem(next);
@@ -397,7 +398,7 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
   if (message.queueId && message.queueItemId) {
     const queue = await getQueue();
     const item = queue?.items.find((candidate) => candidate.queueItemId === message.queueItemId);
-    if (!queue || queue.queueId !== message.queueId || queue.activeItemId !== message.queueItemId || item?.requestId !== message.requestId || item.sessionId !== message.sessionId) {
+    if (!queue || queue.queueId !== message.queueId || queue.activeItemId !== message.queueItemId || item?.requestId !== message.requestId || item.sessionId !== message.sessionId || (queue.leaseId && message.leaseId !== queue.leaseId)) {
       console.info('[Rover debug] ignored stale result', { queueId: message.queueId, queueItemId: message.queueItemId, requestId: message.requestId, sessionId: message.sessionId });
       return;
     }
@@ -441,8 +442,11 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
         socket.send(JSON.stringify({ type: 'progress', jobId: queue.queueId, ...(queue.leaseId ? { leaseId: queue.leaseId } : {}), completed: completed.items.filter((candidate) => ['passed', 'failed', 'incomplete', 'skipped', 'stopped'].includes(candidate.status)).length, total: completed.items.length, currentScenarioId: completed.activeItemId ? completed.items.find((candidate) => candidate.queueItemId === completed.activeItemId)?.testCaseId : undefined, lastDurationMs: durationMs, ...(result.outcome === 'failed' || result.outcome === 'error' ? { error: result.outcome } : {}) }));
         if (completed.status === 'completed') {
           socket.send(JSON.stringify({ type: 'complete', jobId: queue.queueId, runId: result.runId, outcome: result.outcome, ...(queue.leaseId ? { leaseId: queue.leaseId } : {}) }));
-          await saveQueue(releaseLease(completed, 'completed'));
         }
+      }
+      if (completed.status === 'completed' && completed.leaseId) {
+        await saveQueue(clearLease(completed));
+        releaseLease(completed, 'completed');
       }
       if (completed.status === 'running') {
         try {

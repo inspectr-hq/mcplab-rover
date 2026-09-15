@@ -51,8 +51,8 @@ export function clearLease(queue: RoverQueueState): RoverQueueState {
 }
 
 export function releaseLease(queue: RoverQueueState, reason: 'completed' | 'error' | 'stopped' | 'connection_lost'): RoverQueueState {
-  if (!queue.leaseId || !negotiatedCapabilities.includes('assignment_lease')) return queue;
-  if (roverSocket?.readyState === WebSocket.OPEN) {
+  if (!queue.leaseId) return queue;
+  if (negotiatedCapabilities.includes('assignment_lease') && roverSocket?.readyState === WebSocket.OPEN) {
     roverSocket.send(JSON.stringify({ type: 'lease_release', jobId: queue.queueId, leaseId: queue.leaseId, reason }));
   }
   lastAssignmentDecision = { decision: 'released', reason, at: new Date().toISOString() };
@@ -196,8 +196,9 @@ export async function connectToMcplab(): Promise<void> {
           const queue = await getQueue();
           if (!queue || queue.queueId !== message.jobId) return;
           await cancelActiveQueueItem(queue);
-          const released = releaseLease(queue, 'stopped');
+          const released = clearLease(queue);
           await saveQueue(stopQueue(released, new Date().toISOString()));
+          releaseLease(queue, 'stopped');
         }).catch((error) => {
           debugLog('whole queue stop failed', { error: error instanceof Error ? error.message : String(error) });
         });
@@ -237,9 +238,12 @@ export async function connectToMcplab(): Promise<void> {
                 if (next.leaseId) await failManagedQueue(next, error);
                 else await pauseQueue(next, error);
               }
-            } else if (next.status === 'completed' && roverSocket?.readyState === WebSocket.OPEN) {
-              roverSocket.send(JSON.stringify({ type: 'complete', jobId: next.queueId, outcome: 'incomplete', ...(next.leaseId ? { leaseId: next.leaseId } : {}) }));
-              await saveQueue(releaseLease(next, 'stopped'));
+            } else if (next.status === 'completed') {
+              await saveQueue(clearLease(next));
+              if (roverSocket?.readyState === WebSocket.OPEN) {
+                roverSocket.send(JSON.stringify({ type: 'complete', jobId: next.queueId, outcome: 'incomplete', ...(next.leaseId ? { leaseId: next.leaseId } : {}) }));
+              }
+              releaseLease(next, 'stopped');
             }
           }
         }).catch((error) => {
@@ -294,7 +298,7 @@ export async function connectToMcplab(): Promise<void> {
           return;
         }
         const previous = await getQueue();
-        if (leaseBearing && previous && ['running', 'paused'].includes(previous.status)) {
+        if (previous && ['running', 'paused'].includes(previous.status) && (leaseBearing || Boolean(previous.leaseId))) {
           rejectAssignment('busy');
           return;
         }
@@ -303,6 +307,7 @@ export async function connectToMcplab(): Promise<void> {
         const assigned = { ...queue, recentHistory: history, queueId: message.jobId!, evaluationRunId: message.evaluationRunId, sourceConfigPath: message.configPath, sourceConfigName: message.evaluationName, sourceAgentName: message.agentName, tabId: tab.id, ...(leaseBearing ? { leaseId: message.leaseId, leaseExpiresAt: message.leaseExpiresAt, leaseState: 'offered' as const } : {}), items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
         await saveQueue(assigned);
         if (leaseBearing) {
+          if (socket.readyState !== WebSocket.OPEN) throw new Error('Rover connection closed before assignment acceptance.');
           socket.send(JSON.stringify({ type: 'assignment_accept', jobId: message.jobId, leaseId: message.leaseId, tabId: tab.id }));
           lastAssignmentDecision = { decision: 'accepted', at: new Date().toISOString() };
           waitingEvaluations = waitingEvaluations.filter((job) => job.jobId !== message.jobId);
@@ -314,13 +319,16 @@ export async function connectToMcplab(): Promise<void> {
         await runQueueItem(started);
       }).catch(async (error) => {
         reportAssignmentError(error instanceof Error ? error.message : String(error));
-        if (leaseBearing) {
-          const currentQueue = await getQueue();
-          if (!currentQueue) return;
-          if (currentQueue.queueId === message.jobId && currentQueue.leaseId === message.leaseId) {
-            await saveQueue(releaseLease(currentQueue, 'error'));
-            await pauseQueue(currentQueue, error);
+        try {
+          if (leaseBearing) {
+            const currentQueue = await getQueue();
+            if (currentQueue && currentQueue.queueId === message.jobId && currentQueue.leaseId === message.leaseId) {
+              await saveQueue(clearLease(currentQueue));
+              releaseLease(currentQueue, 'error');
+            }
           }
+        } catch (cleanupError) {
+          debugLog('assignment cleanup failed', { error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError) });
         }
         debugLog('assignment handling failed', { error: error instanceof Error ? error.message : String(error) });
       });

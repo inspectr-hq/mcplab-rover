@@ -330,7 +330,7 @@ function renderQueue(queue: RoverQueueState | null): void {
     return group;
   };
   const groups: HTMLElement[] = [];
-  if (active.length) groups.push(renderGroup(managed ? `${providerForView} queue` : 'Up next', active, editable));
+  if (active.length) groups.push(renderGroup(managed ? `${queue.provider} queue` : 'Up next', active, editable));
   if (completed.length) groups.push(renderGroup(`Recent ${providerForView} evaluations`, completed, false));
   queueItems.replaceChildren(...groups);
   queueItems.parentElement?.classList.toggle('queue-managed', managed);
@@ -448,7 +448,12 @@ function renderDebug(snapshot: DebugSnapshot): void {
     : [{ label: 'Provider checks', state: 'unknown' as const, detail: 'No matching provider adapter' }]);
   appendDebugGroup('Rover state', [
     { label: 'Manual session', state: snapshot.rover.manualStatus ? 'pass' : 'unknown', detail: snapshot.rover.manualStatus ?? 'None' },
-    { label: 'Queue', state: snapshot.rover.queueStatus ? 'pass' : 'unknown', detail: snapshot.rover.queueStatus ? `${snapshot.rover.queueStatus}${snapshot.rover.activeQueueItem ? `, ${snapshot.rover.activeQueueItem}` : ''}` : 'None' }
+    { label: 'Queue', state: snapshot.rover.queueStatus ? 'pass' : 'unknown', detail: snapshot.rover.queueStatus ? `${snapshot.rover.queueStatus}${snapshot.rover.activeQueueItem ? `, ${snapshot.rover.activeQueueItem}` : ''}` : 'None' },
+    { label: 'Lease', state: snapshot.rover.leaseId ? 'pass' : 'unknown', detail: snapshot.rover.leaseId ? `${snapshot.rover.leaseState ?? 'unknown'} (${snapshot.rover.leaseId})` : 'None' },
+    ...(snapshot.rover.leaseExpiresAt ? [{ label: 'Lease expiry', state: 'unknown' as const, detail: snapshot.rover.leaseExpiresAt }] : []),
+    ...(snapshot.rover.lastLeaseRenewalAt ? [{ label: 'Last renewal', state: 'pass' as const, detail: snapshot.rover.lastLeaseRenewalAt }] : []),
+    ...(snapshot.rover.boundTabId === undefined ? [] : [{ label: 'Bound tab', state: 'pass' as const, detail: `Tab ${snapshot.rover.boundTabId}` }]),
+    ...(snapshot.rover.lastAssignmentDecision ? [{ label: 'Assignment decision', state: 'pass' as const, detail: `${snapshot.rover.lastAssignmentDecision.decision}${snapshot.rover.lastAssignmentDecision.reason ? `, ${snapshot.rover.lastAssignmentDecision.reason}` : ''}` }] : [])
   ]);
 }
 

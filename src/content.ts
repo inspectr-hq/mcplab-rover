@@ -193,6 +193,7 @@ if (runtime.__mcplabRoverInstalled) {
           sessionId: message.sessionId,
           queueId: message.queueId,
           queueItemId: message.queueItemId,
+          leaseId: message.leaseId,
           result: { ok: true, text }
         });
       } catch (error) {
@@ -202,6 +203,7 @@ if (runtime.__mcplabRoverInstalled) {
           sessionId: message.sessionId,
           queueId: message.queueId,
           queueItemId: message.queueItemId,
+          leaseId: message.leaseId,
           result: { ok: false, error: error instanceof Error ? error.message : String(error) }
         });
       } finally {

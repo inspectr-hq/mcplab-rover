@@ -1,5 +1,6 @@
 import { McplabClient } from '../mcplab/api-client';
 import {
+  createQueue,
   recordQueueItemOutcome,
   type RoverQueueState
 } from '../queue/state';
@@ -7,7 +8,7 @@ import { activeTab, detectProvider } from './browser';
 import type { RoverStage } from '../contracts';
 import { errorMessage } from './errors';
 import { getQueue, saveQueue } from './store';
-import { currentSocket, releaseLease } from './socket';
+import { clearLease, currentSocket, releaseLease } from './socket';
 import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover-protocol';
 import { selectMatchingExecutionTab } from './execution-tab';
 
@@ -84,7 +85,8 @@ export async function failManagedQueue(queue: RoverQueueState, error: unknown, s
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: 'complete', jobId: failed.queueId, outcome: 'error', ...(failed.leaseId ? { leaseId: failed.leaseId } : {}) }));
     }
-    await saveQueue(releaseLease(failed, 'error'));
+    await saveQueue(clearLease(failed));
+    releaseLease(failed, 'error');
     return;
   }
   if (failed.status === 'running') {
@@ -100,6 +102,13 @@ function isProviderReadinessError(error: unknown): boolean {
 
 export async function deferQueueItem(queue: RoverQueueState, error: unknown): Promise<void> {
   const message = errorMessage(error);
+  if (queue.leaseId) {
+    const released = clearLease(queue);
+    await saveQueue(createQueue(released.origin, released.provider, released.newConversationBetweenItems, new Date().toISOString()));
+    releaseLease(queue, 'error');
+    debugLog('released managed assignment while waiting for provider', { queueId: queue.queueId, scenarioId: queue.items.find((item) => item.queueItemId === queue.activeItemId)?.testCaseId, error: message });
+    return;
+  }
   const deferred: RoverQueueState = {
     ...queue,
     status: 'running',
@@ -169,6 +178,7 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
       sessionId: session.id,
       queueId: queue.queueId,
       queueItemId: item.queueItemId,
+      ...(queue.leaseId ? { leaseId: queue.leaseId } : {}),
       prompt
     });
     debugLog('prompt sent to content script', { queueId: queue.queueId, scenarioId: item.testCaseId, tabId: executionTabId });
