@@ -87,13 +87,13 @@ export async function failManagedQueue(queue: RoverQueueState, error: unknown, s
     }
     if (socket?.readyState === WebSocket.OPEN) {
       await saveQueue(clearLease(failed));
-      releaseLease(failed, 'error');
+    releaseLease(failed, 'terminal_error');
     } else {
       await saveQueue({
         ...clearLease(failed),
         pendingLeaseActions: [
           { type: 'complete', leaseId: failed.leaseId!, outcome: 'error', firstQueuedAt: new Date().toISOString() },
-          { type: 'release', leaseId: failed.leaseId!, reason: 'error', firstQueuedAt: new Date().toISOString() }
+          { type: 'release', leaseId: failed.leaseId!, reason: 'terminal_error', firstQueuedAt: new Date().toISOString() }
         ]
       });
     }
@@ -118,7 +118,7 @@ export async function deferQueueItem(queue: RoverQueueState, error: unknown): Pr
       ...createQueue(released.origin, released.provider, released.newConversationBetweenItems, new Date().toISOString()),
       recentHistory: released.recentHistory
     });
-    releaseLease(queue, 'error');
+    releaseLease(queue, 'provider_unavailable');
     debugLog('released managed assignment while waiting for provider', { queueId: queue.queueId, scenarioId: queue.items.find((item) => item.queueItemId === queue.activeItemId)?.testCaseId, error: message });
     return;
   }

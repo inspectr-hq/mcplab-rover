@@ -50,7 +50,9 @@ export function clearLease(queue: RoverQueueState): RoverQueueState {
   return withoutLease;
 }
 
-export function releaseLease(queue: RoverQueueState, reason: 'completed' | 'error' | 'stopped' | 'connection_lost'): RoverQueueState {
+export type LeaseReleaseReason = 'completed' | 'error' | 'stopped' | 'connection_lost' | 'provider_unavailable' | 'provider_mismatch' | 'stale_provider' | 'bound_tab_unavailable' | 'terminal_error';
+
+export function releaseLease(queue: RoverQueueState, reason: LeaseReleaseReason): RoverQueueState {
   if (!queue.leaseId) return queue;
   if (negotiatedCapabilities.includes('assignment_lease') && roverSocket?.readyState === WebSocket.OPEN) {
     roverSocket.send(JSON.stringify({ type: 'lease_release', jobId: queue.queueId, leaseId: queue.leaseId, reason }));
@@ -201,10 +203,12 @@ export async function connectToMcplab(): Promise<void> {
         });
       }
       if (message.type === 'lease_action_ack' && message.jobId && message.leaseId) {
+        const acknowledgedJobId = message.jobId;
+        const acknowledgedLeaseId = message.leaseId;
         void serializeQueueOperation(async () => {
           const queue = await getQueue();
-          if (!queue || queue.queueId !== message.jobId) return;
-          const next = acknowledgePendingLeaseAction(queue, message.jobId, message.leaseId);
+          if (!queue || queue.queueId !== acknowledgedJobId) return;
+          const next = acknowledgePendingLeaseAction(queue, acknowledgedJobId, acknowledgedLeaseId);
           if (next !== queue) {
             await saveQueue(next);
             if (next.pendingLeaseActions?.length) await replayPendingLeaseAction();
