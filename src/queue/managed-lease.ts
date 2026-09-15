@@ -5,6 +5,7 @@ export type ManagedLeaseEvent =
   | { type: 'offer'; leaseId: string; leaseExpiresAt: string }
   | { type: 'accepted'; leaseId: string }
   | { type: 'running'; leaseId: string }
+  | { type: 'renewed'; leaseId: string; leaseExpiresAt: string }
   | { type: 'invalidate'; leaseId: string };
 
 function matches(queue: RoverQueueState, leaseId: string): boolean {
@@ -28,6 +29,10 @@ export function transitionManagedLease(queue: RoverQueueState, event: ManagedLea
   if (event.type === 'running') {
     if (queue.leaseState !== 'accepted' && queue.leaseState !== 'running') return queue;
     return { ...queue, leaseState: 'running' };
+  }
+  if (event.type === 'renewed') {
+    if (queue.leaseState !== 'accepted' && queue.leaseState !== 'running') return queue;
+    return { ...queue, leaseExpiresAt: event.leaseExpiresAt, updatedAt: new Date().toISOString() };
   }
   return clearLeaseState(queue);
 }

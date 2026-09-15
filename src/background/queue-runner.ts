@@ -11,6 +11,7 @@ import { getQueue, saveQueue } from './store';
 import { clearLease, currentSocket, persistLeaseRelease, queueWithPendingLeaseRelease, releaseLease, type LeaseReleaseReason } from './socket';
 import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover-protocol';
 import { selectMatchingExecutionTab } from './execution-tab';
+import { enqueueLeaseActions } from '../queue/lease-outbox';
 
 function debugLog(event: string, details: Record<string, unknown> = {}): void {
   console.info(`[Rover debug] ${event}`, details);
@@ -87,13 +88,10 @@ export async function failManagedQueue(queue: RoverQueueState, error: unknown, s
       socket.send(JSON.stringify({ type: 'complete', jobId: failed.queueId, outcome: 'error', ...(failed.leaseId ? { leaseId: failed.leaseId } : {}) }));
       await persistLeaseRelease(failed, releaseReason);
     } else {
-      await saveQueue({
-        ...clearLease(failed),
-        pendingLeaseActions: [
+      await saveQueue(enqueueLeaseActions(clearLease(failed), [
           { type: 'complete', leaseId: failed.leaseId!, outcome: 'error', firstQueuedAt: new Date().toISOString() },
           { type: 'release', leaseId: failed.leaseId!, reason: releaseReason, firstQueuedAt: new Date().toISOString() }
-        ]
-      });
+      ]));
     }
     return;
   }

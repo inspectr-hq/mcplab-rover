@@ -20,6 +20,7 @@ import { cancelActiveQueueItem, failManagedQueue, pauseQueue, runQueueItem, send
 import { clearLease, currentSocket, leaseDebugState, loadedProvider, loadProfilesIntoTab, persistLeaseRelease, releaseLease, updateRoverRegistration, waitingForMatching } from './socket';
 import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, saveState, STATE_KEY } from './store';
 import { serializeQueueOperation } from '../queue/operations';
+import { enqueueLeaseActions } from '../queue/lease-outbox';
 
 function respond<T>(sendResponse: (response: T | { ok: false; error: string }) => void, work: () => Promise<T>): true {
   void work().then(sendResponse).catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
@@ -208,7 +209,9 @@ export function installMessageHandler(): void {
           if (currentSocket()?.readyState === WebSocket.OPEN) {
             await persistLeaseRelease(queue, 'stopped', true);
           } else {
-            await saveQueue({ ...clearLease(queue), status: 'stopped', pendingLeaseActions: queue.leaseId ? [{ type: 'release', leaseId: queue.leaseId, reason: 'stopped', clearQueue: true, firstQueuedAt: new Date().toISOString() }] : undefined });
+            await saveQueue(queue.leaseId
+              ? { ...enqueueLeaseActions(clearLease(queue), [{ type: 'release', leaseId: queue.leaseId, reason: 'stopped', clearQueue: true, firstQueuedAt: new Date().toISOString() }]), status: 'stopped' }
+              : { ...clearLease(queue), status: 'stopped' });
           }
         }
         if (currentSocket()?.readyState === WebSocket.OPEN || !queue?.leaseId) await chrome.storage.session.remove(QUEUE_KEY);
@@ -283,7 +286,9 @@ export function installMessageHandler(): void {
         const persisted = terminal
           ? currentSocket()?.readyState === WebSocket.OPEN
             ? clearLease(next)
-            : { ...clearLease(next), pendingLeaseActions: next.leaseId ? [{ type: 'release' as const, leaseId: next.leaseId, reason: 'stopped' }] : undefined }
+            : next.leaseId
+              ? enqueueLeaseActions(clearLease(next), [{ type: 'release' as const, leaseId: next.leaseId, reason: 'stopped' }])
+              : clearLease(next)
           : next;
         await saveQueue(persisted);
         if (terminal && currentSocket()?.readyState === WebSocket.OPEN) releaseLease(next, 'stopped');
@@ -455,13 +460,10 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
         if (currentSocket()?.readyState === WebSocket.OPEN) {
           await persistLeaseRelease(completed, 'completed');
         } else {
-          await saveQueue({
-            ...clearLease(completed),
-            pendingLeaseActions: [
+          await saveQueue(enqueueLeaseActions(clearLease(completed), [
               { type: 'complete', leaseId: completed.leaseId, outcome: result.outcome, runId: result.runId, firstQueuedAt: new Date().toISOString() },
               { type: 'release', leaseId: completed.leaseId, reason: 'completed', firstQueuedAt: new Date().toISOString() }
-            ]
-          });
+          ]));
         }
       }
       if (completed.status === 'running') {

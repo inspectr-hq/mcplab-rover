@@ -27,6 +27,13 @@ describe('managed lease transitions', () => {
     expect(transitionManagedLease(offered, { type: 'offer', leaseId: 'lease-2', leaseExpiresAt: '2026-09-15T00:00:30.000Z' })).toBe(offered);
   });
 
+  it('renews only an accepted or running lease', () => {
+    const offered = transitionManagedLease(queue(), { type: 'offer', leaseId: 'lease-1', leaseExpiresAt: '2026-09-15T00:00:30.000Z' });
+    expect(transitionManagedLease(offered, { type: 'renewed', leaseId: 'lease-1', leaseExpiresAt: '2026-09-15T00:01:00.000Z' })).toBe(offered);
+    const running = transitionManagedLease(transitionManagedLease(offered, { type: 'accepted', leaseId: 'lease-1' }), { type: 'running', leaseId: 'lease-1' });
+    expect(transitionManagedLease(running, { type: 'renewed', leaseId: 'lease-1', leaseExpiresAt: '2026-09-15T00:01:00.000Z' }).leaseExpiresAt).toBe('2026-09-15T00:01:00.000Z');
+  });
+
   it('invalidates a matching lease and preserves unrelated queue data', () => {
     const original = queue();
     const offered = transitionManagedLease(original, { type: 'offer', leaseId: 'lease-1', leaseExpiresAt: '2026-09-15T00:00:30.000Z' });

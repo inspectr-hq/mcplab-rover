@@ -25,6 +25,10 @@ export function leaseOutboxMatches(queue: RoverQueueState, jobId: string, leaseI
   return queue.queueId === jobId && (queue.leaseId === leaseId || leaseOutboxHead(queue)?.leaseId === leaseId);
 }
 
+export function enqueueLeaseActions(queue: RoverQueueState, actions: PendingLeaseAction[]): RoverQueueState {
+  return reduceLeaseOutbox(queue, { type: 'enqueue', actions });
+}
+
 export function reduceLeaseOutbox(queue: RoverQueueState, event: LeaseOutboxEvent): RoverQueueState {
   if (event.type === 'enqueue') {
     return event.actions.length

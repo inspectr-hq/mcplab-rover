@@ -7,7 +7,7 @@ import { cancelActiveQueueItem, failManagedQueue, pauseQueue, runQueueItem, send
 import { registrationPayload, ROVER_PROTOCOL_VERSION } from '../mcplab/rover-protocol';
 import { getQueue, QUEUE_KEY, resolveOrigin, saveQueue } from './store';
 import type { RoverQueueState } from '../queue/state';
-import { clearLeaseState, leaseOutboxHead, leaseOutboxMatches, reduceLeaseOutbox } from '../queue/lease-outbox';
+import { clearLeaseState, enqueueLeaseActions, leaseOutboxHead, leaseOutboxMatches, reduceLeaseOutbox } from '../queue/lease-outbox';
 import { transitionManagedLease } from '../queue/managed-lease';
 import { queueNeedsResume } from '../queue/recovery';
 import { serializeQueueOperation } from '../queue/operations';
@@ -42,7 +42,7 @@ export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
       const leaseExpiresAt = new Date(Date.now() + 30_000).toISOString();
       roverSocket.send(JSON.stringify({ type: 'lease_renew', jobId: latest.queueId, leaseId: latest.leaseId, leaseExpiresAt }));
       lastLeaseRenewalAt = new Date().toISOString();
-      await saveQueue({ ...latest, leaseExpiresAt, updatedAt: new Date().toISOString() });
+      await saveQueue(transitionManagedLease(latest, { type: 'renewed', leaseId: latest.leaseId, leaseExpiresAt }));
     }).catch((error) => debugLog('lease renewal failed', { error: error instanceof Error ? error.message : String(error) }));
   }, 15_000);
 }
@@ -65,10 +65,7 @@ export function releaseLease(queue: RoverQueueState, reason: LeaseReleaseReason)
 
 export function queueWithPendingLeaseRelease(queue: RoverQueueState, reason: LeaseReleaseReason, clearQueue = false): RoverQueueState {
   if (!queue.leaseId) return clearLease(queue);
-  return reduceLeaseOutbox(clearLease(queue), {
-    type: 'enqueue',
-    actions: [{ type: 'release', leaseId: queue.leaseId, reason, firstQueuedAt: new Date().toISOString(), ...(clearQueue ? { clearQueue: true } : {}) }]
-  });
+  return enqueueLeaseActions(clearLease(queue), [{ type: 'release', leaseId: queue.leaseId, reason, firstQueuedAt: new Date().toISOString(), ...(clearQueue ? { clearQueue: true } : {}) }]);
 }
 
 export async function persistLeaseRelease(queue: RoverQueueState, reason: LeaseReleaseReason, clearQueue = false): Promise<RoverQueueState> {
@@ -333,10 +330,10 @@ export async function connectToMcplab(): Promise<void> {
                 roverSocket.send(JSON.stringify({ type: 'complete', jobId: next.queueId, outcome: 'incomplete', ...(next.leaseId ? { leaseId: next.leaseId } : {}) }));
                 await persistLeaseRelease(next, 'stopped');
               } else if (next.leaseId) {
-                await saveQueue({ ...clearLease(next), pendingLeaseActions: [
+                await saveQueue(enqueueLeaseActions(clearLease(next), [
                   { type: 'complete', leaseId: next.leaseId, outcome: 'incomplete', firstQueuedAt: new Date().toISOString() },
                   { type: 'release', leaseId: next.leaseId, reason: 'stopped', firstQueuedAt: new Date().toISOString() }
-                ] });
+                ]));
               }
             }
           }
