@@ -3,6 +3,7 @@ import type { ProviderId } from '../contracts';
 
 export type QueueItemStatus = 'queued' | 'running' | 'evaluating' | 'passed' | 'failed' | 'incomplete' | 'skipped' | 'stopped' | 'error';
 export type QueueStatus = 'draft' | 'running' | 'paused' | 'completed' | 'stopped';
+export type QueueLeaseState = 'offered' | 'accepted' | 'running';
 
 export interface QueueCatalogItem {
   id: string;
@@ -16,6 +17,7 @@ export interface QueueItemResult {
   resultUrl?: string;
   checkCounts?: CheckCounts;
   text?: string;
+  error?: string;
 }
 
 export interface RoverQueueItem extends QueueCatalogItem, QueueItemResult {
@@ -53,6 +55,9 @@ export interface RoverQueueState {
   sourceConfigName?: string;
   sourceAgentName?: string;
   recentHistory?: Record<string, RoverQueueItem[]>;
+  leaseId?: string;
+  leaseExpiresAt?: string;
+  leaseState?: QueueLeaseState;
 }
 
 const completedStatuses = new Set<QueueItemStatus>(['passed', 'failed', 'incomplete', 'skipped', 'stopped', 'error']);

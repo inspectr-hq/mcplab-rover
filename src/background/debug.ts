@@ -11,6 +11,9 @@ export interface DebugSnapshotInput {
   page?: { matched: boolean; provider?: DebugSnapshot['page']['provider']; profile?: DebugSnapshot['page']['profile']; detection?: DebugSnapshot['page']['detection']; elements: DebugElementCheck[]; error?: string };
   manual: RoverState | null;
   queue: RoverQueueState | null;
+  negotiatedCapabilities?: string[];
+  lastLeaseRenewalAt?: string;
+  lastAssignmentDecision?: { decision: string; reason?: string; at: string };
 }
 
 export function createDebugSnapshot(input: DebugSnapshotInput): DebugSnapshot {
@@ -33,7 +36,14 @@ export function createDebugSnapshot(input: DebugSnapshotInput): DebugSnapshot {
     rover: {
       manualStatus: input.manual?.status,
       queueStatus: input.queue?.status,
-      activeQueueItem: activeItem?.name
+      activeQueueItem: activeItem?.name,
+      ...(input.negotiatedCapabilities ? { negotiatedCapabilities: input.negotiatedCapabilities } : {}),
+      ...(input.queue?.leaseId ? { leaseId: input.queue.leaseId } : {}),
+      ...(input.queue?.leaseState ? { leaseState: input.queue.leaseState } : {}),
+      ...(input.queue?.leaseExpiresAt ? { leaseExpiresAt: input.queue.leaseExpiresAt } : {}),
+      ...(input.lastLeaseRenewalAt ? { lastLeaseRenewalAt: input.lastLeaseRenewalAt } : {}),
+      ...(input.queue?.tabId === undefined ? {} : { boundTabId: input.queue.tabId }),
+      ...(input.lastAssignmentDecision ? { lastAssignmentDecision: input.lastAssignmentDecision } : {})
     }
   };
 }

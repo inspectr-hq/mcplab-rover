@@ -16,10 +16,11 @@ import { activeTab, detectProvider, expectedProviderForUrl, getDetectionDiagnost
 import { createDebugSnapshot } from './debug';
 import { errorMessage } from './errors';
 import { complete, fail } from './live-test';
-import { cancelActiveQueueItem, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
-import { currentSocket, loadedProvider, loadProfilesIntoTab, updateRoverRegistration } from './socket';
+import { cancelActiveQueueItem, failManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
+import { currentSocket, leaseDebugState, loadedProvider, loadProfilesIntoTab, updateRoverRegistration, waitingForMatching } from './socket';
 import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, saveState, STATE_KEY } from './store';
 import { serializeQueueOperation } from '../queue/operations';
+import { releaseLease } from './socket';
 
 function respond<T>(sendResponse: (response: T | { ok: false; error: string }) => void, work: () => Promise<T>): true {
   void work().then(sendResponse).catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
@@ -159,6 +160,7 @@ export function installMessageHandler(): void {
           page = { matched: false, elements: [], error: 'No active browser tab.' };
         }
 
+        const leaseDebug = leaseDebugState();
         return createDebugSnapshot({
           checkedAt: new Date().toISOString(),
           origin,
@@ -168,7 +170,10 @@ export function installMessageHandler(): void {
           tab,
           page,
           manual,
-          queue
+          queue,
+          negotiatedCapabilities: leaseDebug.negotiatedCapabilities,
+          lastLeaseRenewalAt: leaseDebug.lastLeaseRenewalAt,
+          lastAssignmentDecision: leaseDebug.lastAssignmentDecision
         });
       });
     }
@@ -190,11 +195,19 @@ export function installMessageHandler(): void {
       return true;
     }
 
+    if (message.type === 'ROVER_QUEUE_WAITING') {
+      sendResponse(waitingForMatching());
+      return true;
+    }
+
     if (message.type === 'ROVER_QUEUE_CLEAR') {
       return respond(sendResponse, async () => {
         const queue = await getQueue();
         console.info('[Rover debug] queue clear requested', { queueId: queue?.queueId, activeItemId: queue?.activeItemId });
-        if (queue) await cancelActiveQueueItem(queue);
+        if (queue) {
+          await cancelActiveQueueItem(queue);
+          releaseLease(queue, 'stopped');
+        }
         await chrome.storage.session.remove(QUEUE_KEY);
         return { ok: true };
       });
@@ -265,6 +278,7 @@ export function installMessageHandler(): void {
           : skipQueueItem(queue, queue.activeItemId!, new Date().toISOString());
         await saveQueue(next);
         sendResponse({ ok: true, queue: next });
+        if (next.status === 'completed' || next.status === 'stopped') releaseLease(next, 'stopped');
         if (message.type === 'ROVER_QUEUE_SKIP' && next.status === 'running') {
           await runQueueItem(next);
         }
@@ -374,7 +388,7 @@ async function supportsNewConversation(provider: ProviderId | undefined, origin:
 function sendQueueStage(queue: RoverQueueState, scenarioId: string, stage: RoverStage): void {
   const socket = currentSocket();
   if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'stage', jobId: queue.queueId, scenarioId, stage }));
+    socket.send(JSON.stringify({ type: 'stage', jobId: queue.queueId, scenarioId, stage, ...(queue.leaseId ? { leaseId: queue.leaseId } : {}) }));
   }
 }
 
@@ -397,7 +411,8 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
       error: message.result.ok ? undefined : message.result.error
     });
     if (!message.result.ok) {
-      await pauseQueue(queue, new Error(message.result.error));
+      if (queue.leaseId) await failManagedQueue(queue, new Error(message.result.error));
+      else await pauseQueue(queue, new Error(message.result.error));
       return;
     }
     const finalText = message.result.text;
@@ -422,19 +437,24 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
       const socket = currentSocket();
       if (socket?.readyState === WebSocket.OPEN) {
         const durationMs = item.startedAt ? Math.max(0, Date.parse(new Date().toISOString()) - Date.parse(item.startedAt)) : undefined;
-        socket.send(JSON.stringify({ type: 'progress', jobId: queue.queueId, completed: completed.items.filter((candidate) => ['passed', 'failed', 'incomplete', 'skipped', 'stopped'].includes(candidate.status)).length, total: completed.items.length, currentScenarioId: completed.activeItemId ? completed.items.find((candidate) => candidate.queueItemId === completed.activeItemId)?.testCaseId : undefined, lastDurationMs: durationMs, ...(result.outcome === 'failed' || result.outcome === 'error' ? { error: result.outcome } : {}) }));
-        if (completed.status === 'completed') socket.send(JSON.stringify({ type: 'complete', jobId: queue.queueId, runId: result.runId, outcome: result.outcome }));
+        socket.send(JSON.stringify({ type: 'progress', jobId: queue.queueId, ...(queue.leaseId ? { leaseId: queue.leaseId } : {}), completed: completed.items.filter((candidate) => ['passed', 'failed', 'incomplete', 'skipped', 'stopped'].includes(candidate.status)).length, total: completed.items.length, currentScenarioId: completed.activeItemId ? completed.items.find((candidate) => candidate.queueItemId === completed.activeItemId)?.testCaseId : undefined, lastDurationMs: durationMs, ...(result.outcome === 'failed' || result.outcome === 'error' ? { error: result.outcome } : {}) }));
+        if (completed.status === 'completed') {
+          socket.send(JSON.stringify({ type: 'complete', jobId: queue.queueId, runId: result.runId, outcome: result.outcome, ...(queue.leaseId ? { leaseId: queue.leaseId } : {}) }));
+          releaseLease(completed, 'completed');
+        }
       }
       if (completed.status === 'running') {
         try {
           if (completed.newConversationBetweenItems) await startQueueConversation(completed);
           await runQueueItem(completed);
         } catch (error) {
-          await pauseQueue(completed, error);
+          if (completed.leaseId) await failManagedQueue(completed, error);
+          else await pauseQueue(completed, error);
         }
       }
     } catch (error) {
-      await pauseQueue(evaluating, error, 'mcplab');
+      if (evaluating.leaseId) await failManagedQueue(evaluating, error, 'mcplab');
+      else await pauseQueue(evaluating, error, 'mcplab');
     }
     return;
   }

@@ -12,6 +12,9 @@ describe('Rover protocol', () => {
 
   it('advertises scenario control without changing protocol version', () => {
     expect(ROVER_CAPABILITIES).toContain('scenario_control');
-    expect(registrationPayload('claude', 'https://claude.ai/chat/1', '1.2.3')).toMatchObject({ protocolVersion: 1, capabilities: ['scenario_control'] });
+    expect(registrationPayload('claude', 'https://claude.ai/chat/1', '1.2.3')).toMatchObject({
+      protocolVersion: 1,
+      capabilities: ['scenario_control', 'assignment_lease'],
+    });
   });
 });

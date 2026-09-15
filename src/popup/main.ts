@@ -267,6 +267,11 @@ function renderQueue(queue: RoverQueueState | null): void {
   if (!queue) {
     queueItems.replaceChildren();
     queueStatus.textContent = 'Queue mode requires a supported or learned browser provider page.';
+    void chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_WAITING' }).then((waiting: Array<{ evaluationName?: string; provider: string; position: number }> | undefined) => {
+      if (!waiting?.length || currentQueue) return;
+      const first = waiting[0];
+      queueStatus.textContent = `${waiting.length} evaluation${waiting.length === 1 ? '' : 's'} waiting for ${first.provider} on MCPLab. Switch providers if needed.`;
+    });
     queueStart.disabled = true;
     queueRetry.hidden = true;
     queueSkip.hidden = true;

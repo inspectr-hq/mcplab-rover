@@ -1,12 +1,13 @@
 import { McplabClient } from '../mcplab/api-client';
 import {
+  recordQueueItemOutcome,
   type RoverQueueState
 } from '../queue/state';
 import { activeTab, detectProvider } from './browser';
 import type { RoverStage } from '../contracts';
 import { errorMessage } from './errors';
 import { getQueue, saveQueue } from './store';
-import { currentSocket } from './socket';
+import { currentSocket, releaseLease } from './socket';
 import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover-protocol';
 import { selectMatchingExecutionTab } from './execution-tab';
 
@@ -17,7 +18,7 @@ function debugLog(event: string, details: Record<string, unknown> = {}): void {
 function sendStage(queue: RoverQueueState, itemId: string, stage: RoverStage): void {
   const socket = currentSocket();
   if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'stage', jobId: queue.queueId, scenarioId: itemId, stage }));
+    socket.send(JSON.stringify({ type: 'stage', jobId: queue.queueId, scenarioId: itemId, stage, ...(queue.leaseId ? { leaseId: queue.leaseId } : {}) }));
   }
 }
 
@@ -28,6 +29,7 @@ export function sendScenarioStatus(queue: RoverQueueState, item: RoverQueueState
     type: 'scenario_status',
     jobId: queue.queueId,
     scenarioId: item.testCaseId,
+    ...(queue.leaseId ? { leaseId: queue.leaseId } : {}),
     ...scenarioStatusForItem(item),
     ...(lastDurationMs === undefined ? {} : { lastDurationMs })
   };
@@ -54,6 +56,30 @@ export async function pauseQueue(queue: RoverQueueState, error: unknown, stage: 
   await saveQueue(paused);
   const item = paused.items.find((candidate) => candidate.queueItemId === paused.activeItemId);
   if (item) sendScenarioStatus(paused, item);
+}
+
+export async function failManagedQueue(queue: RoverQueueState, error: unknown, stage: 'browser' | 'mcplab' = 'browser'): Promise<void> {
+  if (!queue.leaseId || !queue.activeItemId) {
+    await pauseQueue(queue, error, stage);
+    return;
+  }
+  const message = errorMessage(error);
+  const failed = recordQueueItemOutcome(queue, queue.activeItemId, 'error', { error: message }, new Date().toISOString());
+  await saveQueue(failed);
+  const item = failed.items.find((candidate) => candidate.testCaseId === queue.items.find((current) => current.queueItemId === queue.activeItemId)?.testCaseId && candidate.status === 'error');
+  if (item) sendScenarioStatus(failed, item);
+  const socket = currentSocket();
+  if (failed.status === 'completed') {
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: 'complete', jobId: failed.queueId, outcome: 'error', ...(failed.leaseId ? { leaseId: failed.leaseId } : {}) }));
+    }
+    releaseLease(failed, 'error');
+    return;
+  }
+  if (failed.status === 'running') {
+    if (failed.newConversationBetweenItems) await startQueueConversation(failed);
+    await runQueueItem(failed);
+  }
 }
 
 function isProviderReadinessError(error: unknown): boolean {
@@ -94,7 +120,7 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
       typeof current?.id === 'number' ? { id: current.id, provider: activeProvider } : undefined
     );
     if (executionTabId === undefined) throw new Error(`Browser provider '${queue.provider}' was not ready on the active tab.`);
-    if (executionTabId !== queue.tabId) {
+    if (executionTabId !== queue.tabId && queue.leaseState !== 'accepted' && queue.leaseState !== 'running') {
       debugLog('rebinding queue to matching active tab', { queueId: queue.queueId, provider: queue.provider, previousTabId: queue.tabId, tabId: executionTabId });
       queue = { ...queue, tabId: executionTabId };
     }
@@ -139,7 +165,8 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
       return;
     }
     debugLog('queue item paused after error', { queueId: queue.queueId, scenarioId: item.testCaseId, error: error instanceof Error ? error.message : String(error) });
-    await pauseQueue(queue, error);
+    if (queue.leaseId) await failManagedQueue(queue, error);
+    else await pauseQueue(queue, error);
   }
 }
 

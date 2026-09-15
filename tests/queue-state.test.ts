@@ -165,4 +165,19 @@ describe('queue state', () => {
 
     expect(stopped.items[0]?.status).toBe('stopped');
   });
+
+  it('preserves lease metadata through queue transitions and clears it only when the caller does so', () => {
+    let queue = createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z');
+    queue = addQueueItem(queue, alpha);
+    queue = {
+      ...startQueue(queue, '2026-09-09T10:01:00.000Z'),
+      leaseId: 'lease-1',
+      leaseExpiresAt: '2026-09-09T10:01:30.000Z',
+      leaseState: 'running'
+    };
+
+    const stopped = stopQueue(queue, '2026-09-09T10:02:00.000Z');
+    expect(stopped).toMatchObject({ leaseId: 'lease-1', leaseState: 'running' });
+    expect(stopped.items[0]?.status).toBe('stopped');
+  });
 });

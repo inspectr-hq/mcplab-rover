@@ -47,7 +47,25 @@ export interface DebugSnapshot {
   endpoint: { origin: string; connected: boolean; checked: boolean; error?: string };
   page: { tabId?: number; url?: string; matched: boolean; provider?: ProviderId; profile?: { name: string; source: string; revision: string; capabilities: string[] }; detection?: { attempts: number; checkedAt: string; provider?: ProviderId; error?: string }; error?: string };
   elements: DebugElementCheck[];
-  rover: { manualStatus?: RoverStatus; queueStatus?: string; activeQueueItem?: string };
+  rover: {
+    manualStatus?: RoverStatus;
+    queueStatus?: string;
+    activeQueueItem?: string;
+    negotiatedCapabilities?: string[];
+    leaseId?: string;
+    leaseState?: string;
+    leaseExpiresAt?: string;
+    lastLeaseRenewalAt?: string;
+    boundTabId?: number;
+    lastAssignmentDecision?: { decision: string; reason?: string; at: string };
+  };
+}
+
+export interface WaitingEvaluation {
+  jobId: string;
+  evaluationName?: string;
+  provider: ProviderId;
+  position: number;
 }
 
 export type ExtensionMessage =
@@ -62,6 +80,7 @@ export type ExtensionMessage =
   | { type: 'ROVER_GET_ACTIVE_PROVIDER' }
   | { type: 'ROVER_START_NEW_CONVERSATION' }
   | { type: 'ROVER_QUEUE_GET' }
+  | { type: 'ROVER_QUEUE_WAITING' }
   | { type: 'ROVER_QUEUE_CLEAR' }
   | { type: 'ROVER_QUEUE_CREATE'; origin?: string; newConversationBetweenItems: boolean }
   | { type: 'ROVER_QUEUE_ADD'; item: { id: string; name: string; prompt: string; assertionCount: number } }
