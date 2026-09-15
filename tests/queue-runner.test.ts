@@ -5,7 +5,22 @@ const mocks = vi.hoisted(() => ({
   saveQueue: vi.fn()
 }));
 
-vi.mock('../src/background/socket', () => ({ currentSocket: () => mocks.socket }));
+vi.mock('../src/background/socket', () => ({
+  currentSocket: () => mocks.socket,
+  clearLease: (queue: Record<string, unknown>) => {
+    const { leaseId: _leaseId, leaseState: _leaseState, leaseExpiresAt: _leaseExpiresAt, ...cleared } = queue;
+    return cleared;
+  },
+  queueWithPendingLeaseRelease: (queue: Record<string, unknown>, reason: string) => ({
+    ...queue,
+    leaseId: undefined,
+    leaseState: undefined,
+    leaseExpiresAt: undefined,
+    pendingLeaseActions: [{ type: 'release', leaseId: queue.leaseId, reason }]
+  }),
+  persistLeaseRelease: vi.fn(),
+  releaseLease: vi.fn()
+}));
 vi.mock('../src/background/store', () => ({ getQueue: vi.fn(), saveQueue: mocks.saveQueue }));
 
 import { deferQueueItem, pauseQueue } from '../src/background/queue-runner';
@@ -70,5 +85,22 @@ describe('server assignment failure handling', () => {
 
     expect(mocks.saveQueue).toHaveBeenCalledWith(expect.objectContaining({ status: 'running', activeItemId: 'item-1', items: [expect.objectContaining({ status: 'queued' })] }));
     expect(mocks.socket.send).toHaveBeenCalledWith(expect.stringContaining('"status":"queued"'));
+  });
+  it('preserves the leased job id when deferring offline', async () => {
+    mocks.socket = null;
+    const queue = {
+      queueId: 'job-offline', mode: 'queue' as const, origin: 'http://127.0.0.1:8787', provider: 'm365-cloud-microsoft', evaluationRunId: 'run-offline',
+      leaseId: 'lease-offline', leaseState: 'running' as const, leaseExpiresAt: new Date(Date.now() + 30_000).toISOString(),
+      newConversationBetweenItems: true, status: 'running' as const, activeItemId: 'item-1',
+      items: [{ queueItemId: 'item-1', testCaseId: 'scenario-1', id: 'scenario-1', name: 'Scenario 1', prompt: 'Hi', assertionCount: 0, status: 'running' as const }],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    };
+
+    await deferQueueItem(queue, new Error('Browser provider was not ready on the active tab.'));
+
+    expect(mocks.saveQueue).toHaveBeenCalledWith(expect.objectContaining({
+      queueId: 'job-offline',
+      pendingLeaseActions: [expect.objectContaining({ leaseId: 'lease-offline', reason: 'provider_unavailable' })]
+    }));
   });
 });

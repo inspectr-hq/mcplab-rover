@@ -114,6 +114,7 @@ export async function deferQueueItem(queue: RoverQueueState, error: unknown): Pr
     const released = clearLease(queue);
     const replacement = {
       ...createQueue(released.origin, released.provider, released.newConversationBetweenItems, new Date().toISOString()),
+      queueId: queue.queueId,
       recentHistory: released.recentHistory
     };
     if (currentSocket()?.readyState === WebSocket.OPEN) {

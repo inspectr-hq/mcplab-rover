@@ -34,11 +34,6 @@ describe('pending lease actions', () => {
     expect(acknowledgePendingLeaseAction(original, 'job-1', 'stale')).toBe(original);
   });
 
-  it('clears legacy pending actions through the same path', () => {
-    const original = { ...queue(), pendingLeaseActions: undefined, pendingLeaseAction: { type: 'release' as const, leaseId: 'lease-1', reason: 'stopped' } };
-    expect(clearLease(acknowledgePendingLeaseAction(original, 'job-1', 'lease-1')).leaseId).toBeUndefined();
-  });
-
   it('marks an offline release so a later acknowledgement can clear the queue', () => {
     const pending = queueWithPendingLeaseRelease(queue(), 'stopped', true);
     expect(pending.leaseId).toBeUndefined();

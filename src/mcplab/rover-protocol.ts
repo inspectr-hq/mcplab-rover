@@ -1,11 +1,12 @@
 import type { QueueItemStatus, RoverQueueItem } from '../queue/state';
 
 export const ROVER_CAPABILITIES = ['scenario_control', 'assignment_lease'] as const;
+export const ROVER_PROTOCOL_VERSION = 2 as const;
 
 export function registrationPayload(provider: string, pageUrl: string, extensionVersion: string, providerRevision?: string) {
   return {
     type: 'register' as const,
-    protocolVersion: 1 as const,
+    protocolVersion: ROVER_PROTOCOL_VERSION,
     capabilities: ROVER_CAPABILITIES,
     provider,
     pageUrl,
@@ -33,6 +34,13 @@ export type LeaseMessage =
   | { type: 'assignment_reject'; jobId: string; leaseId: string; reason: string; retryable: boolean }
   | { type: 'lease_renew'; jobId: string; leaseId: string; leaseExpiresAt: string }
   | { type: 'lease_release'; jobId: string; leaseId: string; reason: 'completed' | 'error' | 'stopped' | 'connection_lost' | 'provider_unavailable' | 'provider_mismatch' | 'stale_provider' | 'bound_tab_unavailable' | 'terminal_error' };
+
+export interface LeaseUnknownMessage {
+  type: 'lease_unknown';
+  jobId: string;
+  leaseId: string;
+  reason: 'unknown_lease';
+}
 
 export function scenarioStatusForItem(item: Pick<RoverQueueItem, 'status' | 'error'> | { status: QueueItemStatus; error?: string }): Omit<ScenarioStatusEvent, 'type' | 'jobId' | 'scenarioId'> {
   const status: ScenarioWireStatus = item.status === 'queued'

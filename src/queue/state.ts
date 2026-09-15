@@ -71,7 +71,6 @@ export interface RoverQueueState {
   leaseId?: string;
   leaseExpiresAt?: string;
   leaseState?: QueueLeaseState;
-  pendingLeaseAction?: PendingLeaseAction;
   pendingLeaseActions?: PendingLeaseAction[];
 }
 
