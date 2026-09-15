@@ -87,7 +87,7 @@ Lease messages:
 
 ```json
 { "type": "assignment_accept", "jobId": "...", "leaseId": "...", "tabId": 123 }
-{ "type": "assignment_reject", "jobId": "...", "leaseId": "...", "reason": "provider_unavailable|stale_provider|busy|invalid_assignment", "retryable": true }
+{ "type": "assignment_reject", "jobId": "...", "leaseId": "...", "reason": "provider_unavailable|provider_mismatch|stale_provider|busy|invalid_assignment|expired_assignment", "retryable": true }
 { "type": "lease_renew", "jobId": "...", "leaseId": "...", "leaseExpiresAt": "..." }
 { "type": "lease_release", "jobId": "...", "leaseId": "...", "reason": "completed|error|stopped|connection_lost" }
 ```

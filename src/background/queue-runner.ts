@@ -92,8 +92,8 @@ export async function failManagedQueue(queue: RoverQueueState, error: unknown, s
       await saveQueue({
         ...clearLease(failed),
         pendingLeaseActions: [
-          { type: 'complete', leaseId: failed.leaseId!, outcome: 'error' },
-          { type: 'release', leaseId: failed.leaseId!, reason: 'error' }
+          { type: 'complete', leaseId: failed.leaseId!, outcome: 'error', firstQueuedAt: new Date().toISOString() },
+          { type: 'release', leaseId: failed.leaseId!, reason: 'error', firstQueuedAt: new Date().toISOString() }
         ]
       });
     }

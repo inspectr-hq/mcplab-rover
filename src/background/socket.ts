@@ -103,6 +103,14 @@ export function waitingForMatching(): WaitingEvaluation[] {
   return waitingEvaluations.map((job) => ({ ...job }));
 }
 
+export function acknowledgePendingLeaseAction(queue: RoverQueueState, jobId: string, leaseId: string): RoverQueueState {
+  if (queue.queueId !== jobId) return queue;
+  if (queue.pendingLeaseAction?.leaseId === leaseId) return clearLease(queue);
+  if (queue.pendingLeaseActions?.[0]?.leaseId !== leaseId) return queue;
+  const remaining = queue.pendingLeaseActions.slice(1);
+  return remaining.length ? { ...queue, pendingLeaseActions: remaining } : clearLease(queue);
+}
+
 async function replayPendingLeaseAction(): Promise<void> {
   const queue = await getQueue();
   const action = queue?.pendingLeaseActions?.[0] ?? queue?.pendingLeaseAction;
@@ -196,14 +204,11 @@ export async function connectToMcplab(): Promise<void> {
         void serializeQueueOperation(async () => {
           const queue = await getQueue();
           if (!queue || queue.queueId !== message.jobId) return;
-          if (queue.pendingLeaseAction?.leaseId === message.leaseId) {
-            await saveQueue(clearLease(queue));
-            return;
+          const next = acknowledgePendingLeaseAction(queue, message.jobId, message.leaseId);
+          if (next !== queue) {
+            await saveQueue(next);
+            if (next.pendingLeaseActions?.length) await replayPendingLeaseAction();
           }
-          if (!queue.pendingLeaseActions?.length || queue.pendingLeaseActions[0]?.leaseId !== message.leaseId) return;
-          const remaining = queue.pendingLeaseActions.slice(1);
-          await saveQueue(remaining.length ? { ...queue, pendingLeaseActions: remaining } : clearLease(queue));
-          if (remaining.length) await replayPendingLeaseAction();
         }).catch((error) => debugLog('lease acknowledgement handling failed', { error: error instanceof Error ? error.message : String(error) }));
         return;
       }

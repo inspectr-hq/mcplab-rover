@@ -460,8 +460,8 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
           await saveQueue({
             ...clearLease(completed),
             pendingLeaseActions: [
-              { type: 'complete', leaseId: completed.leaseId, outcome: result.outcome, runId: result.runId },
-              { type: 'release', leaseId: completed.leaseId, reason: 'completed' }
+              { type: 'complete', leaseId: completed.leaseId, outcome: result.outcome, runId: result.runId, firstQueuedAt: new Date().toISOString() },
+              { type: 'release', leaseId: completed.leaseId, reason: 'completed', firstQueuedAt: new Date().toISOString() }
             ]
           });
         }
