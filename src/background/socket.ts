@@ -423,7 +423,10 @@ export async function connectToMcplab(): Promise<void> {
           reportAssignmentError(error instanceof Error ? error.message : String(error));
         }
         try {
-          if (leaseBearing) {
+          // Before acceptance, assignment_reject is the protocol-owned cleanup.
+          // Do not follow it with a release for the same lease, because MCPLab
+          // has already requeued and cleared the offered lease.
+          if (leaseBearing && accepted) {
             const currentQueue = await getQueue();
             if (currentQueue && currentQueue.queueId === message.jobId && currentQueue.leaseId === message.leaseId) {
               await persistLeaseRelease(currentQueue, 'error');
