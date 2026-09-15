@@ -45,13 +45,19 @@ export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
   }, 15_000);
 }
 
-export function releaseLease(queue: RoverQueueState, reason: 'completed' | 'error' | 'stopped' | 'connection_lost'): void {
-  if (!queue.leaseId || !negotiatedCapabilities.includes('assignment_lease')) return;
+export function clearLease(queue: RoverQueueState): RoverQueueState {
+  const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, leaseState: _leaseState, ...withoutLease } = queue;
+  return withoutLease;
+}
+
+export function releaseLease(queue: RoverQueueState, reason: 'completed' | 'error' | 'stopped' | 'connection_lost'): RoverQueueState {
+  if (!queue.leaseId || !negotiatedCapabilities.includes('assignment_lease')) return queue;
   if (roverSocket?.readyState === WebSocket.OPEN) {
     roverSocket.send(JSON.stringify({ type: 'lease_release', jobId: queue.queueId, leaseId: queue.leaseId, reason }));
   }
   lastAssignmentDecision = { decision: 'released', reason, at: new Date().toISOString() };
   if (reason !== 'connection_lost') stopLeaseRenewal();
+  return clearLease(queue);
 }
 
 function debugLog(event: string, details: Record<string, unknown> = {}): void {
@@ -115,6 +121,7 @@ export async function loadProfilesIntoTab(tabId: number, origin: string): Promis
 
 export async function connectToMcplab(): Promise<void> {
   const origin = await resolveOrigin();
+  waitingEvaluations = [];
   if (roverSocket && (roverSocket.readyState === WebSocket.OPEN || roverSocket.readyState === WebSocket.CONNECTING)) return;
   const initialTab = await activeTab();
   if (typeof initialTab?.id !== 'number') {
@@ -189,8 +196,8 @@ export async function connectToMcplab(): Promise<void> {
           const queue = await getQueue();
           if (!queue || queue.queueId !== message.jobId) return;
           await cancelActiveQueueItem(queue);
-          releaseLease(queue, 'stopped');
-          await saveQueue(stopQueue(queue, new Date().toISOString()));
+          const released = releaseLease(queue, 'stopped');
+          await saveQueue(stopQueue(released, new Date().toISOString()));
         }).catch((error) => {
           debugLog('whole queue stop failed', { error: error instanceof Error ? error.message : String(error) });
         });
@@ -214,6 +221,7 @@ export async function connectToMcplab(): Promise<void> {
             roverSocket.send(JSON.stringify({
               type: 'progress',
               jobId: next.queueId,
+              ...(next.leaseId ? { leaseId: next.leaseId } : {}),
               completed: next.items.filter((candidate) => ['passed', 'failed', 'incomplete', 'skipped', 'stopped'].includes(candidate.status)).length,
               total: next.items.length,
               currentScenarioId: next.activeItemId ? next.items.find((candidate) => candidate.queueItemId === next.activeItemId)?.testCaseId : undefined
@@ -231,7 +239,7 @@ export async function connectToMcplab(): Promise<void> {
               }
             } else if (next.status === 'completed' && roverSocket?.readyState === WebSocket.OPEN) {
               roverSocket.send(JSON.stringify({ type: 'complete', jobId: next.queueId, outcome: 'incomplete', ...(next.leaseId ? { leaseId: next.leaseId } : {}) }));
-              releaseLease(next, 'stopped');
+              await saveQueue(releaseLease(next, 'stopped'));
             }
           }
         }).catch((error) => {
@@ -297,6 +305,7 @@ export async function connectToMcplab(): Promise<void> {
         if (leaseBearing) {
           socket.send(JSON.stringify({ type: 'assignment_accept', jobId: message.jobId, leaseId: message.leaseId, tabId: tab.id }));
           lastAssignmentDecision = { decision: 'accepted', at: new Date().toISOString() };
+          waitingEvaluations = waitingEvaluations.filter((job) => job.jobId !== message.jobId);
         }
         for (const item of assigned.items) sendScenarioStatus(assigned, item);
         const started = { ...startQueue(assigned, new Date().toISOString()), ...(leaseBearing ? { leaseState: 'running' as const } : {}) };
@@ -309,7 +318,7 @@ export async function connectToMcplab(): Promise<void> {
           const currentQueue = await getQueue();
           if (!currentQueue) return;
           if (currentQueue.queueId === message.jobId && currentQueue.leaseId === message.leaseId) {
-            releaseLease(currentQueue, 'error');
+            await saveQueue(releaseLease(currentQueue, 'error'));
             await pauseQueue(currentQueue, error);
           }
         }
@@ -324,6 +333,7 @@ export async function connectToMcplab(): Promise<void> {
       roverHeartbeat = null;
     }
     stopLeaseRenewal();
+    waitingEvaluations = [];
     roverSocket = null;
     if (registeredSocket === socket) registeredSocket = null;
     if (registeredSocket === null) registeredTabId = undefined;

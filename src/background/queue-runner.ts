@@ -69,11 +69,22 @@ export async function failManagedQueue(queue: RoverQueueState, error: unknown, s
   const item = failed.items.find((candidate) => candidate.testCaseId === queue.items.find((current) => current.queueItemId === queue.activeItemId)?.testCaseId && candidate.status === 'error');
   if (item) sendScenarioStatus(failed, item);
   const socket = currentSocket();
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({
+      type: 'progress',
+      jobId: failed.queueId,
+      ...(failed.leaseId ? { leaseId: failed.leaseId } : {}),
+      completed: failed.items.filter((candidate) => ['passed', 'failed', 'incomplete', 'skipped', 'stopped', 'error'].includes(candidate.status)).length,
+      total: failed.items.length,
+      currentScenarioId: failed.activeItemId ? failed.items.find((candidate) => candidate.queueItemId === failed.activeItemId)?.testCaseId : undefined,
+      error: message
+    }));
+  }
   if (failed.status === 'completed') {
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: 'complete', jobId: failed.queueId, outcome: 'error', ...(failed.leaseId ? { leaseId: failed.leaseId } : {}) }));
     }
-    releaseLease(failed, 'error');
+    await saveQueue(releaseLease(failed, 'error'));
     return;
   }
   if (failed.status === 'running') {
@@ -120,6 +131,9 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
       typeof current?.id === 'number' ? { id: current.id, provider: activeProvider } : undefined
     );
     if (executionTabId === undefined) throw new Error(`Browser provider '${queue.provider}' was not ready on the active tab.`);
+    if (executionTabId !== queue.tabId && (queue.leaseState === 'accepted' || queue.leaseState === 'running')) {
+      throw new Error(`Bound browser tab ${queue.tabId} is no longer available for provider '${queue.provider}'.`);
+    }
     if (executionTabId !== queue.tabId && queue.leaseState !== 'accepted' && queue.leaseState !== 'running') {
       debugLog('rebinding queue to matching active tab', { queueId: queue.queueId, provider: queue.provider, previousTabId: queue.tabId, tabId: executionTabId });
       queue = { ...queue, tabId: executionTabId };
