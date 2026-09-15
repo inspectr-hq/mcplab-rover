@@ -3,7 +3,7 @@ import type { WaitingEvaluation } from '../contracts';
 import { McplabClient } from '../mcplab/api-client';
 import { archiveCompletedQueueItems, createQueue, startQueue, stopQueue, stopScenario } from '../queue/state';
 import { activeTab, detectProvider } from './browser';
-import { cancelActiveQueueItem, failManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation, waitForProviderReady } from './queue-runner';
+import { cancelActiveQueueItem, failManagedQueue, finalizeManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation, waitForProviderReady } from './queue-runner';
 import { registrationPayload, ROVER_PROTOCOL_VERSION } from '../mcplab/rover-protocol';
 import { getQueue, QUEUE_KEY, resolveOrigin, saveQueue } from './store';
 import type { RoverQueueState } from '../queue/state';
@@ -94,6 +94,11 @@ async function reconcileQueueAfterRegistration(origin: string): Promise<void> {
   if (!queue || queue.status !== 'running') return;
   if (!queue.evaluationRunId) {
     if (queueNeedsResume(queue)) await runQueueItem(queue);
+    return;
+  }
+  if (!queue.leaseId) {
+    stopLeaseRenewal();
+    await saveQueue(createQueue(origin, queue.provider, queue.newConversationBetweenItems, new Date().toISOString()));
     return;
   }
   try {
@@ -326,15 +331,8 @@ export async function connectToMcplab(): Promise<void> {
                 else await pauseQueue(next, error);
               }
             } else if (next.status === 'completed') {
-              if (roverSocket?.readyState === WebSocket.OPEN) {
-                roverSocket.send(JSON.stringify({ type: 'complete', jobId: next.queueId, outcome: 'incomplete', ...(next.leaseId ? { leaseId: next.leaseId } : {}) }));
-                await persistLeaseRelease(next, 'stopped');
-              } else if (next.leaseId) {
-                await saveQueue(enqueueLeaseActions(clearLease(next), [
-                  { type: 'complete', leaseId: next.leaseId, outcome: 'incomplete', firstQueuedAt: new Date().toISOString() },
-                  { type: 'release', leaseId: next.leaseId, reason: 'stopped', firstQueuedAt: new Date().toISOString() }
-                ]));
-              }
+              if (next.leaseId) await finalizeManagedQueue(next, { outcome: 'incomplete', releaseReason: 'stopped' });
+              else if (roverSocket?.readyState === WebSocket.OPEN) roverSocket.send(JSON.stringify({ type: 'complete', jobId: next.queueId, outcome: 'incomplete' }));
             }
           }
         }).catch((error) => {
