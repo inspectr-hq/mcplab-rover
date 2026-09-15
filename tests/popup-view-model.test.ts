@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility, projectQueueForProvider, splitQueueItems } from '../src/popup/view-model';
+import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility, projectQueueForProvider, splitQueueItems, suggestedProviderName } from '../src/popup/view-model';
 
 const cases = [
   { id: 'alpha', name: 'Restaurant search', tags: ['food'], assertionCount: 2, eligible: true },
@@ -56,6 +56,11 @@ describe('popup view model', () => {
   it('identifies queues managed by MCPLab', () => {
     expect(splitQueueItems([], 'run-123').managed).toBe(true);
     expect(splitQueueItems([], undefined).managed).toBe(false);
+  });
+
+  it('suggests the captured provider name for the learning form', () => {
+    expect(suggestedProviderName({ name: 'chatgpt.com', match: { origins: ['https://chatgpt.com'] } })).toBe('chatgpt.com');
+    expect(suggestedProviderName({ name: '', match: { origins: ['https://example.com'] } })).toBe('example.com');
   });
 
   it('projects only the active provider queue and its recent history', () => {

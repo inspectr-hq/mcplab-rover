@@ -1,7 +1,7 @@
 import type { BrowserProviderDiscoveryDraft, DebugElementCheck, DebugSnapshot, RoverState } from '../contracts';
 import type { LiveTestCatalogItem } from '../mcplab/types';
 import type { RoverQueueState } from '../queue/state';
-import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility, projectQueueForProvider } from './view-model';
+import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility, projectQueueForProvider, suggestedProviderName } from './view-model';
 import './style.css';
 
 const shell = document.querySelector<HTMLElement>('.shell')!;
@@ -619,6 +619,7 @@ chrome.runtime.onMessage.addListener((message: { type?: string }) => {
     const event = message as { draft?: BrowserProviderDiscoveryDraft };
     if (!event.draft) return;
     discoveryDraft = event.draft;
+    learnName.value = suggestedProviderName(event.draft.profile);
     void chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: event.draft });
     learnStart.textContent = 'Start learning again';
     learnStatus.textContent = 'Sample captured. Review the capabilities, name the provider, and save it.';
@@ -648,7 +649,7 @@ void chrome.storage.local.get([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]).
   const draft = (stored[DISCOVERY_DRAFT_KEY] ?? stored[LEGACY_LEARNING_DRAFT_KEY]) as BrowserProviderDiscoveryDraft | undefined;
   if (!draft) return;
   discoveryDraft = draft;
-  learnName.value = draft.profile.name;
+  learnName.value = suggestedProviderName(draft.profile);
   learnName.hidden = false;
   learnSave.hidden = false;
   learnStatus.textContent = 'A saved learning draft is ready to review.';

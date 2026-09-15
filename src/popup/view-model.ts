@@ -1,4 +1,5 @@
 import type { CheckCounts, LiveTestCatalogItem } from '../mcplab/types';
+import type { BrowserProviderProfile } from '../mcplab/types';
 import type { DebugSnapshot } from '../contracts';
 import type { RoverQueueItem } from '../queue/state';
 
@@ -22,6 +23,18 @@ export function filterTestCases(items: LiveTestCatalogItem[], query: string): Li
 
 export function formatCheckCounts(counts: CheckCounts): string {
   return `${counts.passed} passed · ${counts.failed} failed · ${counts.not_evaluated} not evaluated`;
+}
+
+export function suggestedProviderName(profile: Pick<BrowserProviderProfile, 'name' | 'match'>): string {
+  const name = profile.name.trim();
+  if (name) return name;
+  const origin = profile.match.origins[0];
+  if (!origin) return '';
+  try {
+    return new URL(origin).hostname;
+  } catch {
+    return origin;
+  }
 }
 
 export function debugFingerprint(snapshot: DebugSnapshot): string {

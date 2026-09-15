@@ -193,6 +193,7 @@ export function installMessageHandler(): void {
     if (message.type === 'ROVER_QUEUE_CLEAR') {
       return respond(sendResponse, async () => {
         const queue = await getQueue();
+        console.info('[Rover debug] queue clear requested', { queueId: queue?.queueId, activeItemId: queue?.activeItemId });
         if (queue) await cancelActiveQueueItem(queue);
         await chrome.storage.session.remove(QUEUE_KEY);
         return { ok: true };
@@ -257,6 +258,7 @@ export function installMessageHandler(): void {
       void serializeQueueOperation(async () => {
         const queue = await getQueue();
         if (!queue) throw new Error('No queue is active.');
+        console.info('[Rover debug] queue control requested', { action: message.type, queueId: queue.queueId, activeItemId: queue.activeItemId });
         await cancelActiveQueueItem(queue);
         const next = message.type === 'ROVER_QUEUE_STOP'
           ? stopQueue(queue, new Date().toISOString())

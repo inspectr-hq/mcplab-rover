@@ -136,6 +136,7 @@ export async function connectToMcplab(): Promise<void> {
         return;
       }
       if (message.type === 'stop' && message.jobId) {
+        debugLog('stop command received', { jobId: message.jobId });
         void serializeQueueOperation(async () => {
           const queue = await getQueue();
           if (!queue || queue.queueId !== message.jobId) return;
@@ -147,6 +148,7 @@ export async function connectToMcplab(): Promise<void> {
         return;
       }
       if (message.type === 'stop_scenario' && message.jobId && message.scenarioId) {
+        debugLog('stop_scenario command received', { jobId: message.jobId, scenarioId: message.scenarioId });
         void serializeQueueOperation(async () => {
           const queue = await getQueue();
           const item = queue?.activeItemId

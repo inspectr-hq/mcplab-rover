@@ -171,6 +171,7 @@ if (runtime.__mcplabRoverInstalled) {
     }
     if (message.type === 'ROVER_CANCEL_ASK') {
       const controller = activeAskControllers.get(message.requestId);
+      console.info('[Rover debug] cancel ask received', { requestId: message.requestId, hasController: Boolean(controller) });
       controller?.abort();
       void Promise.resolve(findAdapter()?.stopGeneration?.()).catch((error) => {
         console.warn('[Rover] provider generation cancellation failed', error);
