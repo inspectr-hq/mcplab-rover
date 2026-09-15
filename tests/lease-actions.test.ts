@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acknowledgePendingLeaseAction, clearLease } from '../src/background/socket';
+import { acknowledgePendingLeaseAction, clearLease, queueWithPendingLeaseRelease } from '../src/background/socket';
 import { createQueue } from '../src/queue/state';
 
 function queue() {
@@ -37,5 +37,21 @@ describe('pending lease actions', () => {
   it('clears legacy pending actions through the same path', () => {
     const original = { ...queue(), pendingLeaseActions: undefined, pendingLeaseAction: { type: 'release' as const, leaseId: 'lease-1', reason: 'stopped' } };
     expect(clearLease(acknowledgePendingLeaseAction(original, 'job-1', 'lease-1')).leaseId).toBeUndefined();
+  });
+
+  it('marks an offline release so a later acknowledgement can clear the queue', () => {
+    const pending = queueWithPendingLeaseRelease(queue(), 'stopped', true);
+    expect(pending.leaseId).toBeUndefined();
+    expect(pending.pendingLeaseActions).toEqual([
+      expect.objectContaining({ type: 'release', leaseId: 'lease-1', reason: 'stopped', clearQueue: true })
+    ]);
+  });
+
+  it('preserves a normal deferred release without requesting queue removal', () => {
+    const pending = queueWithPendingLeaseRelease(queue(), 'provider_unavailable');
+    expect(pending.pendingLeaseActions?.[0]).toEqual(expect.objectContaining({
+      type: 'release', leaseId: 'lease-1', reason: 'provider_unavailable'
+    }));
+    expect(pending.pendingLeaseActions?.[0]?.clearQueue).toBeUndefined();
   });
 });

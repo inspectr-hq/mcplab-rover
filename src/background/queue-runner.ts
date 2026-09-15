@@ -8,7 +8,7 @@ import { activeTab, detectProvider } from './browser';
 import type { RoverStage } from '../contracts';
 import { errorMessage } from './errors';
 import { getQueue, saveQueue } from './store';
-import { clearLease, currentSocket, releaseLease } from './socket';
+import { clearLease, currentSocket, queueWithPendingLeaseRelease, releaseLease } from './socket';
 import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover-protocol';
 import { selectMatchingExecutionTab } from './execution-tab';
 
@@ -114,11 +114,17 @@ export async function deferQueueItem(queue: RoverQueueState, error: unknown): Pr
   const message = errorMessage(error);
   if (queue.leaseId) {
     const released = clearLease(queue);
-    await saveQueue({
+    const replacement = {
       ...createQueue(released.origin, released.provider, released.newConversationBetweenItems, new Date().toISOString()),
       recentHistory: released.recentHistory
-    });
-    releaseLease(queue, 'provider_unavailable');
+    };
+    if (currentSocket()?.readyState === WebSocket.OPEN) {
+      await saveQueue(replacement);
+      releaseLease(queue, 'provider_unavailable');
+    } else {
+      const pending = queueWithPendingLeaseRelease(queue, 'provider_unavailable');
+      await saveQueue({ ...replacement, pendingLeaseActions: pending.pendingLeaseActions });
+    }
     debugLog('released managed assignment while waiting for provider', { queueId: queue.queueId, scenarioId: queue.items.find((item) => item.queueItemId === queue.activeItemId)?.testCaseId, error: message });
     return;
   }

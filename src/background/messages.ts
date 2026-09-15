@@ -17,7 +17,7 @@ import { createDebugSnapshot } from './debug';
 import { errorMessage } from './errors';
 import { complete, fail } from './live-test';
 import { cancelActiveQueueItem, failManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
-import { clearLease, currentSocket, leaseDebugState, loadedProvider, loadProfilesIntoTab, releaseLease, updateRoverRegistration, waitingForMatching } from './socket';
+import { clearLease, currentSocket, leaseDebugState, loadedProvider, loadProfilesIntoTab, persistLeaseRelease, releaseLease, updateRoverRegistration, waitingForMatching } from './socket';
 import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, saveState, STATE_KEY } from './store';
 import { serializeQueueOperation } from '../queue/operations';
 
@@ -206,13 +206,12 @@ export function installMessageHandler(): void {
         if (queue) {
           await cancelActiveQueueItem(queue);
           if (currentSocket()?.readyState === WebSocket.OPEN) {
-            await saveQueue(clearLease(queue));
-            releaseLease(queue, 'stopped');
+            await persistLeaseRelease(queue, 'stopped', true);
           } else {
-            await saveQueue({ ...clearLease(queue), status: 'stopped', pendingLeaseActions: queue.leaseId ? [{ type: 'release', leaseId: queue.leaseId, reason: 'stopped' }] : undefined });
+            await saveQueue({ ...clearLease(queue), status: 'stopped', pendingLeaseActions: queue.leaseId ? [{ type: 'release', leaseId: queue.leaseId, reason: 'stopped', clearQueue: true, firstQueuedAt: new Date().toISOString() }] : undefined });
           }
         }
-        if (currentSocket()?.readyState === WebSocket.OPEN) await chrome.storage.session.remove(QUEUE_KEY);
+        if (currentSocket()?.readyState === WebSocket.OPEN || !queue?.leaseId) await chrome.storage.session.remove(QUEUE_KEY);
         return { ok: true };
       });
     }

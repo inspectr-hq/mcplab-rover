@@ -47,6 +47,7 @@ export interface PendingLeaseAction {
   firstQueuedAt?: string;
   lastAttemptAt?: string;
   lastError?: string;
+  clearQueue?: boolean;
 }
 
 export interface RoverQueueState {

@@ -5,7 +5,7 @@ import { archiveCompletedQueueItems, createQueue, startQueue, stopQueue, stopSce
 import { activeTab, detectProvider } from './browser';
 import { cancelActiveQueueItem, failManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation, waitForProviderReady } from './queue-runner';
 import { registrationPayload } from '../mcplab/rover-protocol';
-import { getQueue, resolveOrigin, saveQueue } from './store';
+import { getQueue, QUEUE_KEY, resolveOrigin, saveQueue } from './store';
 import type { RoverQueueState } from '../queue/state';
 import { queueNeedsResume } from '../queue/recovery';
 import { serializeQueueOperation } from '../queue/operations';
@@ -60,6 +60,31 @@ export function releaseLease(queue: RoverQueueState, reason: LeaseReleaseReason)
   lastAssignmentDecision = { decision: 'released', reason, at: new Date().toISOString() };
   if (reason !== 'connection_lost') stopLeaseRenewal();
   return clearLease(queue);
+}
+
+export function queueWithPendingLeaseRelease(queue: RoverQueueState, reason: LeaseReleaseReason, clearQueue = false): RoverQueueState {
+  if (!queue.leaseId) return clearLease(queue);
+  return {
+    ...clearLease(queue),
+    pendingLeaseActions: [{ type: 'release', leaseId: queue.leaseId, reason, firstQueuedAt: new Date().toISOString(), ...(clearQueue ? { clearQueue: true } : {}) }]
+  };
+}
+
+export async function persistLeaseRelease(queue: RoverQueueState, reason: LeaseReleaseReason, clearQueue = false): Promise<RoverQueueState> {
+  if (!queue.leaseId) {
+    const released = clearLease(queue);
+    await saveQueue(released);
+    return released;
+  }
+  if (roverSocket?.readyState === WebSocket.OPEN) {
+    const released = clearLease(queue);
+    await saveQueue(released);
+    if (negotiatedCapabilities.includes('assignment_lease')) releaseLease(queue, reason);
+    return released;
+  }
+  const pending = queueWithPendingLeaseRelease(queue, reason, clearQueue);
+  await saveQueue(pending);
+  return pending;
 }
 
 function debugLog(event: string, details: Record<string, unknown> = {}): void {
@@ -197,6 +222,15 @@ export async function connectToMcplab(): Promise<void> {
           ? message.capabilities.filter((value): value is string => typeof value === 'string')
           : [];
         debugLog('registration acknowledged', { capabilities: negotiatedCapabilities });
+        if (!negotiatedCapabilities.includes('assignment_lease')) {
+          void serializeQueueOperation(async () => {
+            const queue = await getQueue();
+            const pending = queue?.pendingLeaseActions?.[0] ?? queue?.pendingLeaseAction;
+            if (!queue || !pending) return;
+            if (pending.clearQueue) await chrome.storage.session.remove(QUEUE_KEY);
+            else await saveQueue(clearLease(queue));
+          }).catch((error) => debugLog('legacy lease cleanup failed', { error: error instanceof Error ? error.message : String(error) }));
+        }
         void replayPendingLeaseAction().catch((error) => debugLog('pending lease action replay failed', { error: error instanceof Error ? error.message : String(error) }));
         void serializeQueueOperation(() => reconcileQueueAfterRegistration(origin)).catch((error) => {
           debugLog('queue reconciliation failed', { error: error instanceof Error ? error.message : String(error) });
@@ -208,10 +242,15 @@ export async function connectToMcplab(): Promise<void> {
         void serializeQueueOperation(async () => {
           const queue = await getQueue();
           if (!queue || queue.queueId !== acknowledgedJobId) return;
+          const acknowledged = queue.pendingLeaseActions?.[0] ?? queue.pendingLeaseAction;
+          const shouldClearQueue = acknowledged?.leaseId === acknowledgedLeaseId && acknowledged.clearQueue === true;
           const next = acknowledgePendingLeaseAction(queue, acknowledgedJobId, acknowledgedLeaseId);
           if (next !== queue) {
-            await saveQueue(next);
-            if (next.pendingLeaseActions?.length) await replayPendingLeaseAction();
+            if (shouldClearQueue && !next.pendingLeaseActions?.length && !next.pendingLeaseAction) await chrome.storage.session.remove(QUEUE_KEY);
+            else {
+              await saveQueue(next);
+              if (next.pendingLeaseActions?.length) await replayPendingLeaseAction();
+            }
           }
         }).catch((error) => debugLog('lease acknowledgement handling failed', { error: error instanceof Error ? error.message : String(error) }));
         return;
@@ -237,9 +276,7 @@ export async function connectToMcplab(): Promise<void> {
           const queue = await getQueue();
           if (!queue || queue.queueId !== message.jobId) return;
           await cancelActiveQueueItem(queue);
-          const released = clearLease(queue);
-          await saveQueue(stopQueue(released, new Date().toISOString()));
-          releaseLease(queue, 'stopped');
+          await persistLeaseRelease(stopQueue(queue, new Date().toISOString()), 'stopped');
         }).catch((error) => {
           debugLog('whole queue stop failed', { error: error instanceof Error ? error.message : String(error) });
         });
@@ -280,11 +317,15 @@ export async function connectToMcplab(): Promise<void> {
                 else await pauseQueue(next, error);
               }
             } else if (next.status === 'completed') {
-              await saveQueue(clearLease(next));
               if (roverSocket?.readyState === WebSocket.OPEN) {
                 roverSocket.send(JSON.stringify({ type: 'complete', jobId: next.queueId, outcome: 'incomplete', ...(next.leaseId ? { leaseId: next.leaseId } : {}) }));
+                await persistLeaseRelease(next, 'stopped');
+              } else if (next.leaseId) {
+                await saveQueue({ ...clearLease(next), pendingLeaseActions: [
+                  { type: 'complete', leaseId: next.leaseId, outcome: 'incomplete', firstQueuedAt: new Date().toISOString() },
+                  { type: 'release', leaseId: next.leaseId, reason: 'stopped', firstQueuedAt: new Date().toISOString() }
+                ] });
               }
-              releaseLease(next, 'stopped');
             }
           }
         }).catch((error) => {
@@ -371,8 +412,7 @@ export async function connectToMcplab(): Promise<void> {
           if (leaseBearing) {
             const currentQueue = await getQueue();
             if (currentQueue && currentQueue.queueId === message.jobId && currentQueue.leaseId === message.leaseId) {
-              await saveQueue(clearLease(currentQueue));
-              releaseLease(currentQueue, 'error');
+              await persistLeaseRelease(currentQueue, 'error');
             }
           }
         } catch (cleanupError) {
@@ -390,6 +430,10 @@ export async function connectToMcplab(): Promise<void> {
     }
     stopLeaseRenewal();
     waitingEvaluations = [];
+    void serializeQueueOperation(async () => {
+      const queue = await getQueue();
+      if (queue?.evaluationRunId && !queue.leaseId && queue.status === 'running') await pauseQueue(queue, new Error('MCPLab connection lost.'), 'mcplab');
+    }).catch((error) => debugLog('legacy queue pause failed', { error: error instanceof Error ? error.message : String(error) }));
     roverSocket = null;
     if (registeredSocket === socket) registeredSocket = null;
     if (registeredSocket === null) registeredTabId = undefined;
