@@ -31,7 +31,7 @@ function stopLeaseRenewal(): void {
 
 export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
   stopLeaseRenewal();
-  if (!queue.leaseId || !negotiatedCapabilities.includes('assignment_lease')) return;
+  if (!queue.leaseId) return;
   roverLeaseRenewal = setInterval(() => {
     void serializeQueueOperation(async () => {
       const latest = await getQueue();
@@ -55,7 +55,7 @@ export type LeaseReleaseReason = 'completed' | 'error' | 'stopped' | 'connection
 
 export function releaseLease(queue: RoverQueueState, reason: LeaseReleaseReason): RoverQueueState {
   if (!queue.leaseId) return queue;
-  if (negotiatedCapabilities.includes('assignment_lease') && roverSocket?.readyState === WebSocket.OPEN) {
+  if (roverSocket?.readyState === WebSocket.OPEN) {
     roverSocket.send(JSON.stringify({ type: 'lease_release', jobId: queue.queueId, leaseId: queue.leaseId, reason }));
   }
   lastAssignmentDecision = { decision: 'released', reason, at: new Date().toISOString() };
@@ -77,7 +77,7 @@ export async function persistLeaseRelease(queue: RoverQueueState, reason: LeaseR
   if (roverSocket?.readyState === WebSocket.OPEN) {
     const released = clearLease(queue);
     await saveQueue(released);
-    if (negotiatedCapabilities.includes('assignment_lease')) releaseLease(queue, reason);
+    releaseLease(queue, reason);
     return released;
   }
   const pending = queueWithPendingLeaseRelease(queue, reason, clearQueue);
@@ -141,7 +141,6 @@ async function replayPendingLeaseAction(): Promise<void> {
   const queue = await getQueue();
   const action = queue ? leaseOutboxHead(queue) : undefined;
   if (!queue || !action || !roverSocket || roverSocket.readyState !== WebSocket.OPEN) return;
-  if (action.type === 'release' && !negotiatedCapabilities.includes('assignment_lease')) return;
   const attempted = reduceLeaseOutbox(queue, { type: 'attempt', at: new Date().toISOString() });
   await saveQueue(attempted);
   roverSocket.send(JSON.stringify(action.type === 'complete'
@@ -236,15 +235,7 @@ export async function connectToMcplab(): Promise<void> {
         debugLog('registration acknowledged', { capabilities: negotiatedCapabilities });
         void serializeQueueOperation(async () => {
           const queue = await getQueue();
-          if (!negotiatedCapabilities.includes('assignment_lease')) {
-            const pending = queue ? leaseOutboxHead(queue) : undefined;
-            if (queue?.leaseId || pending) {
-              if (pending?.clearQueue) await chrome.storage.session.remove(QUEUE_KEY);
-              else if (queue) await saveQueue(clearLease(queue));
-            }
-          } else {
-            await replayPendingLeaseAction();
-          }
+          await replayPendingLeaseAction();
           await reconcileQueueAfterRegistration(origin);
         }).catch((error) => {
           debugLog('registration reconciliation failed', { error: error instanceof Error ? error.message : String(error) });
@@ -342,7 +333,7 @@ export async function connectToMcplab(): Promise<void> {
       }
       if (message.type !== 'assignment' || !message.jobId || !message.agent?.provider || !message.scenarios?.length) return;
       debugLog('assignment received', { jobId: message.jobId, provider: message.agent.provider, scenarios: message.scenarios.length });
-      const leaseBearing = typeof message.leaseId === 'string' && negotiatedCapabilities.includes('assignment_lease');
+      const leaseBearing = typeof message.leaseId === 'string';
       let accepted = false;
       const reportAssignmentError = (reason: string) => {
         if (socket.readyState === WebSocket.OPEN) {
