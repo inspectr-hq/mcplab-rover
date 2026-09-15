@@ -12,8 +12,11 @@ describe('managed lease transitions', () => {
     const accepted = transitionManagedLease(offered, { type: 'accepted', leaseId: 'lease-1' });
     const running = transitionManagedLease(accepted, { type: 'running', leaseId: 'lease-1' });
     expect(offered.leaseState).toBe('offered');
+    expect(offered.managedPhase).toBe('offered');
     expect(accepted.leaseState).toBe('accepted');
+    expect(accepted.managedPhase).toBe('accepted');
     expect(running.leaseState).toBe('running');
+    expect(running.managedPhase).toBe('running');
   });
 
   it('ignores stale or out-of-order transitions', () => {

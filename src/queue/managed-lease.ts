@@ -19,16 +19,16 @@ export function managedLeaseState(queue: RoverQueueState): QueueLeaseState | und
 export function transitionManagedLease(queue: RoverQueueState, event: ManagedLeaseEvent): RoverQueueState {
   if (event.type === 'offer') {
     if (queue.leaseId || queue.pendingLeaseActions?.length) return queue;
-    return { ...queue, leaseId: event.leaseId, leaseExpiresAt: event.leaseExpiresAt, leaseState: 'offered' };
+    return { ...queue, leaseId: event.leaseId, leaseExpiresAt: event.leaseExpiresAt, leaseState: 'offered', managedPhase: 'offered' };
   }
   if (!matches(queue, event.leaseId)) return queue;
   if (event.type === 'accepted') {
     if (queue.leaseState !== 'offered') return queue;
-    return { ...queue, leaseState: 'accepted' };
+    return { ...queue, leaseState: 'accepted', managedPhase: 'accepted' };
   }
   if (event.type === 'running') {
     if (queue.leaseState !== 'accepted' && queue.leaseState !== 'running') return queue;
-    return { ...queue, leaseState: 'running' };
+    return { ...queue, leaseState: 'running', managedPhase: 'running' };
   }
   if (event.type === 'renewed') {
     if (queue.leaseState !== 'accepted' && queue.leaseState !== 'running') return queue;

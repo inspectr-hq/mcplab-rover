@@ -24,12 +24,14 @@ describe('lease outbox reducer', () => {
     expect(unchanged).toBe(initial);
     const next = reduceLeaseOutbox(initial, { type: 'acknowledge', jobId: 'job-1', leaseId: 'lease-1', actionType: 'complete' });
     expect(leaseOutboxHead(next)?.type).toBe('release');
+    expect(next.managedPhase).toBe('waiting_ack');
   });
 
   it('clears lease state on the final acknowledgement or unknown-lease response', () => {
     const pending = reduceLeaseOutbox(queue(), { type: 'enqueue', actions: [{ type: 'release', leaseId: 'lease-1', reason: 'completed' }] });
     const acknowledged = reduceLeaseOutbox(pending, { type: 'acknowledge', jobId: 'job-1', leaseId: 'lease-1', actionType: 'release' });
     expect(acknowledged.leaseId).toBeUndefined();
+    expect(acknowledged.managedPhase).toBe('idle');
     const unknown = reduceLeaseOutbox(pending, { type: 'unknown', jobId: 'job-1', leaseId: 'lease-1' });
     expect(unknown.leaseId).toBeUndefined();
     expect(unknown.pendingLeaseActions).toBeUndefined();

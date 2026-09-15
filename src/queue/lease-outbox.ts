@@ -14,7 +14,7 @@ export function clearLeaseState(queue: RoverQueueState): RoverQueueState {
     pendingLeaseActions: _pendingLeaseActions,
     ...withoutLease
   } = queue;
-  return withoutLease;
+  return { ...withoutLease, ...(queue.managedPhase ? { managedPhase: 'idle' as const } : {}) };
 }
 
 export function leaseOutboxHead(queue: RoverQueueState): PendingLeaseAction | undefined {
@@ -32,7 +32,7 @@ export function enqueueLeaseActions(queue: RoverQueueState, actions: PendingLeas
 export function reduceLeaseOutbox(queue: RoverQueueState, event: LeaseOutboxEvent): RoverQueueState {
   if (event.type === 'enqueue') {
     return event.actions.length
-      ? { ...clearLeaseState(queue), pendingLeaseActions: event.actions }
+      ? { ...clearLeaseState(queue), managedPhase: 'waiting_ack' as const, pendingLeaseActions: event.actions }
       : clearLeaseState(queue);
   }
   if (event.type === 'attempt') {
@@ -48,7 +48,9 @@ export function reduceLeaseOutbox(queue: RoverQueueState, event: LeaseOutboxEven
   if (event.type === 'acknowledge' && head && event.actionType && head.type !== event.actionType) return queue;
   if (event.type === 'unknown' || event.type === 'acknowledge') {
     const remaining = queue.pendingLeaseActions?.slice(1) ?? [];
-    return remaining.length ? { ...queue, pendingLeaseActions: remaining } : clearLeaseState(queue);
+    return remaining.length
+      ? { ...queue, managedPhase: 'waiting_ack', pendingLeaseActions: remaining }
+      : clearLeaseState(queue);
   }
   return queue;
 }

@@ -4,6 +4,7 @@ import type { ProviderId } from '../contracts';
 export type QueueItemStatus = 'queued' | 'running' | 'evaluating' | 'passed' | 'failed' | 'incomplete' | 'skipped' | 'stopped' | 'error';
 export type QueueStatus = 'draft' | 'running' | 'paused' | 'completed' | 'stopped';
 export type QueueLeaseState = 'offered' | 'accepted' | 'running';
+export type ManagedAssignmentPhase = 'idle' | 'offered' | 'accepted' | 'running' | 'finalizing' | 'waiting_ack' | 'terminal';
 
 export interface QueueCatalogItem {
   id: string;
@@ -71,6 +72,7 @@ export interface RoverQueueState {
   leaseId?: string;
   leaseExpiresAt?: string;
   leaseState?: QueueLeaseState;
+  managedPhase?: ManagedAssignmentPhase;
   pendingLeaseActions?: PendingLeaseAction[];
 }
 
