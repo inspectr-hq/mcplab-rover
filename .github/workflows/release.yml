@@ -36,3 +36,13 @@ jobs:
             "mcplab-rover-${GITHUB_REF_NAME}.zip" \
             --title "$GITHUB_REF_NAME" \
             --generate-notes
+
+#      - name: Publish to Chrome Web Store
+#        uses: mnao305/chrome-extension-upload@v5.0.0
+#        with:
+#          file-path: mcplab-rover-${{ github.ref_name }}.zip
+#          extension-id: ${{ secrets.CWS_EXTENSION_ID }}
+#          client-id: ${{ secrets.CWS_CLIENT_ID }}
+#          client-secret: ${{ secrets.CWS_CLIENT_SECRET }}
+#          refresh-token: ${{ secrets.CWS_REFRESH_TOKEN }}
+#          publish: true
