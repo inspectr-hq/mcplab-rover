@@ -32,7 +32,7 @@ export type LeaseMessage =
   | { type: 'assignment_accept'; jobId: string; leaseId: string; tabId?: number }
   | { type: 'assignment_reject'; jobId: string; leaseId: string; reason: string; retryable: boolean }
   | { type: 'lease_renew'; jobId: string; leaseId: string; leaseExpiresAt: string }
-  | { type: 'lease_release'; jobId: string; leaseId: string; reason: 'completed' | 'error' | 'stopped' | 'connection_lost' };
+  | { type: 'lease_release'; jobId: string; leaseId: string; reason: 'completed' | 'error' | 'stopped' | 'connection_lost' | 'provider_unavailable' | 'provider_mismatch' | 'stale_provider' | 'bound_tab_unavailable' | 'terminal_error' };
 
 export function scenarioStatusForItem(item: Pick<RoverQueueItem, 'status' | 'error'> | { status: QueueItemStatus; error?: string }): Omit<ScenarioStatusEvent, 'type' | 'jobId' | 'scenarioId'> {
   const status: ScenarioWireStatus = item.status === 'queued'

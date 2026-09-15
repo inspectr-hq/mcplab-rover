@@ -453,8 +453,7 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
       }
       if (completed.status === 'completed' && completed.leaseId) {
         if (currentSocket()?.readyState === WebSocket.OPEN) {
-          await saveQueue(clearLease(completed));
-          releaseLease(completed, 'completed');
+          await persistLeaseRelease(completed, 'completed');
         } else {
           await saveQueue({
             ...clearLease(completed),

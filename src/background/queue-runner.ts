@@ -8,7 +8,7 @@ import { activeTab, detectProvider } from './browser';
 import type { RoverStage } from '../contracts';
 import { errorMessage } from './errors';
 import { getQueue, saveQueue } from './store';
-import { clearLease, currentSocket, queueWithPendingLeaseRelease, releaseLease } from './socket';
+import { clearLease, currentSocket, persistLeaseRelease, queueWithPendingLeaseRelease, releaseLease, type LeaseReleaseReason } from './socket';
 import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover-protocol';
 import { selectMatchingExecutionTab } from './execution-tab';
 
@@ -82,18 +82,16 @@ export async function failManagedQueue(queue: RoverQueueState, error: unknown, s
     }));
   }
   if (failed.status === 'completed') {
+    const releaseReason: LeaseReleaseReason = message.toLowerCase().includes('bound browser tab') ? 'bound_tab_unavailable' : 'terminal_error';
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: 'complete', jobId: failed.queueId, outcome: 'error', ...(failed.leaseId ? { leaseId: failed.leaseId } : {}) }));
-    }
-    if (socket?.readyState === WebSocket.OPEN) {
-      await saveQueue(clearLease(failed));
-    releaseLease(failed, 'terminal_error');
+      await persistLeaseRelease(failed, releaseReason);
     } else {
       await saveQueue({
         ...clearLease(failed),
         pendingLeaseActions: [
           { type: 'complete', leaseId: failed.leaseId!, outcome: 'error', firstQueuedAt: new Date().toISOString() },
-          { type: 'release', leaseId: failed.leaseId!, reason: 'terminal_error', firstQueuedAt: new Date().toISOString() }
+          { type: 'release', leaseId: failed.leaseId!, reason: releaseReason, firstQueuedAt: new Date().toISOString() }
         ]
       });
     }

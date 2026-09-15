@@ -222,18 +222,20 @@ export async function connectToMcplab(): Promise<void> {
           ? message.capabilities.filter((value): value is string => typeof value === 'string')
           : [];
         debugLog('registration acknowledged', { capabilities: negotiatedCapabilities });
-        if (!negotiatedCapabilities.includes('assignment_lease')) {
-          void serializeQueueOperation(async () => {
-            const queue = await getQueue();
+        void serializeQueueOperation(async () => {
+          const queue = await getQueue();
+          if (!negotiatedCapabilities.includes('assignment_lease')) {
             const pending = queue?.pendingLeaseActions?.[0] ?? queue?.pendingLeaseAction;
-            if (!queue || !pending) return;
-            if (pending.clearQueue) await chrome.storage.session.remove(QUEUE_KEY);
-            else await saveQueue(clearLease(queue));
-          }).catch((error) => debugLog('legacy lease cleanup failed', { error: error instanceof Error ? error.message : String(error) }));
-        }
-        void replayPendingLeaseAction().catch((error) => debugLog('pending lease action replay failed', { error: error instanceof Error ? error.message : String(error) }));
-        void serializeQueueOperation(() => reconcileQueueAfterRegistration(origin)).catch((error) => {
-          debugLog('queue reconciliation failed', { error: error instanceof Error ? error.message : String(error) });
+            if (queue?.leaseId || pending) {
+              if (pending?.clearQueue) await chrome.storage.session.remove(QUEUE_KEY);
+              else if (queue) await saveQueue(clearLease(queue));
+            }
+          } else {
+            await replayPendingLeaseAction();
+          }
+          await reconcileQueueAfterRegistration(origin);
+        }).catch((error) => {
+          debugLog('registration reconciliation failed', { error: error instanceof Error ? error.message : String(error) });
         });
       }
       if (message.type === 'lease_action_ack' && message.jobId && message.leaseId) {
