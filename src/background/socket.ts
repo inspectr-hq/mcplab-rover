@@ -46,7 +46,7 @@ export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
 }
 
 export function clearLease(queue: RoverQueueState): RoverQueueState {
-  const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, leaseState: _leaseState, pendingLeaseAction: _pendingLeaseAction, ...withoutLease } = queue;
+  const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, leaseState: _leaseState, pendingLeaseAction: _pendingLeaseAction, pendingLeaseActions: _pendingLeaseActions, ...withoutLease } = queue;
   return withoutLease;
 }
 
@@ -105,9 +105,15 @@ export function waitingForMatching(): WaitingEvaluation[] {
 
 async function replayPendingLeaseAction(): Promise<void> {
   const queue = await getQueue();
-  const action = queue?.pendingLeaseAction;
+  const action = queue?.pendingLeaseActions?.[0] ?? queue?.pendingLeaseAction;
   if (!queue || !action || !roverSocket || roverSocket.readyState !== WebSocket.OPEN) return;
   if (action.type === 'release' && !negotiatedCapabilities.includes('assignment_lease')) return;
+  const attempted = { ...action, attempts: (action.attempts ?? 0) + 1, lastAttemptAt: new Date().toISOString() };
+  if (queue.pendingLeaseActions?.length) {
+    await saveQueue({ ...queue, pendingLeaseActions: [attempted, ...queue.pendingLeaseActions.slice(1)] });
+  } else {
+    await saveQueue({ ...queue, pendingLeaseAction: attempted });
+  }
   roverSocket.send(JSON.stringify(action.type === 'complete'
     ? { type: 'complete', jobId: queue.queueId, leaseId: action.leaseId, outcome: action.outcome, runId: action.runId }
     : { type: 'lease_release', jobId: queue.queueId, leaseId: action.leaseId, reason: action.reason ?? 'error' }));
@@ -190,6 +196,10 @@ export async function connectToMcplab(): Promise<void> {
         void getQueue().then((queue) => {
           if (queue && queue.pendingLeaseAction?.leaseId === message.leaseId) {
             return saveQueue(clearLease(queue));
+          }
+          if (queue && queue.pendingLeaseActions && queue.pendingLeaseActions[0]?.leaseId === message.leaseId) {
+            const remaining = queue.pendingLeaseActions.slice(1);
+            return saveQueue(remaining.length ? { ...queue, pendingLeaseActions: remaining } : clearLease(queue));
           }
           return undefined;
         });

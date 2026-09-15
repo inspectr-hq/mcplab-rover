@@ -89,7 +89,13 @@ export async function failManagedQueue(queue: RoverQueueState, error: unknown, s
       await saveQueue(clearLease(failed));
       releaseLease(failed, 'error');
     } else {
-      await saveQueue({ ...clearLease(failed), pendingLeaseAction: { type: 'release', leaseId: failed.leaseId!, reason: 'error' } });
+      await saveQueue({
+        ...clearLease(failed),
+        pendingLeaseActions: [
+          { type: 'complete', leaseId: failed.leaseId!, outcome: 'error' },
+          { type: 'release', leaseId: failed.leaseId!, reason: 'error' }
+        ]
+      });
     }
     return;
   }

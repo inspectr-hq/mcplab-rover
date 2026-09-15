@@ -205,10 +205,14 @@ export function installMessageHandler(): void {
         console.info('[Rover debug] queue clear requested', { queueId: queue?.queueId, activeItemId: queue?.activeItemId });
         if (queue) {
           await cancelActiveQueueItem(queue);
-          await saveQueue(clearLease(queue));
-          releaseLease(queue, 'stopped');
+          if (currentSocket()?.readyState === WebSocket.OPEN) {
+            await saveQueue(clearLease(queue));
+            releaseLease(queue, 'stopped');
+          } else {
+            await saveQueue({ ...clearLease(queue), status: 'stopped', pendingLeaseActions: queue.leaseId ? [{ type: 'release', leaseId: queue.leaseId, reason: 'stopped' }] : undefined });
+          }
         }
-        await chrome.storage.session.remove(QUEUE_KEY);
+        if (currentSocket()?.readyState === WebSocket.OPEN) await chrome.storage.session.remove(QUEUE_KEY);
         return { ok: true };
       });
     }
@@ -277,9 +281,13 @@ export function installMessageHandler(): void {
           ? stopQueue(queue, new Date().toISOString())
           : skipQueueItem(queue, queue.activeItemId!, new Date().toISOString());
         const terminal = next.status === 'completed' || next.status === 'stopped';
-        const persisted = terminal ? clearLease(next) : next;
+        const persisted = terminal
+          ? currentSocket()?.readyState === WebSocket.OPEN
+            ? clearLease(next)
+            : { ...clearLease(next), pendingLeaseActions: next.leaseId ? [{ type: 'release' as const, leaseId: next.leaseId, reason: 'stopped' }] : undefined }
+          : next;
         await saveQueue(persisted);
-        if (terminal) releaseLease(next, 'stopped');
+        if (terminal && currentSocket()?.readyState === WebSocket.OPEN) releaseLease(next, 'stopped');
         sendResponse({ ok: true, queue: persisted });
         if (message.type === 'ROVER_QUEUE_SKIP' && next.status === 'running') {
           await runQueueItem(next);
@@ -449,7 +457,13 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
           await saveQueue(clearLease(completed));
           releaseLease(completed, 'completed');
         } else {
-          await saveQueue({ ...clearLease(completed), pendingLeaseAction: { type: 'complete', leaseId: completed.leaseId, outcome: result.outcome, runId: result.runId } });
+          await saveQueue({
+            ...clearLease(completed),
+            pendingLeaseActions: [
+              { type: 'complete', leaseId: completed.leaseId, outcome: result.outcome, runId: result.runId },
+              { type: 'release', leaseId: completed.leaseId, reason: 'completed' }
+            ]
+          });
         }
       }
       if (completed.status === 'running') {
