@@ -32,7 +32,7 @@ export function enqueueLeaseActions(queue: RoverQueueState, actions: PendingLeas
 export function reduceLeaseOutbox(queue: RoverQueueState, event: LeaseOutboxEvent): RoverQueueState {
   if (event.type === 'enqueue') {
     return event.actions.length
-      ? { ...clearLeaseState(queue), managedPhase: 'waiting_ack' as const, pendingLeaseActions: event.actions }
+      ? { ...clearLeaseState(queue), managedPhase: 'finalizing' as const, pendingLeaseActions: event.actions }
       : clearLeaseState(queue);
   }
   if (event.type === 'attempt') {
@@ -40,6 +40,7 @@ export function reduceLeaseOutbox(queue: RoverQueueState, event: LeaseOutboxEven
     if (!head) return queue;
     return {
       ...queue,
+      managedPhase: 'waiting_ack',
       pendingLeaseActions: [{ ...head, attempts: (head.attempts ?? 0) + 1, lastAttemptAt: event.at }, ...queue.pendingLeaseActions!.slice(1)]
     };
   }

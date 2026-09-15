@@ -22,7 +22,10 @@ describe('lease outbox reducer', () => {
     });
     const unchanged = reduceLeaseOutbox(initial, { type: 'acknowledge', jobId: 'job-1', leaseId: 'lease-1', actionType: 'release' });
     expect(unchanged).toBe(initial);
-    const next = reduceLeaseOutbox(initial, { type: 'acknowledge', jobId: 'job-1', leaseId: 'lease-1', actionType: 'complete' });
+    expect(initial.managedPhase).toBe('finalizing');
+    const attempted = reduceLeaseOutbox(initial, { type: 'attempt', at: '2026-09-15T00:00:01.000Z' });
+    expect(attempted.managedPhase).toBe('waiting_ack');
+    const next = reduceLeaseOutbox(attempted, { type: 'acknowledge', jobId: 'job-1', leaseId: 'lease-1', actionType: 'complete' });
     expect(leaseOutboxHead(next)?.type).toBe('release');
     expect(next.managedPhase).toBe('waiting_ack');
   });
