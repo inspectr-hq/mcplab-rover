@@ -46,6 +46,21 @@ export async function cancelActiveQueueItem(queue: RoverQueueState): Promise<voi
   if (item?.sessionId) await new McplabClient(queue.origin).cancel(item.sessionId).catch(() => undefined);
 }
 
+export async function finalizeManagedQueue(queue: RoverQueueState, options: { outcome: string; releaseReason: LeaseReleaseReason; runId?: string }): Promise<void> {
+  if (!queue.leaseId) return;
+  const socket = currentSocket();
+  const leaseId = queue.leaseId;
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ type: 'complete', jobId: queue.queueId, outcome: options.outcome, ...(options.runId ? { runId: options.runId } : {}), leaseId }));
+    await persistLeaseRelease(queue, options.releaseReason);
+    return;
+  }
+  await saveQueue(enqueueLeaseActions(clearLease(queue), [
+    { type: 'complete', leaseId, outcome: options.outcome, ...(options.runId ? { runId: options.runId } : {}), firstQueuedAt: new Date().toISOString() },
+    { type: 'release', leaseId, reason: options.releaseReason, firstQueuedAt: new Date().toISOString() }
+  ]));
+}
+
 export async function pauseQueue(queue: RoverQueueState, error: unknown, stage: 'browser' | 'mcplab' = 'browser'): Promise<void> {
   const message = errorMessage(error);
   const paused: RoverQueueState = {
@@ -84,15 +99,7 @@ export async function failManagedQueue(queue: RoverQueueState, error: unknown, s
   }
   if (failed.status === 'completed') {
     const releaseReason: LeaseReleaseReason = message.toLowerCase().includes('bound browser tab') ? 'bound_tab_unavailable' : 'terminal_error';
-    if (socket?.readyState === WebSocket.OPEN) {
-      socket.send(JSON.stringify({ type: 'complete', jobId: failed.queueId, outcome: 'error', ...(failed.leaseId ? { leaseId: failed.leaseId } : {}) }));
-      await persistLeaseRelease(failed, releaseReason);
-    } else {
-      await saveQueue(enqueueLeaseActions(clearLease(failed), [
-          { type: 'complete', leaseId: failed.leaseId!, outcome: 'error', firstQueuedAt: new Date().toISOString() },
-          { type: 'release', leaseId: failed.leaseId!, reason: releaseReason, firstQueuedAt: new Date().toISOString() }
-      ]));
-    }
+    await finalizeManagedQueue(failed, { outcome: 'error', releaseReason });
     return;
   }
   if (failed.status === 'running') {

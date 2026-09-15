@@ -16,7 +16,7 @@ import { activeTab, detectProvider, expectedProviderForUrl, getDetectionDiagnost
 import { createDebugSnapshot } from './debug';
 import { errorMessage } from './errors';
 import { complete, fail } from './live-test';
-import { cancelActiveQueueItem, failManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
+import { cancelActiveQueueItem, failManagedQueue, finalizeManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
 import { clearLease, currentSocket, leaseDebugState, loadedProvider, loadProfilesIntoTab, persistLeaseRelease, releaseLease, updateRoverRegistration, waitingForMatching } from './socket';
 import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, saveState, STATE_KEY } from './store';
 import { serializeQueueOperation } from '../queue/operations';
@@ -457,14 +457,7 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
         }
       }
       if (completed.status === 'completed' && completed.leaseId) {
-        if (currentSocket()?.readyState === WebSocket.OPEN) {
-          await persistLeaseRelease(completed, 'completed');
-        } else {
-          await saveQueue(enqueueLeaseActions(clearLease(completed), [
-              { type: 'complete', leaseId: completed.leaseId, outcome: result.outcome, runId: result.runId, firstQueuedAt: new Date().toISOString() },
-              { type: 'release', leaseId: completed.leaseId, reason: 'completed', firstQueuedAt: new Date().toISOString() }
-          ]));
-        }
+        await finalizeManagedQueue(completed, { outcome: result.outcome, runId: result.runId, releaseReason: 'completed' });
       }
       if (completed.status === 'running') {
         try {
