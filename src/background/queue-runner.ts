@@ -85,8 +85,12 @@ export async function failManagedQueue(queue: RoverQueueState, error: unknown, s
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({ type: 'complete', jobId: failed.queueId, outcome: 'error', ...(failed.leaseId ? { leaseId: failed.leaseId } : {}) }));
     }
-    await saveQueue(clearLease(failed));
-    releaseLease(failed, 'error');
+    if (socket?.readyState === WebSocket.OPEN) {
+      await saveQueue(clearLease(failed));
+      releaseLease(failed, 'error');
+    } else {
+      await saveQueue({ ...clearLease(failed), pendingLeaseAction: { type: 'release', leaseId: failed.leaseId!, reason: 'error' } });
+    }
     return;
   }
   if (failed.status === 'running') {
@@ -104,7 +108,10 @@ export async function deferQueueItem(queue: RoverQueueState, error: unknown): Pr
   const message = errorMessage(error);
   if (queue.leaseId) {
     const released = clearLease(queue);
-    await saveQueue(createQueue(released.origin, released.provider, released.newConversationBetweenItems, new Date().toISOString()));
+    await saveQueue({
+      ...createQueue(released.origin, released.provider, released.newConversationBetweenItems, new Date().toISOString()),
+      recentHistory: released.recentHistory
+    });
     releaseLease(queue, 'error');
     debugLog('released managed assignment while waiting for provider', { queueId: queue.queueId, scenarioId: queue.items.find((item) => item.queueItemId === queue.activeItemId)?.testCaseId, error: message });
     return;
@@ -212,7 +219,7 @@ export async function waitForTabComplete(tabId: number): Promise<void> {
   });
 }
 
-async function waitForProviderReady(tabId: number, expectedProvider?: string): Promise<void> {
+export async function waitForProviderReady(tabId: number, expectedProvider?: string): Promise<void> {
   const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     const provider = await detectProvider(tabId);

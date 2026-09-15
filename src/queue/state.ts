@@ -37,6 +37,14 @@ export interface QueueFailure {
   message: string;
 }
 
+export interface PendingLeaseAction {
+  type: 'complete' | 'release';
+  leaseId: string;
+  outcome?: string;
+  reason?: string;
+  runId?: string;
+}
+
 export interface RoverQueueState {
   queueId: string;
   mode: 'queue';
@@ -58,6 +66,7 @@ export interface RoverQueueState {
   leaseId?: string;
   leaseExpiresAt?: string;
   leaseState?: QueueLeaseState;
+  pendingLeaseAction?: PendingLeaseAction;
 }
 
 const completedStatuses = new Set<QueueItemStatus>(['passed', 'failed', 'incomplete', 'skipped', 'stopped', 'error']);

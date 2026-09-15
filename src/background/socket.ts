@@ -3,7 +3,7 @@ import type { WaitingEvaluation } from '../contracts';
 import { McplabClient } from '../mcplab/api-client';
 import { archiveCompletedQueueItems, createQueue, startQueue, stopQueue, stopScenario } from '../queue/state';
 import { activeTab, detectProvider } from './browser';
-import { cancelActiveQueueItem, failManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
+import { cancelActiveQueueItem, failManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation, waitForProviderReady } from './queue-runner';
 import { registrationPayload } from '../mcplab/rover-protocol';
 import { getQueue, resolveOrigin, saveQueue } from './store';
 import type { RoverQueueState } from '../queue/state';
@@ -46,7 +46,7 @@ export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
 }
 
 export function clearLease(queue: RoverQueueState): RoverQueueState {
-  const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, leaseState: _leaseState, ...withoutLease } = queue;
+  const { leaseId: _leaseId, leaseExpiresAt: _leaseExpiresAt, leaseState: _leaseState, pendingLeaseAction: _pendingLeaseAction, ...withoutLease } = queue;
   return withoutLease;
 }
 
@@ -101,6 +101,16 @@ export function leaseDebugState(): { negotiatedCapabilities: string[]; lastLease
 
 export function waitingForMatching(): WaitingEvaluation[] {
   return waitingEvaluations.map((job) => ({ ...job }));
+}
+
+async function replayPendingLeaseAction(): Promise<void> {
+  const queue = await getQueue();
+  const action = queue?.pendingLeaseAction;
+  if (!queue || !action || !roverSocket || roverSocket.readyState !== WebSocket.OPEN) return;
+  roverSocket.send(JSON.stringify(action.type === 'complete'
+    ? { type: 'complete', jobId: queue.queueId, leaseId: action.leaseId, outcome: action.outcome, runId: action.runId }
+    : { type: 'lease_release', jobId: queue.queueId, leaseId: action.leaseId, reason: action.reason ?? 'error' }));
+  await saveQueue(clearLease({ ...queue, pendingLeaseAction: undefined }));
 }
 
 export function loadedProvider(providerId?: string): import('../mcplab/types').BrowserProviderProfile | undefined {
@@ -171,6 +181,7 @@ export async function connectToMcplab(): Promise<void> {
           ? message.capabilities.filter((value): value is string => typeof value === 'string')
           : [];
         debugLog('registration acknowledged', { capabilities: negotiatedCapabilities });
+        void replayPendingLeaseAction().catch((error) => debugLog('pending lease action replay failed', { error: error instanceof Error ? error.message : String(error) }));
         void serializeQueueOperation(() => reconcileQueueAfterRegistration(origin)).catch((error) => {
           debugLog('queue reconciliation failed', { error: error instanceof Error ? error.message : String(error) });
         });
@@ -285,6 +296,7 @@ export async function connectToMcplab(): Promise<void> {
           rejectAssignment('provider_mismatch');
           return;
         }
+        await waitForProviderReady(tab.id, message.agent!.provider);
         if (message.agent?.providerRevision && loadedProviders.get(message.agent.provider ?? '')?.learned.updatedAt !== message.agent.providerRevision) {
           await loadProfilesIntoTab(tab.id, origin);
           if (loadedProviders.get(message.agent.provider ?? '')?.learned.updatedAt !== message.agent.providerRevision) {

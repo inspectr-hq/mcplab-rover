@@ -445,8 +445,12 @@ async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RE
         }
       }
       if (completed.status === 'completed' && completed.leaseId) {
-        await saveQueue(clearLease(completed));
-        releaseLease(completed, 'completed');
+        if (currentSocket()?.readyState === WebSocket.OPEN) {
+          await saveQueue(clearLease(completed));
+          releaseLease(completed, 'completed');
+        } else {
+          await saveQueue({ ...clearLease(completed), pendingLeaseAction: { type: 'complete', leaseId: completed.leaseId, outcome: result.outcome, runId: result.runId } });
+        }
       }
       if (completed.status === 'running') {
         try {
