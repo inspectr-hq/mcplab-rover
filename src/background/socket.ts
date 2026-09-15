@@ -193,16 +193,18 @@ export async function connectToMcplab(): Promise<void> {
         });
       }
       if (message.type === 'lease_action_ack' && message.jobId && message.leaseId) {
-        void getQueue().then((queue) => {
-          if (queue && queue.pendingLeaseAction?.leaseId === message.leaseId) {
-            return saveQueue(clearLease(queue));
+        void serializeQueueOperation(async () => {
+          const queue = await getQueue();
+          if (!queue || queue.queueId !== message.jobId) return;
+          if (queue.pendingLeaseAction?.leaseId === message.leaseId) {
+            await saveQueue(clearLease(queue));
+            return;
           }
-          if (queue && queue.pendingLeaseActions && queue.pendingLeaseActions[0]?.leaseId === message.leaseId) {
-            const remaining = queue.pendingLeaseActions.slice(1);
-            return saveQueue(remaining.length ? { ...queue, pendingLeaseActions: remaining } : clearLease(queue));
-          }
-          return undefined;
-        });
+          if (!queue.pendingLeaseActions?.length || queue.pendingLeaseActions[0]?.leaseId !== message.leaseId) return;
+          const remaining = queue.pendingLeaseActions.slice(1);
+          await saveQueue(remaining.length ? { ...queue, pendingLeaseActions: remaining } : clearLease(queue));
+          if (remaining.length) await replayPendingLeaseAction();
+        }).catch((error) => debugLog('lease acknowledgement handling failed', { error: error instanceof Error ? error.message : String(error) }));
         return;
       }
       if (message.type === 'provider_updated' && message.provider) {
