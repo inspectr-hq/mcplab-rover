@@ -48,14 +48,16 @@ export async function cancelActiveQueueItem(queue: RoverQueueState): Promise<voi
 
 export async function finalizeManagedQueue(queue: RoverQueueState, options: { outcome: string; releaseReason: LeaseReleaseReason; runId?: string }): Promise<void> {
   if (!queue.leaseId) return;
-  const socket = currentSocket();
   const leaseId = queue.leaseId;
+  const finalizing = { ...queue, managedPhase: 'finalizing' as const, updatedAt: new Date().toISOString() };
+  await saveQueue(finalizing);
+  const socket = currentSocket();
   if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'complete', jobId: queue.queueId, outcome: options.outcome, ...(options.runId ? { runId: options.runId } : {}), leaseId }));
-    await persistLeaseRelease(queue, options.releaseReason);
+    socket.send(JSON.stringify({ type: 'complete', jobId: finalizing.queueId, outcome: options.outcome, ...(options.runId ? { runId: options.runId } : {}), leaseId }));
+    await persistLeaseRelease(finalizing, options.releaseReason);
     return;
   }
-  await saveQueue(enqueueLeaseActions(clearLease(queue), [
+  await saveQueue(enqueueLeaseActions(clearLease(finalizing), [
     { type: 'complete', leaseId, outcome: options.outcome, ...(options.runId ? { runId: options.runId } : {}), firstQueuedAt: new Date().toISOString() },
     { type: 'release', leaseId, reason: options.releaseReason, firstQueuedAt: new Date().toISOString() }
   ]));

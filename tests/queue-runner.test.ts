@@ -23,9 +23,27 @@ vi.mock('../src/background/socket', () => ({
 }));
 vi.mock('../src/background/store', () => ({ getQueue: vi.fn(), saveQueue: mocks.saveQueue }));
 
-import { deferQueueItem, pauseQueue } from '../src/background/queue-runner';
+import { deferQueueItem, finalizeManagedQueue, pauseQueue } from '../src/background/queue-runner';
 
 describe('server assignment failure handling', () => {
+  it('persists finalizing before sending a connected terminal completion', async () => {
+    (globalThis as typeof globalThis & { WebSocket: unknown }).WebSocket = { OPEN: 1 } as unknown as typeof WebSocket;
+    mocks.socket = { readyState: 1, send: vi.fn() };
+    mocks.saveQueue.mockResolvedValue(undefined);
+    const queue = {
+      queueId: 'job-finalizing', mode: 'queue' as const, origin: 'http://127.0.0.1:8787', provider: 'claude', evaluationRunId: 'run-1',
+      leaseId: 'lease-1', leaseState: 'running' as const, managedPhase: 'running' as const,
+      newConversationBetweenItems: true, status: 'running' as const, activeItemId: 'item-1',
+      items: [{ queueItemId: 'item-1', testCaseId: 'scenario-1', id: 'scenario-1', name: 'Scenario 1', prompt: 'Hi', assertionCount: 0, status: 'error' as const }],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    };
+
+    await finalizeManagedQueue(queue, { outcome: 'error', releaseReason: 'terminal_error' });
+
+    expect(mocks.saveQueue).toHaveBeenCalledWith(expect.objectContaining({ managedPhase: 'finalizing' }));
+    expect(mocks.socket.send).toHaveBeenCalledWith(expect.stringContaining('"type":"complete"'));
+  });
+
   it('pauses a failed server assignment without completing it', async () => {
     (globalThis as typeof globalThis & { WebSocket: unknown }).WebSocket = { OPEN: 1 } as unknown as typeof WebSocket;
     mocks.socket = { readyState: 1, send: vi.fn() };
