@@ -5,11 +5,9 @@ import type { RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
 
 let socketProvider: () => WebSocket | null = () => null;
 let stopRenewal: () => void = () => undefined;
-let releaseObserver: (reason: LeaseReleaseReason) => void = () => undefined;
+let releaseObserver: (reason: RoverLeaseReleaseReason) => void = () => undefined;
 
-export type LeaseReleaseReason = RoverLeaseReleaseReason;
-
-export function configureLeaseTransport(options: { getSocket: () => WebSocket | null; stopRenewal: () => void; onRelease?: (reason: LeaseReleaseReason) => void }): void {
+export function configureLeaseTransport(options: { getSocket: () => WebSocket | null; stopRenewal: () => void; onRelease?: (reason: RoverLeaseReleaseReason) => void }): void {
   socketProvider = options.getSocket;
   stopRenewal = options.stopRenewal;
   releaseObserver = options.onRelease ?? (() => undefined);
@@ -23,7 +21,7 @@ export function clearLease(queue: RoverQueueState): RoverQueueState {
   return clearLeaseState(queue);
 }
 
-function sendLeaseRelease(queue: RoverQueueState, reason: LeaseReleaseReason): RoverQueueState {
+function sendLeaseRelease(queue: RoverQueueState, reason: RoverLeaseReleaseReason): RoverQueueState {
   if (!queue.leaseId) return queue;
   const socket = currentSocket();
   if (socket?.readyState === WebSocket.OPEN) {
@@ -34,12 +32,12 @@ function sendLeaseRelease(queue: RoverQueueState, reason: LeaseReleaseReason): R
   return clearLease(queue);
 }
 
-export function queueWithPendingLeaseRelease(queue: RoverQueueState, reason: LeaseReleaseReason, clearQueue = false): RoverQueueState {
+export function queueWithPendingLeaseRelease(queue: RoverQueueState, reason: RoverLeaseReleaseReason, clearQueue = false): RoverQueueState {
   if (!queue.leaseId) return clearLease(queue);
   return enqueueLeaseActions(clearLease(queue), [{ type: 'release', leaseId: queue.leaseId, reason, firstQueuedAt: new Date().toISOString(), ...(clearQueue ? { clearQueue: true } : {}) }]);
 }
 
-export async function persistLeaseRelease(queue: RoverQueueState, reason: LeaseReleaseReason, clearQueue = false, replacement?: RoverQueueState): Promise<RoverQueueState> {
+export async function persistLeaseRelease(queue: RoverQueueState, reason: RoverLeaseReleaseReason, clearQueue = false, replacement?: RoverQueueState): Promise<RoverQueueState> {
   const target = replacement ?? queue;
   const releaseSource = queue.leaseId ? queue : target;
   if (!releaseSource.leaseId) {

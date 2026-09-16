@@ -1,4 +1,4 @@
-import type { DebugElementCheck, DebugSnapshot, ExtensionMessage, ProviderId, RoverStage, RoverState } from '../contracts';
+import type { DebugElementCheck, DebugSnapshot, ExtensionMessage, ProviderId, RoverState } from '../contracts';
 import { McplabClient } from '../mcplab/api-client';
 import { acceptsContentResult } from '../runtime/live-state';
 import {
@@ -17,6 +17,7 @@ import { createDebugSnapshot } from './debug';
 import { errorMessage } from './errors';
 import { complete, fail } from './live-test';
 import { cancelActiveQueueItem, failManagedQueue, finalizeManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
+import { createQueueForMessage, sendQueueStage, supportsNewConversation } from './queue-message-helpers';
 import { leaseDebugState, loadedProvider, loadProfilesIntoTab, updateRoverRegistration, waitingForMatching } from './socket';
 import { currentSocket, persistLeaseRelease } from './lease-transport';
 import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, saveState, STATE_KEY } from './store';
@@ -386,28 +387,6 @@ export function installMessageHandler(): void {
       void serializeQueueOperation(() => handleResult(message)).catch((error) => console.error('[Rover] result handling failed', error));
     }
   });
-}
-
-function createQueueForMessage(origin: string, provider: RoverQueueState['provider'], newConversationBetweenItems: boolean): RoverQueueState {
-  return createQueue(origin, provider, newConversationBetweenItems, new Date().toISOString());
-}
-
-async function supportsNewConversation(provider: ProviderId | undefined, origin: string): Promise<boolean> {
-  if (provider === 'claude' || provider === 'chatgpt-com' || provider === 'trendminer') return true;
-  if (!provider) return false;
-  try {
-    const profile = (await new McplabClient(origin).listBrowserProviders()).find((candidate) => candidate.id === provider);
-    return Boolean(profile?.newConversation);
-  } catch {
-    return false;
-  }
-}
-
-function sendQueueStage(queue: RoverQueueState, scenarioId: string, stage: RoverStage): void {
-  const socket = currentSocket();
-  if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'stage', jobId: queue.queueId, scenarioId, stage, ...(queue.leaseId ? { leaseId: queue.leaseId } : {}) }));
-  }
 }
 
 async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RESULT' }>): Promise<void> {

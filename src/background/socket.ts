@@ -11,7 +11,8 @@ import { leaseOutboxHead, leaseOutboxMatches, reduceLeaseOutbox } from '../queue
 import { transitionManagedLease } from '../queue/managed-lease';
 import { queueNeedsResume } from '../queue/recovery';
 import { serializeQueueOperation } from '../queue/operations';
-import { configureLeaseTransport, persistLeaseRelease, type LeaseReleaseReason } from './lease-transport';
+import { configureLeaseTransport, persistLeaseRelease } from './lease-transport';
+import type { RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
 
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
@@ -33,7 +34,7 @@ function stopLeaseRenewal(): void {
 configureLeaseTransport({
   getSocket: () => roverSocket,
   stopRenewal: stopLeaseRenewal,
-  onRelease: (reason: LeaseReleaseReason) => {
+  onRelease: (reason: RoverLeaseReleaseReason) => {
     lastAssignmentDecision = { decision: 'released', reason, at: new Date().toISOString() };
   }
 });

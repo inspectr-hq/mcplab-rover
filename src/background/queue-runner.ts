@@ -8,8 +8,9 @@ import { activeTab, detectProvider } from './browser';
 import type { RoverStage } from '../contracts';
 import { errorMessage } from './errors';
 import { getQueue, saveQueue } from './store';
-import { clearLease, currentSocket, persistLeaseRelease, type LeaseReleaseReason } from './lease-transport';
+import { clearLease, currentSocket, persistLeaseRelease } from './lease-transport';
 import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover-protocol';
+import type { RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
 import { selectMatchingExecutionTab } from './execution-tab';
 import { enqueueLeaseActions } from '../queue/lease-outbox';
 
@@ -46,7 +47,7 @@ export async function cancelActiveQueueItem(queue: RoverQueueState): Promise<voi
   if (item?.sessionId) await new McplabClient(queue.origin).cancel(item.sessionId).catch(() => undefined);
 }
 
-export async function finalizeManagedQueue(queue: RoverQueueState, options: { outcome: string; releaseReason: LeaseReleaseReason; runId?: string }): Promise<void> {
+export async function finalizeManagedQueue(queue: RoverQueueState, options: { outcome: string; releaseReason: RoverLeaseReleaseReason; runId?: string }): Promise<void> {
   if (!queue.leaseId) return;
   const leaseId = queue.leaseId;
   const finalizing = { ...queue, managedPhase: 'finalizing' as const, updatedAt: new Date().toISOString() };
@@ -100,7 +101,7 @@ export async function failManagedQueue(queue: RoverQueueState, error: unknown, s
     }));
   }
   if (failed.status === 'completed') {
-    const releaseReason: LeaseReleaseReason = message.toLowerCase().includes('bound browser tab') ? 'bound_tab_unavailable' : 'terminal_error';
+    const releaseReason: RoverLeaseReleaseReason = message.toLowerCase().includes('bound browser tab') ? 'bound_tab_unavailable' : 'terminal_error';
     await finalizeManagedQueue(failed, { outcome: 'error', releaseReason });
     return;
   }
