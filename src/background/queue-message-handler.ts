@@ -9,21 +9,11 @@ import { currentSocket, persistLeaseRelease } from './lease-transport';
 import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, STATE_KEY } from './store';
 import { waitingForMatching } from './socket';
 
-type QueueMessage = Extract<ExtensionMessage, {
-  type:
-    | 'ROVER_QUEUE_GET'
-    | 'ROVER_QUEUE_WAITING'
-    | 'ROVER_QUEUE_CLEAR'
-    | 'ROVER_QUEUE_CREATE'
-    | 'ROVER_QUEUE_SET_NEW_CHAT'
-    | 'ROVER_QUEUE_ADD'
-    | 'ROVER_QUEUE_REMOVE'
-    | 'ROVER_QUEUE_MOVE'
-    | 'ROVER_QUEUE_START'
-    | 'ROVER_QUEUE_STOP'
-    | 'ROVER_QUEUE_SKIP'
-    | 'ROVER_QUEUE_RETRY';
-}>;
+type QueueMessage = Extract<ExtensionMessage, { type: `ROVER_QUEUE_${string}` }>;
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled queue message: ${(value as { type: string }).type}`);
+}
 
 function respond<T>(sendResponse: (response: T | { ok: false; error: string }) => void, work: () => Promise<T>): true {
   void work().then(sendResponse).catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
@@ -120,13 +110,16 @@ export function handleQueueMessage(message: QueueMessage, sendResponse: (respons
     }).catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
     return true;
   }
-  void serializeQueueOperation(async () => {
-    const queue = await getQueue();
-    if (!queue || queue.status !== 'paused' || !queue.activeItemId) throw new Error('No paused queue item to retry.');
-    const retrying: RoverQueueState = { ...queue, status: 'running', error: undefined, items: queue.items.map((item) => item.queueItemId === queue.activeItemId ? { ...item, status: 'running' as const } : item), updatedAt: new Date().toISOString() };
-    await saveQueue(retrying);
-    sendResponse({ ok: true, queue: retrying });
-    await runQueueItem(retrying);
-  }).catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
-  return true;
+  if (message.type === 'ROVER_QUEUE_RETRY') {
+    void serializeQueueOperation(async () => {
+      const queue = await getQueue();
+      if (!queue || queue.status !== 'paused' || !queue.activeItemId) throw new Error('No paused queue item to retry.');
+      const retrying: RoverQueueState = { ...queue, status: 'running', error: undefined, items: queue.items.map((item) => item.queueItemId === queue.activeItemId ? { ...item, status: 'running' as const } : item), updatedAt: new Date().toISOString() };
+      await saveQueue(retrying);
+      sendResponse({ ok: true, queue: retrying });
+      await runQueueItem(retrying);
+    }).catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
+    return true;
+  }
+  return assertNever(message);
 }

@@ -186,7 +186,20 @@ export function installMessageHandler(): void {
       });
     }
 
-    if (message.type.startsWith('ROVER_QUEUE_')) return handleQueueMessage(message as Parameters<typeof handleQueueMessage>[0], sendResponse);
+    if (
+      message.type === 'ROVER_QUEUE_GET' ||
+      message.type === 'ROVER_QUEUE_WAITING' ||
+      message.type === 'ROVER_QUEUE_CLEAR' ||
+      message.type === 'ROVER_QUEUE_CREATE' ||
+      message.type === 'ROVER_QUEUE_SET_NEW_CHAT' ||
+      message.type === 'ROVER_QUEUE_ADD' ||
+      message.type === 'ROVER_QUEUE_REMOVE' ||
+      message.type === 'ROVER_QUEUE_MOVE' ||
+      message.type === 'ROVER_QUEUE_START' ||
+      message.type === 'ROVER_QUEUE_STOP' ||
+      message.type === 'ROVER_QUEUE_SKIP' ||
+      message.type === 'ROVER_QUEUE_RETRY'
+    ) return handleQueueMessage(message, sendResponse);
 
     if (message.type === 'ROVER_PREPARE') {
       return respond(sendResponse, async () => {
