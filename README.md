@@ -21,7 +21,7 @@
 
 [MCPLab](https://github.com/inspectr-hq/mcplab) makes LLM and MCP behavior testable. Rover brings those evaluations to real browser-based agents.
 
-Open Claude, ChatGPT, TrendMiner, or a learned browser provider. Click the Rover extension, select an evaluation, and let Rover submit the prompt, capture the new response, and send it back to MCPLab for evaluation and reporting.
+Open Claude, ChatGPT, or a learned browser provider. Click the Rover extension, select an evaluation, and let Rover submit the prompt, capture the new response, and send it back to MCPLab for evaluation and reporting.
 
 Rover does not replace MCPLab or act as an MCP proxy. It is the browser worker that connects MCPLab's evaluation pipeline to the agent UI you want to test.
 
@@ -37,6 +37,78 @@ Rover does not replace MCPLab or act as an MCP proxy. It is the browser worker t
 - **Learned providers:** Teach Rover the composer and response layout of another browser agent from the UI.
 - **Clear outcomes:** See passed, failed, incomplete, and error results with evaluated and unavailable check counts.
 - **Local by default:** Rover accepts only loopback HTTP origins for its MCPLab connection.
+
+## Install
+
+### From a release
+
+1. Download the ZIP from the [latest Rover release](https://github.com/inspectr-hq/mcplab-rover/releases/latest).
+2. Unzip it to a permanent folder.
+3. Open `chrome://extensions` in Chrome or another Chromium browser.
+4. Enable **Developer mode**.
+5. Click **Load unpacked** and select the unzipped folder.
+6. Pin **MCPLab Rover** to the browser toolbar.
+
+## Connect MCPLab
+
+Rover expects the MCPLab app at `http://127.0.0.1:8787` by default.
+
+Start MCPLab:
+
+```bash
+npx @inspectr/mcplab app --open
+```
+
+Then open a supported browser agent and click the Rover toolbar icon. A pulsing green indicator shows that Rover is connected. Use the settings icon next to **MCPLab** if your local app uses another loopback port.
+
+Rover currently accepts `http://127.0.0.1`, `http://localhost`, or `http://[::1]` origins only. Remote origins and authentication are intentionally outside the current release.
+
+## Run an evaluation
+
+### Automatically from MCPLab
+
+1. Open **Run Evaluation** in MCPLab.
+2. Select an evaluation, its scenarios, and a configured browser agent.
+3. Choose whether Rover should start a new conversation between scenarios, then start the run.
+4. MCPLab queues the work and automatically assigns it when a Rover connected to the matching browser provider is available.
+5. Rover runs the scenarios sequentially in the bound browser tab and captures each new assistant response.
+6. MCPLab evaluates and persists the responses while showing progress for the complete run.
+7. Open the completed run in MCPLab to inspect its checks and result artifacts.
+
+If no matching Rover is connected, use **Connect to Rover** in MCPLab to open the configured agent page, then click the Rover extension icon. The waiting assignment is delivered automatically after Rover connects.
+
+### Manually from Rover
+
+1. Open a supported browser agent and click the Rover extension icon to inject the sidebar.
+2. Add one or more evaluations from the MCPLab catalog to Rover's local queue.
+3. Choose whether Rover should start a new conversation between evaluations.
+4. Run the queue. Rover submits each prompt and captures the corresponding response.
+5. Select **View in MCPLab** to inspect a completed result.
+
+You can stop an active evaluation or queue from Rover. Closing the sidebar does not cancel running work, and clicking the toolbar icon again restores the current state.
+
+## Supported browser agents
+
+Rover includes adapters for:
+
+- Claude
+- ChatGPT
+- Browser providers learned through Rover and stored by MCPLab
+
+Provider sites change over time. Rover validates provider readiness before accepting centrally assigned work and keeps accepted work bound to its original tab.
+
+## Rover and MCPLab
+
+Rover is a companion to [MCPLab](https://github.com/inspectr-hq/mcplab), the open-source framework for testing how LLM agents use MCP tools.
+
+| MCPLab owns | Rover owns |
+| --- | --- |
+| Evaluation definitions and assertions | Browser-provider detection |
+| Queue ordering and provider matching | Prompt submission and response capture |
+| Result evaluation and persistence | Active-tab binding and cancellation |
+| Reports, history, and run artifacts | A recoverable mirror of the active assignment |
+
+Learn more at [mcplab.inspectr.dev](https://mcplab.inspectr.dev/) or read Rover's [architecture guide](ARCHITECTURE.md).
 
 ## How it works
 
@@ -57,16 +129,7 @@ flowchart LR
 
 Browser-only runs do not observe MCP tool calls yet. Tool-dependent checks are reported as `not_evaluated`, which produces an `incomplete` outcome when all evaluated checks pass. Inspectr telemetry is planned as a later extension of the same evaluation pipeline.
 
-## Install
-
-### From a release
-
-1. Download the ZIP from the [latest Rover release](https://github.com/inspectr-hq/mcplab-rover/releases/latest).
-2. Unzip it to a permanent folder.
-3. Open `chrome://extensions` in Chrome or another Chromium browser.
-4. Enable **Developer mode**.
-5. Click **Load unpacked** and select the unzipped folder.
-6. Pin **MCPLab Rover** to the browser toolbar.
+## Development
 
 ### From source
 
@@ -79,58 +142,9 @@ npm install
 npm run build
 ```
 
-Then open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the generated `dist/` directory.
+Open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the generated `dist/` directory.
 
-## Connect MCPLab
-
-Rover expects the MCPLab app at `http://127.0.0.1:8787` by default.
-
-Start MCPLab:
-
-```bash
-npx @inspectr/mcplab app --open
-```
-
-Then open a supported browser agent and click the Rover toolbar icon. A pulsing green indicator shows that Rover is connected. Use the settings icon next to **MCPLab** if your local app uses another loopback port.
-
-Rover currently accepts `http://127.0.0.1`, `http://localhost`, or `http://[::1]` origins only. Remote origins and authentication are intentionally outside the current release.
-
-## Run an evaluation
-
-1. Open a supported agent page and select the conversation you want to use.
-2. Click the Rover extension icon to inject the sidebar.
-3. Choose an evaluation from the MCPLab catalog or add evaluations to the queue.
-4. Start the evaluation. Rover submits the prompt and captures the final response.
-5. Wait while MCPLab evaluates and persists the result.
-6. Select **View in MCPLab** to inspect the checks and result artifacts.
-
-You can stop an active evaluation or queue from Rover. Closing the sidebar does not cancel running work, and clicking the toolbar icon again restores the current state.
-
-## Supported browser agents
-
-Rover includes adapters for:
-
-- Claude
-- ChatGPT
-- TrendMiner Industrial Copilot
-- Browser providers learned through Rover and stored by MCPLab
-
-Provider sites change over time. Rover validates provider readiness before accepting centrally assigned work and keeps accepted work bound to its original tab.
-
-## Rover and MCPLab
-
-Rover is a companion to [MCPLab](https://github.com/inspectr-hq/mcplab), the open-source framework for testing how LLM agents use MCP tools.
-
-| MCPLab owns | Rover owns |
-| --- | --- |
-| Evaluation definitions and assertions | Browser-provider detection |
-| Queue ordering and provider matching | Prompt submission and response capture |
-| Result evaluation and persistence | Active-tab binding and cancellation |
-| Reports, history, and run artifacts | A recoverable mirror of the active assignment |
-
-Learn more at [mcplab.inspectr.dev](https://mcplab.inspectr.dev/) or read Rover's [architecture guide](ARCHITECTURE.md).
-
-## Development
+### Commands
 
 ```bash
 npm run dev        # rebuild the extension when files change
