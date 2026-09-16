@@ -92,8 +92,8 @@ function debugLog(event: string, details: Record<string, unknown> = {}): void {
 
 async function reconcileQueueAfterRegistration(origin: string): Promise<void> {
   const queue = await getQueue();
-  if (!queue || queue.status !== 'running') return;
-  if (!queue.evaluationRunId) {
+  if (!queue || (queue.status !== 'running' && queue.managedPhase !== 'accepted')) return;
+  if (!queue.evaluationRunId && queue.managedPhase !== 'accepted') {
     if (queueNeedsResume(queue)) await runQueueItem(queue);
     return;
   }
@@ -111,8 +111,16 @@ async function reconcileQueueAfterRegistration(origin: string): Promise<void> {
       ...(snapshot.queued ?? []).map((job) => job.jobId)
     ].filter((jobId): jobId is string => Boolean(jobId));
     if (liveJobIds.includes(queue.queueId)) {
-      await startLeaseRenewal(queue);
-      if (queueNeedsResume(queue)) await runQueueItem(queue);
+      let reconciled = queue;
+      if (queue.managedPhase === 'accepted' && queue.leaseId) {
+        if (roverSocket?.readyState !== WebSocket.OPEN) return;
+        roverSocket.send(JSON.stringify({ type: 'assignment_accept', jobId: queue.queueId, leaseId: queue.leaseId, ...(typeof queue.tabId === 'number' ? { tabId: queue.tabId } : {}) }));
+        const startedQueue = startQueue(queue, new Date().toISOString());
+        reconciled = transitionManagedLease(startedQueue, { type: 'running', leaseId: queue.leaseId });
+        await saveQueue(reconciled);
+      }
+      await startLeaseRenewal(reconciled);
+      if (queueNeedsResume(reconciled)) await runQueueItem(reconciled);
       return;
     }
     stopLeaseRenewal();
@@ -132,10 +140,6 @@ export function leaseDebugState(): { negotiatedCapabilities: string[]; lastLease
 
 export function waitingForMatching(): WaitingEvaluation[] {
   return waitingEvaluations.map((job) => ({ ...job }));
-}
-
-export function acknowledgePendingLeaseAction(queue: RoverQueueState, jobId: string, leaseId: string): RoverQueueState {
-  return reduceLeaseOutbox(queue, { type: 'acknowledge', jobId, leaseId });
 }
 
 async function replayPendingLeaseAction(): Promise<void> {
@@ -210,7 +214,7 @@ export async function connectToMcplab(): Promise<void> {
   };
   socket.onmessage = (event) => {
     try {
-      const message = JSON.parse(String(event.data)) as { type?: string; protocolVersion?: number; capabilities?: unknown; leaseId?: string; leaseExpiresAt?: string; tabId?: number; jobId?: string; scenarioId?: string; evaluationRunId?: string; configPath?: string; evaluationName?: string; agentName?: string; agent?: { provider?: ProviderId; providerRevision?: string }; provider?: import('../mcplab/types').BrowserProviderProfile; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
+      const message = JSON.parse(String(event.data)) as { type?: string; protocolVersion?: number; capabilities?: unknown; leaseId?: string; leaseExpiresAt?: string; tabId?: number; jobId?: string; scenarioId?: string; evaluationRunId?: string; configPath?: string; evaluationName?: string; agentName?: string; action?: 'complete' | 'release'; agent?: { provider?: ProviderId; providerRevision?: string }; provider?: import('../mcplab/types').BrowserProviderProfile; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
       if (message.type === 'lease_unknown' && message.jobId && message.leaseId) {
         const unknownJobId = message.jobId;
         const unknownLeaseId = message.leaseId;
@@ -235,7 +239,6 @@ export async function connectToMcplab(): Promise<void> {
         }
         debugLog('registration acknowledged', { capabilities: negotiatedCapabilities });
         void serializeQueueOperation(async () => {
-          const queue = await getQueue();
           await replayPendingLeaseAction();
           await reconcileQueueAfterRegistration(origin);
         }).catch((error) => {
@@ -245,12 +248,14 @@ export async function connectToMcplab(): Promise<void> {
       if (message.type === 'lease_action_ack' && message.jobId && message.leaseId) {
         const acknowledgedJobId = message.jobId;
         const acknowledgedLeaseId = message.leaseId;
+        const acknowledgedAction = message.action;
+        if (!acknowledgedAction) return;
         void serializeQueueOperation(async () => {
           const queue = await getQueue();
           if (!queue || queue.queueId !== acknowledgedJobId) return;
           const acknowledged = leaseOutboxHead(queue);
-          const shouldClearQueue = acknowledged?.leaseId === acknowledgedLeaseId && acknowledged.clearQueue === true;
-          const next = reduceLeaseOutbox(queue, { type: 'acknowledge', jobId: acknowledgedJobId, leaseId: acknowledgedLeaseId, actionType: acknowledged?.type });
+          const shouldClearQueue = acknowledged?.leaseId === acknowledgedLeaseId && acknowledged.type === acknowledgedAction && acknowledged.clearQueue === true;
+          const next = reduceLeaseOutbox(queue, { type: 'acknowledge', jobId: acknowledgedJobId, leaseId: acknowledgedLeaseId, actionType: acknowledgedAction });
           if (next !== queue) {
             if (shouldClearQueue && !next.pendingLeaseActions?.length) await chrome.storage.session.remove(QUEUE_KEY);
             else {
@@ -384,7 +389,13 @@ export async function connectToMcplab(): Promise<void> {
           return;
         }
         const previous = await getQueue();
-        if (previous && ['running', 'paused'].includes(previous.status)) {
+        if (
+          previous &&
+          (['running', 'paused'].includes(previous.status) ||
+            previous.pendingLeaseActions?.length ||
+            previous.managedPhase === 'finalizing' ||
+            previous.managedPhase === 'waiting_ack')
+        ) {
           rejectAssignment('busy');
           return;
         }
@@ -392,19 +403,18 @@ export async function connectToMcplab(): Promise<void> {
         const queue = createQueue(origin, message.agent!.provider!, message.newConversationBetweenScenarios !== false, new Date().toISOString());
         const assignedBase = { ...queue, recentHistory: history, queueId: message.jobId!, evaluationRunId: message.evaluationRunId, sourceConfigPath: message.configPath, sourceConfigName: message.evaluationName, sourceAgentName: message.agentName, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
         let assigned = transitionManagedLease(assignedBase, { type: 'offer', leaseId, leaseExpiresAt: message.leaseExpiresAt! });
-        await saveQueue(assigned);
-        if (socket.readyState !== WebSocket.OPEN) throw new Error('Rover connection closed before assignment acceptance.');
-        socket.send(JSON.stringify({ type: 'assignment_accept', jobId: message.jobId, leaseId, tabId: tab.id }));
-        accepted = true;
         const acceptedQueue = transitionManagedLease(assigned, { type: 'accepted', leaseId });
         await saveQueue(acceptedQueue);
-        assigned = acceptedQueue;
+        accepted = true;
+        if (socket.readyState !== WebSocket.OPEN) throw new Error('Rover connection closed before assignment acceptance.');
+        socket.send(JSON.stringify({ type: 'assignment_accept', jobId: message.jobId, leaseId, tabId: tab.id }));
+        const startedQueue = startQueue(acceptedQueue, new Date().toISOString());
+        const started = transitionManagedLease(startedQueue, { type: 'running', leaseId });
+        await saveQueue(started);
+        assigned = started;
         lastAssignmentDecision = { decision: 'accepted', at: new Date().toISOString() };
         waitingEvaluations = waitingEvaluations.filter((job) => job.jobId !== message.jobId);
         for (const item of assigned.items) sendScenarioStatus(assigned, item);
-        const startedQueue = startQueue(assigned, new Date().toISOString());
-        const started = transitionManagedLease(startedQueue, { type: 'running', leaseId });
-        await saveQueue(started);
         await startLeaseRenewal(started);
         await runQueueItem(started);
       }).catch(async (error) => {

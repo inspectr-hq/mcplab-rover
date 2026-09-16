@@ -129,7 +129,7 @@ export async function deferQueueItem(queue: RoverQueueState, error: unknown): Pr
       releaseLease(queue, 'provider_unavailable');
     } else {
       const pending = queueWithPendingLeaseRelease(queue, 'provider_unavailable');
-      await saveQueue({ ...replacement, pendingLeaseActions: pending.pendingLeaseActions });
+      await saveQueue(enqueueLeaseActions(replacement, pending.pendingLeaseActions ?? []));
     }
     debugLog('released managed assignment while waiting for provider', { queueId: queue.queueId, scenarioId: queue.items.find((item) => item.queueItemId === queue.activeItemId)?.testCaseId, error: message });
     return;

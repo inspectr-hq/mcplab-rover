@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createQueue } from '../src/queue/state';
 import { transitionManagedLease } from '../src/queue/managed-lease';
+import { enqueueLeaseActions } from '../src/queue/lease-outbox';
 
 function queue() {
   return createQueue('http://127.0.0.1:8787', 'claude', true, '2026-09-15T00:00:00.000Z');
@@ -30,6 +31,11 @@ describe('managed lease transitions', () => {
     expect(transitionManagedLease(offered, { type: 'offer', leaseId: 'lease-2', leaseExpiresAt: '2026-09-15T00:00:30.000Z' })).toBe(offered);
   });
 
+  it('does not offer a new lease while an outbox action is pending', () => {
+    const pending = enqueueLeaseActions(queue(), [{ type: 'release', leaseId: 'lease-1', reason: 'stopped' }]);
+    expect(transitionManagedLease(pending, { type: 'offer', leaseId: 'lease-2', leaseExpiresAt: '2026-09-15T00:00:30.000Z' })).toBe(pending);
+  });
+
   it('renews only an accepted or running lease', () => {
     const offered = transitionManagedLease(queue(), { type: 'offer', leaseId: 'lease-1', leaseExpiresAt: '2026-09-15T00:00:30.000Z' });
     expect(transitionManagedLease(offered, { type: 'renewed', leaseId: 'lease-1', leaseExpiresAt: '2026-09-15T00:01:00.000Z' })).toBe(offered);
@@ -43,5 +49,6 @@ describe('managed lease transitions', () => {
     const cleared = transitionManagedLease(offered, { type: 'invalidate', leaseId: 'lease-1' });
     expect(cleared.leaseId).toBeUndefined();
     expect(cleared.queueId).toBe(original.queueId);
+    expect(transitionManagedLease(offered, { type: 'invalidate', leaseId: 'stale' })).toBe(offered);
   });
 });

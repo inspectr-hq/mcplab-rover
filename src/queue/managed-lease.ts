@@ -1,5 +1,5 @@
 import type { RoverQueueState, QueueLeaseState } from './state';
-import { clearLeaseState, leaseOutboxMatches } from './lease-outbox';
+import { clearLeaseState, leaseOutboxHead } from './lease-outbox';
 
 export type ManagedLeaseEvent =
   | { type: 'offer'; leaseId: string; leaseExpiresAt: string }
@@ -9,7 +9,7 @@ export type ManagedLeaseEvent =
   | { type: 'invalidate'; leaseId: string };
 
 function matches(queue: RoverQueueState, leaseId: string): boolean {
-  return queue.leaseId === leaseId || leaseOutboxMatches(queue, queue.queueId, leaseId);
+  return queue.leaseId === leaseId || leaseOutboxHead(queue)?.leaseId === leaseId;
 }
 
 export function managedLeaseState(queue: RoverQueueState): QueueLeaseState | undefined {

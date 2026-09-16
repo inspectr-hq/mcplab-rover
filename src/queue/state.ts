@@ -1,4 +1,5 @@
 import type { CheckCounts, RunOutcome } from '../mcplab/types';
+import type { RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
 import type { ProviderId } from '../contracts';
 
 export type QueueItemStatus = 'queued' | 'running' | 'evaluating' | 'passed' | 'failed' | 'incomplete' | 'skipped' | 'stopped' | 'error';
@@ -42,7 +43,7 @@ export interface PendingLeaseAction {
   type: 'complete' | 'release';
   leaseId: string;
   outcome?: string;
-  reason?: string;
+  reason?: RoverLeaseReleaseReason;
   runId?: string;
   attempts?: number;
   firstQueuedAt?: string;

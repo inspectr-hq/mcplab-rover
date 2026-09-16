@@ -89,14 +89,16 @@ Lease messages:
 { "type": "assignment_accept", "jobId": "...", "leaseId": "...", "tabId": 123 }
 { "type": "assignment_reject", "jobId": "...", "leaseId": "...", "reason": "provider_unavailable|provider_mismatch|stale_provider|busy|invalid_assignment|expired_assignment", "retryable": true }
 { "type": "lease_renew", "jobId": "...", "leaseId": "...", "leaseExpiresAt": "..." }
-{ "type": "lease_release", "jobId": "...", "leaseId": "...", "reason": "completed|error|stopped|connection_lost" }
+{ "type": "lease_release", "jobId": "...", "leaseId": "...", "reason": "completed|error|stopped|connection_lost|provider_unavailable|provider_mismatch|stale_provider|bound_tab_unavailable|terminal_error" }
+{ "type": "lease_action_ack", "jobId": "...", "leaseId": "...", "action": "complete|release" }
+{ "type": "lease_unknown", "jobId": "...", "leaseId": "...", "reason": "unknown_lease" }
 ```
 
 Add optional `leaseId` to progress, stage, scenario-status, and completion messages. Renew at half the lease duration while active. Release exactly once on terminal completion, error, or stop.
 
 ## Rover execution rules
 
-Rover persists `leaseId`, `leaseExpiresAt`, `leaseState`, provider revision, bound tab, scenario statuses, session IDs, request IDs, and cancellation timestamps. Missing lease fields mean legacy behavior. Local queues have no lease and remain editable.
+Rover persists `leaseId`, `leaseExpiresAt`, `leaseState`, `managedPhase`, provider revision, bound tab, scenario statuses, session IDs, request IDs, and cancellation timestamps. Local queues have no lease and remain editable.
 
 For a lease-bearing assignment:
 
@@ -143,7 +145,7 @@ These cases send diagnostic `scenario_status`, preserve the failed scenario, com
 
 ## Compatibility
 
-A server and Rover use leases only when `assignment_lease` is negotiated. A v1 server without that capability keeps the existing assignment/progress/completion path. A v1 client never receives a lease requirement. Persisted queues without lease fields load normally. Unknown optional fields are ignored by older clients.
+Rover protocol v2 requires `assignment_lease`. Registrations that do not advertise it are rejected. Rover has not been released, so there is no v1 managed-assignment compatibility path. Local queues and normal MCPLab agent execution remain unchanged.
 
 Capability negotiation must be explicit. Do not infer lease support from a hardcoded provider or from a missing `registered.capabilities` field.
 
