@@ -9,8 +9,14 @@ describe('provider discovery recovery', () => {
   });
 
   it('emits a profile when a response appeared before the composer was detected', async () => {
-    Object.defineProperty(globalThis, 'CSS', { value: { escape: (value: string) => value }, configurable: true });
-    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 10, height: 10 } as DOMRect);
+    Object.defineProperty(globalThis, 'CSS', {
+      value: { escape: (value: string) => value },
+      configurable: true
+    });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
     const drafts: unknown[] = [];
     const stop = startProviderDiscovery((draft) => drafts.push(draft));
     const send = document.createElement('button');
@@ -20,7 +26,10 @@ describe('provider discovery recovery', () => {
     const response = document.createElement('div');
     response.setAttribute('data-message-author-role', 'assistant');
     response.textContent = 'A newly discovered answer';
-    Object.defineProperty(response, 'innerText', { value: 'A newly discovered answer', configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      value: 'A newly discovered answer',
+      configurable: true
+    });
     document.body.append(response);
     await new Promise((resolve) => setTimeout(resolve, 550));
 

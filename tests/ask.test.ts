@@ -16,7 +16,9 @@ describe('ask cancellation', () => {
       getResponseState: () => ({ text: '', isGenerating: false, isIdle: true })
     } as unknown as ChatProviderAdapter;
 
-    await expect(ask(adapter, 'hello', controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(ask(adapter, 'hello', controller.signal)).rejects.toMatchObject({
+      name: 'AbortError'
+    });
     expect(submit).not.toHaveBeenCalled();
   });
 });

@@ -6,7 +6,8 @@ const assistantSelector = '[data-test="chat-messages_message"].chat-messages__me
 
 export const trendminerAdapter: ChatProviderAdapter = {
   id: 'trendminer',
-  matchesPage: () => location.hostname === 'trendminer.net' || location.hostname.endsWith('.trendminer.net'),
+  matchesPage: () =>
+    location.hostname === 'trendminer.net' || location.hostname.endsWith('.trendminer.net'),
   canHandle: () => Boolean(document.querySelector('[data-test="ai-agent_input"]')),
   getDebugChecks: () => [
     debugCheck('composer', 'Composer', '[data-test="ai-agent_input"]'),
@@ -27,7 +28,9 @@ export const trendminerAdapter: ChatProviderAdapter = {
     button.click();
   },
   stopGeneration: async () => {
-    document.querySelector<HTMLButtonElement>('button[aria-label*="Stop"], button[aria-label*="Cancel"]')?.click();
+    document
+      .querySelector<HTMLButtonElement>('button[aria-label*="Stop"], button[aria-label*="Cancel"]')
+      ?.click();
   },
   startNewConversation: async () => {
     const button = document.querySelector<HTMLButtonElement>('button[aria-label="New chat"]');
@@ -36,7 +39,8 @@ export const trendminerAdapter: ChatProviderAdapter = {
     const startedAt = Date.now();
     while (Date.now() - startedAt < 5000) {
       const composer = trendminerAdapter.findComposer();
-      const value = composer instanceof HTMLTextAreaElement ? composer.value : composer?.textContent;
+      const value =
+        composer instanceof HTMLTextAreaElement ? composer.value : composer?.textContent;
       if (composer && !value?.trim()) return;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }

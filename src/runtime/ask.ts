@@ -2,7 +2,11 @@ import { selectResponseCandidate } from './candidate-selection';
 import { waitForCompletedResponse } from './response-tracker';
 import type { ChatProviderAdapter } from '../providers/types';
 
-export async function ask(adapter: ChatProviderAdapter, prompt: string, signal?: AbortSignal): Promise<string> {
+export async function ask(
+  adapter: ChatProviderAdapter,
+  prompt: string,
+  signal?: AbortSignal
+): Promise<string> {
   if (signal?.aborted) throw new DOMException('The request was cancelled.', 'AbortError');
   const baseline = adapter.getAssistantCandidates();
   await adapter.setComposerText(prompt);

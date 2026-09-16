@@ -6,7 +6,9 @@ describe('debug snapshot', () => {
   it('recognizes supported page URLs independently of content-script availability', () => {
     expect(expectedProviderForUrl('https://claude.ai/new')).toBe('claude');
     expect(expectedProviderForUrl('https://claude.ai/chat/example')).toBe('claude');
-    expect(expectedProviderForUrl('https://tm-pipeline-aa01.trendminer.net/trendhub')).toBe('trendminer');
+    expect(expectedProviderForUrl('https://tm-pipeline-aa01.trendminer.net/trendhub')).toBe(
+      'trendminer'
+    );
     expect(expectedProviderForUrl('https://example.com')).toBeUndefined();
   });
 
@@ -19,10 +21,33 @@ describe('debug snapshot', () => {
       page: {
         matched: true,
         provider: 'claude',
-        elements: [{ id: 'composer', label: 'Composer', present: true, detail: 'Found matching element' }]
+        elements: [
+          { id: 'composer', label: 'Composer', present: true, detail: 'Found matching element' }
+        ]
       },
       manual: null,
-      queue: { status: 'paused', activeItemId: 'item-1', items: [{ queueItemId: 'item-1', id: 'test', testCaseId: 'test', name: 'Test evaluation', prompt: '', assertionCount: 1, status: 'error' }], queueId: 'queue-1', mode: 'queue', origin: 'http://127.0.0.1:8787', provider: 'claude', newConversationBetweenItems: false, createdAt: '2026-09-10T09:00:00.000Z', updatedAt: '2026-09-10T09:30:00.000Z' }
+      queue: {
+        status: 'paused',
+        activeItemId: 'item-1',
+        items: [
+          {
+            queueItemId: 'item-1',
+            id: 'test',
+            testCaseId: 'test',
+            name: 'Test evaluation',
+            prompt: '',
+            assertionCount: 1,
+            status: 'error'
+          }
+        ],
+        queueId: 'queue-1',
+        mode: 'queue',
+        origin: 'http://127.0.0.1:8787',
+        provider: 'claude',
+        newConversationBetweenItems: false,
+        createdAt: '2026-09-10T09:00:00.000Z',
+        updatedAt: '2026-09-10T09:30:00.000Z'
+      }
     });
 
     expect(snapshot.endpoint.connected).toBe(true);

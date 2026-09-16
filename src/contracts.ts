@@ -4,14 +4,15 @@ import type { RoverQueueState } from './queue/state';
 export type ProviderId = string;
 export interface BrowserProviderDiscoveryDraft {
   profile: import('./mcplab/types').BrowserProviderProfile;
-  capabilities: Array<{ id: string; label: string; confidence: 'high' | 'medium' | 'low'; detail: string }>;
+  capabilities: Array<{
+    id: string;
+    label: string;
+    confidence: 'high' | 'medium' | 'low';
+    detail: string;
+  }>;
 }
 export type RoverStage =
-  | 'prompt_sent'
-  | 'waiting_for_response'
-  | 'response_captured'
-  | 'evaluating'
-  | 'persisted';
+  'prompt_sent' | 'waiting_for_response' | 'response_captured' | 'evaluating' | 'persisted';
 export type RoverStatus = 'ready' | 'running' | 'manual' | 'evaluating' | 'completed' | 'error';
 
 export interface RoverState {
@@ -45,7 +46,15 @@ export interface DebugElementCheck {
 export interface DebugSnapshot {
   checkedAt: string;
   endpoint: { origin: string; connected: boolean; checked: boolean; error?: string };
-  page: { tabId?: number; url?: string; matched: boolean; provider?: ProviderId; profile?: { name: string; source: string; revision: string; capabilities: string[] }; detection?: { attempts: number; checkedAt: string; provider?: ProviderId; error?: string }; error?: string };
+  page: {
+    tabId?: number;
+    url?: string;
+    matched: boolean;
+    provider?: ProviderId;
+    profile?: { name: string; source: string; revision: string; capabilities: string[] };
+    detection?: { attempts: number; checkedAt: string; provider?: ProviderId; error?: string };
+    error?: string;
+  };
   elements: DebugElementCheck[];
   rover: {
     manualStatus?: RoverStatus;
@@ -83,7 +92,10 @@ export type ExtensionMessage =
   | { type: 'ROVER_QUEUE_WAITING' }
   | { type: 'ROVER_QUEUE_CLEAR' }
   | { type: 'ROVER_QUEUE_CREATE'; origin?: string; newConversationBetweenItems: boolean }
-  | { type: 'ROVER_QUEUE_ADD'; item: { id: string; name: string; prompt: string; assertionCount: number } }
+  | {
+      type: 'ROVER_QUEUE_ADD';
+      item: { id: string; name: string; prompt: string; assertionCount: number };
+    }
   | { type: 'ROVER_QUEUE_SET_NEW_CHAT'; enabled: boolean }
   | { type: 'ROVER_QUEUE_REMOVE'; queueItemId: string }
   | { type: 'ROVER_QUEUE_MOVE'; queueItemId: string; direction: 'up' | 'down' }
@@ -101,9 +113,22 @@ export type ExtensionMessage =
   | { type: 'ROVER_DEBUG' }
   | { type: 'ROVER_LEARN_START' }
   | { type: 'ROVER_LEARN_STOP' }
-  | { type: 'ROVER_LEARN_SAVE'; profile: import('./mcplab/types').BrowserProviderProfile; agent?: { id: string; name: string; url: string }; origin?: string }
+  | {
+      type: 'ROVER_LEARN_SAVE';
+      profile: import('./mcplab/types').BrowserProviderProfile;
+      agent?: { id: string; name: string; url: string };
+      origin?: string;
+    }
   | { type: 'ROVER_LEARN_RESULT'; draft: BrowserProviderDiscoveryDraft }
-  | { type: 'ROVER_ASK'; requestId: string; sessionId: string; prompt: string; queueId?: string; queueItemId?: string; leaseId?: string }
+  | {
+      type: 'ROVER_ASK';
+      requestId: string;
+      sessionId: string;
+      prompt: string;
+      queueId?: string;
+      queueItemId?: string;
+      leaseId?: string;
+    }
   | {
       type: 'ROVER_RESULT';
       requestId: string;

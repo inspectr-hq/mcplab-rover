@@ -21,13 +21,17 @@ export function waitForCompletedResponse(options: ResponseTrackerOptions): Promi
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   return new Promise((resolve, reject) => {
-    const abort = () => finish(() => reject(new DOMException('Response capture was cancelled', 'AbortError')));
+    const abort = () =>
+      finish(() => reject(new DOMException('Response capture was cancelled', 'AbortError')));
     const finish = (callback: () => void) => {
       if (timer) clearTimeout(timer);
       callback();
     };
     const poll = () => {
-      if (options.signal?.aborted) { abort(); return; }
+      if (options.signal?.aborted) {
+        abort();
+        return;
+      }
       const now = Date.now();
       if (now - startedAt >= options.timeoutMs) {
         finish(() => reject(new Error('Timed out waiting for completed response')));

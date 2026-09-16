@@ -14,7 +14,11 @@ export interface BrowserProviderProfile {
   composer: { locator: ShadowLocator; inputMode: 'input' | 'textarea' | 'contenteditable' };
   submit: { action: 'click' | 'enter'; locator?: ShadowLocator };
   assistantMessages: { locator: ShadowLocator; textLocator?: ShadowLocator };
-  completion: { generatingLocator?: ShadowLocator; idleLocator?: ShadowLocator; stabilityMs: number };
+  completion: {
+    generatingLocator?: ShadowLocator;
+    idleLocator?: ShadowLocator;
+    stabilityMs: number;
+  };
   newConversation?: { action: 'click' | 'navigate'; locator?: ShadowLocator; url?: string };
   learned: {
     sourceOrigin: string;

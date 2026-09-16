@@ -4,7 +4,13 @@ import { trendminerAdapter } from '../src/providers/trendminer';
 import { chatgptAdapter } from '../src/providers/chatgpt';
 import { claudeAdapter } from '../src/providers/claude';
 import { createLearnedAdapter } from '../src/providers/learned';
-import { adapters, findAdapter, findPageAdapter, isBuiltInProvider, setLearnedProfiles } from '../src/providers';
+import {
+  adapters,
+  findAdapter,
+  findPageAdapter,
+  isBuiltInProvider,
+  setLearnedProfiles
+} from '../src/providers';
 import { isValidBrowserProviderProfile } from '../src/providers/profile-validation';
 
 const learnedProfile = {
@@ -12,17 +18,33 @@ const learnedProfile = {
   id: 'chatgpt-com',
   name: 'ChatGPT',
   match: { origins: ['https://chatgpt.com'] },
-  composer: { locator: { segments: ['[contenteditable="true"]'] }, inputMode: 'contenteditable' as const },
+  composer: {
+    locator: { segments: ['[contenteditable="true"]'] },
+    inputMode: 'contenteditable' as const
+  },
   submit: { action: 'enter' as const },
   assistantMessages: { locator: { segments: ['[data-message-author-role="assistant"]'] } },
   completion: { stabilityMs: 1000 },
-  newConversation: { action: 'click' as const, locator: { segments: ['[data-testid="new-chat"]'] } },
-  learned: { sourceOrigin: 'https://chatgpt.com', createdAt: '2026-09-10T00:00:00.000Z', updatedAt: '2026-09-10T00:01:00.000Z', confidence: {} }
+  newConversation: {
+    action: 'click' as const,
+    locator: { segments: ['[data-testid="new-chat"]'] }
+  },
+  learned: {
+    sourceOrigin: 'https://chatgpt.com',
+    createdAt: '2026-09-10T00:00:00.000Z',
+    updatedAt: '2026-09-10T00:01:00.000Z',
+    confidence: {}
+  }
 };
 
 describe('learned provider profile validation', () => {
   it('rejects malformed optional locators instead of treating them as absent', () => {
-    expect(isValidBrowserProviderProfile({ ...learnedProfile, assistantMessages: { ...learnedProfile.assistantMessages, textLocator: 'not-a-locator' } })).toBe(false);
+    expect(
+      isValidBrowserProviderProfile({
+        ...learnedProfile,
+        assistantMessages: { ...learnedProfile.assistantMessages, textLocator: 'not-a-locator' }
+      })
+    ).toBe(false);
     expect(isValidBrowserProviderProfile(learnedProfile)).toBe(true);
   });
 });
@@ -96,7 +118,10 @@ describe('ChatGPT adapter', () => {
     expect(chatgptAdapter.canHandle()).toBe(true);
     expect(chatgptAdapter.findComposer()).toBeTruthy();
     expect(chatgptAdapter.getAssistantCandidates()[0]?.text).toContain('ChatGPT answer');
-    expect(chatgptAdapter.getResponseState(chatgptAdapter.getAssistantCandidates())).toMatchObject({ isGenerating: false, isIdle: true });
+    expect(chatgptAdapter.getResponseState(chatgptAdapter.getAssistantCandidates())).toMatchObject({
+      isGenerating: false,
+      isIdle: true
+    });
   });
 
   it('starts a new conversation through the native control', async () => {
@@ -172,7 +197,9 @@ describe('Learned provider adapter', () => {
     `;
     const adapter = createLearnedAdapter(learnedProfile);
     let keyEvents = 0;
-    document.querySelector('[contenteditable="true"]')!.addEventListener('keydown', () => keyEvents++);
+    document
+      .querySelector('[contenteditable="true"]')!
+      .addEventListener('keydown', () => keyEvents++);
 
     await adapter.setComposerText('Learned prompt');
     await adapter.submit();
@@ -190,7 +217,9 @@ describe('Learned provider adapter', () => {
     const adapter = createLearnedAdapter(learnedProfile);
     let clicks = 0;
     const button = document.querySelector('button')!;
-    Object.defineProperty(button, 'getBoundingClientRect', { value: () => ({ width: 10, height: 10 }) });
+    Object.defineProperty(button, 'getBoundingClientRect', {
+      value: () => ({ width: 10, height: 10 })
+    });
     button.addEventListener('click', () => clicks++);
 
     await adapter.setComposerText('Learned prompt');
@@ -215,7 +244,14 @@ describe('Learned provider adapter', () => {
 
   it('prioritizes a matching learned profile and falls back when cleared', () => {
     document.body.innerHTML = '<div contenteditable="true"></div>';
-    setLearnedProfiles([{ ...learnedProfile, id: 'm365-cloud-microsoft', name: 'M365', match: { origins: [location.origin] } }]);
+    setLearnedProfiles([
+      {
+        ...learnedProfile,
+        id: 'm365-cloud-microsoft',
+        name: 'M365',
+        match: { origins: [location.origin] }
+      }
+    ]);
 
     expect(findPageAdapter()?.id).toBe('m365-cloud-microsoft');
 
@@ -229,7 +265,14 @@ describe('Learned provider adapter', () => {
     expect(() => setLearnedProfiles([{ id: 'broken' } as never])).not.toThrow();
     expect(adapters.map((adapter) => adapter.id)).toEqual(['claude', 'chatgpt-com', 'trendminer']);
 
-    expect(() => setLearnedProfiles([{ ...learnedProfile, composer: { ...learnedProfile.composer, locator: { segments: ['['] } } }])).not.toThrow();
+    expect(() =>
+      setLearnedProfiles([
+        {
+          ...learnedProfile,
+          composer: { ...learnedProfile.composer, locator: { segments: ['['] } }
+        }
+      ])
+    ).not.toThrow();
     expect(adapters.map((adapter) => adapter.id)).toEqual(['claude', 'chatgpt-com', 'trendminer']);
   });
 });

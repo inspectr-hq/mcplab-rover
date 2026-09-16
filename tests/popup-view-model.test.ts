@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { debugFingerprint, filterTestCases, formatCheckCounts, managedPhaseLabel, modeVisibility, projectQueueForProvider, splitQueueItems, suggestedProviderName } from '../src/popup/view-model';
+import {
+  debugFingerprint,
+  filterTestCases,
+  formatCheckCounts,
+  managedPhaseLabel,
+  modeVisibility,
+  projectQueueForProvider,
+  splitQueueItems,
+  suggestedProviderName
+} from '../src/popup/view-model';
 
 const cases = [
   { id: 'alpha', name: 'Restaurant search', tags: ['food'], assertionCount: 2, eligible: true },
@@ -19,10 +28,30 @@ describe('popup view model', () => {
   });
 
   it('shows only the controls for the active mode', () => {
-    expect(modeVisibility('manual', false)).toEqual({ catalog: true, session: false, queue: false, debug: false });
-    expect(modeVisibility('manual', true)).toEqual({ catalog: false, session: true, queue: false, debug: false });
-    expect(modeVisibility('queue', false)).toEqual({ catalog: false, session: false, queue: true, debug: false });
-    expect(modeVisibility('debug', false)).toEqual({ catalog: false, session: false, queue: false, debug: true });
+    expect(modeVisibility('manual', false)).toEqual({
+      catalog: true,
+      session: false,
+      queue: false,
+      debug: false
+    });
+    expect(modeVisibility('manual', true)).toEqual({
+      catalog: false,
+      session: true,
+      queue: false,
+      debug: false
+    });
+    expect(modeVisibility('queue', false)).toEqual({
+      catalog: false,
+      session: false,
+      queue: true,
+      debug: false
+    });
+    expect(modeVisibility('debug', false)).toEqual({
+      catalog: false,
+      session: false,
+      queue: false,
+      debug: true
+    });
   });
 
   it('labels managed lease phases for the popup', () => {
@@ -48,9 +77,33 @@ describe('popup view model', () => {
 
   it('separates completed queue items from active items', () => {
     const items = [
-      { queueItemId: '1', testCaseId: 'a', id: 'a', name: 'A', prompt: '', assertionCount: 0, status: 'passed' as const },
-      { queueItemId: '2', testCaseId: 'b', id: 'b', name: 'B', prompt: '', assertionCount: 0, status: 'queued' as const },
-      { queueItemId: '3', testCaseId: 'c', id: 'c', name: 'C', prompt: '', assertionCount: 0, status: 'running' as const }
+      {
+        queueItemId: '1',
+        testCaseId: 'a',
+        id: 'a',
+        name: 'A',
+        prompt: '',
+        assertionCount: 0,
+        status: 'passed' as const
+      },
+      {
+        queueItemId: '2',
+        testCaseId: 'b',
+        id: 'b',
+        name: 'B',
+        prompt: '',
+        assertionCount: 0,
+        status: 'queued' as const
+      },
+      {
+        queueItemId: '3',
+        testCaseId: 'c',
+        id: 'c',
+        name: 'C',
+        prompt: '',
+        assertionCount: 0,
+        status: 'running' as const
+      }
     ];
     expect(splitQueueItems(items)).toEqual({
       active: [items[1], items[2]],
@@ -65,21 +118,68 @@ describe('popup view model', () => {
   });
 
   it('suggests the captured provider name for the learning form', () => {
-    expect(suggestedProviderName({ name: 'chatgpt.com', match: { origins: ['https://chatgpt.com'] } })).toBe('chatgpt.com');
-    expect(suggestedProviderName({ name: '', match: { origins: ['https://example.com'] } })).toBe('example.com');
+    expect(
+      suggestedProviderName({ name: 'chatgpt.com', match: { origins: ['https://chatgpt.com'] } })
+    ).toBe('chatgpt.com');
+    expect(suggestedProviderName({ name: '', match: { origins: ['https://example.com'] } })).toBe(
+      'example.com'
+    );
   });
 
   it('projects only the active provider queue and its recent history', () => {
-    const claudeItem = { queueItemId: 'claude-1', testCaseId: 'a', id: 'a', name: 'Claude', prompt: '', assertionCount: 0, status: 'passed' as const };
-    const copilotItem = { queueItemId: 'copilot-1', testCaseId: 'b', id: 'b', name: 'Copilot', prompt: '', assertionCount: 0, status: 'passed' as const };
-    const queue = { provider: 'claude', evaluationRunId: 'run-1', items: [claudeItem], recentHistory: { claude: [claudeItem], copilot: [copilotItem] } };
-    expect(projectQueueForProvider(queue, 'claude')).toMatchObject({ matchesCurrentAssignment: true, active: [], completed: [claudeItem], managed: true });
-    expect(projectQueueForProvider(queue, 'copilot')).toMatchObject({ matchesCurrentAssignment: false, active: [], completed: [copilotItem], managed: true });
+    const claudeItem = {
+      queueItemId: 'claude-1',
+      testCaseId: 'a',
+      id: 'a',
+      name: 'Claude',
+      prompt: '',
+      assertionCount: 0,
+      status: 'passed' as const
+    };
+    const copilotItem = {
+      queueItemId: 'copilot-1',
+      testCaseId: 'b',
+      id: 'b',
+      name: 'Copilot',
+      prompt: '',
+      assertionCount: 0,
+      status: 'passed' as const
+    };
+    const queue = {
+      provider: 'claude',
+      evaluationRunId: 'run-1',
+      items: [claudeItem],
+      recentHistory: { claude: [claudeItem], copilot: [copilotItem] }
+    };
+    expect(projectQueueForProvider(queue, 'claude')).toMatchObject({
+      matchesCurrentAssignment: true,
+      active: [],
+      completed: [claudeItem],
+      managed: true
+    });
+    expect(projectQueueForProvider(queue, 'copilot')).toMatchObject({
+      matchesCurrentAssignment: false,
+      active: [],
+      completed: [copilotItem],
+      managed: true
+    });
   });
 
   it('keeps a managed assignment visible when the current page is another provider', () => {
-    const queued = { queueItemId: 'm365-1', testCaseId: 'a', id: 'a', name: 'M365 scenario', prompt: '', assertionCount: 0, status: 'queued' as const };
+    const queued = {
+      queueItemId: 'm365-1',
+      testCaseId: 'a',
+      id: 'a',
+      name: 'M365 scenario',
+      prompt: '',
+      assertionCount: 0,
+      status: 'queued' as const
+    };
     const queue = { provider: 'm365-cloud-microsoft', evaluationRunId: 'run-1', items: [queued] };
-    expect(projectQueueForProvider(queue, 'claude')).toMatchObject({ matchesCurrentAssignment: false, active: [queued], managed: true });
+    expect(projectQueueForProvider(queue, 'claude')).toMatchObject({
+      matchesCurrentAssignment: false,
+      active: [queued],
+      managed: true
+    });
   });
 });

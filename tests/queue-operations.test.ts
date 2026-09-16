@@ -7,10 +7,14 @@ describe('queue operation serialization', () => {
     let release!: () => void;
     const first = serializeQueueOperation(async () => {
       events.push('first-start');
-      await new Promise<void>((resolve) => { release = resolve; });
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
       events.push('first-end');
     });
-    const second = serializeQueueOperation(async () => { events.push('second'); });
+    const second = serializeQueueOperation(async () => {
+      events.push('second');
+    });
 
     await Promise.resolve();
     expect(events).toEqual(['first-start']);

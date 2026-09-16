@@ -1,25 +1,57 @@
-import type { DebugElementCheck, DebugSnapshot, ExtensionMessage, ProviderId, RoverState } from '../contracts';
+import type {
+  DebugElementCheck,
+  DebugSnapshot,
+  ExtensionMessage,
+  ProviderId,
+  RoverState
+} from '../contracts';
 import { McplabClient } from '../mcplab/api-client';
 import { acceptsContentResult } from '../runtime/live-state';
+import { createQueue, recordQueueItemOutcome, type RoverQueueState } from '../queue/state';
 import {
-  createQueue,
-  recordQueueItemOutcome,
-  type RoverQueueState
-} from '../queue/state';
-import { activeTab, detectProvider, expectedProviderForUrl, getDetectionDiagnostics } from './browser';
+  activeTab,
+  detectProvider,
+  expectedProviderForUrl,
+  getDetectionDiagnostics
+} from './browser';
 import { createDebugSnapshot } from './debug';
 import { errorMessage } from './errors';
 import { complete, fail } from './live-test';
-import { failManagedQueue, finalizeManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
+import {
+  failManagedQueue,
+  finalizeManagedQueue,
+  pauseQueue,
+  runQueueItem,
+  sendScenarioStatus,
+  startQueueConversation
+} from './queue-runner';
 import { sendStage, supportsNewConversation } from './queue-message-helpers';
 import { handleQueueMessage } from './queue-message-handler';
-import { leaseDebugState, loadedProvider, loadProfilesIntoTab, updateRoverRegistration } from './socket';
+import {
+  leaseDebugState,
+  loadedProvider,
+  loadProfilesIntoTab,
+  updateRoverRegistration
+} from './socket';
 import { currentSocket } from './lease-transport';
-import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, saveState, STATE_KEY } from './store';
+import {
+  getQueue,
+  getState,
+  QUEUE_KEY,
+  resolveOrigin,
+  saveQueue,
+  saveState,
+  STATE_KEY
+} from './store';
 import { serializeQueueOperation } from '../queue/operations';
 
-function respond<T>(sendResponse: (response: T | { ok: false; error: string }) => void, work: () => Promise<T>): true {
-  void work().then(sendResponse).catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
+function respond<T>(
+  sendResponse: (response: T | { ok: false; error: string }) => void,
+  work: () => Promise<T>
+): true {
+  void work()
+    .then(sendResponse)
+    .catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
   return true;
 }
 
@@ -49,7 +81,8 @@ export async function syncDebugSubscription(tabId: number): Promise<void> {
 export function installMessageHandler(): void {
   chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
     if (message.type === 'ROVER_PAGE_FOCUSED') {
-      if (typeof sender.tab?.id === 'number') void updateRoverRegistration(sender.tab.id).catch(() => undefined);
+      if (typeof sender.tab?.id === 'number')
+        void updateRoverRegistration(sender.tab.id).catch(() => undefined);
       return;
     }
     if (message.type === 'ROVER_LEARN_START' || message.type === 'ROVER_LEARN_STOP') {
@@ -61,7 +94,10 @@ export function installMessageHandler(): void {
     if (message.type === 'ROVER_LEARN_SAVE') {
       return respond(sendResponse, async () => {
         const endpoint = await resolveOrigin(message.origin);
-        const result = await new McplabClient(endpoint).saveLearnedBrowserProvider(message.profile, message.agent);
+        const result = await new McplabClient(endpoint).saveLearnedBrowserProvider(
+          message.profile,
+          message.agent
+        );
         return { ok: true, provider: result.provider, revision: result.revision };
       });
     }
@@ -80,14 +116,20 @@ export function installMessageHandler(): void {
           await loadProfilesIntoTab(tab.id, origin);
           provider = await detectProvider(tab.id);
         }
-        return { provider, tabId: tab?.id, url: tab?.url, supportsNewConversation: await supportsNewConversation(provider, origin) };
+        return {
+          provider,
+          tabId: tab?.id,
+          url: tab?.url,
+          supportsNewConversation: await supportsNewConversation(provider, origin)
+        };
       });
     }
 
     if (message.type === 'ROVER_START_NEW_CONVERSATION') {
       return respond(sendResponse, async () => {
         const queue = await getQueue();
-        if (queue && ['running', 'paused'].includes(queue.status)) throw new Error('Finish or stop the active queue before starting a new conversation.');
+        if (queue && ['running', 'paused'].includes(queue.status))
+          throw new Error('Finish or stop the active queue before starting a new conversation.');
         const tab = await activeTab();
         if (typeof tab?.id !== 'number') throw new Error('No active browser tab is available.');
         const provider = await detectProvider(tab.id);
@@ -95,7 +137,10 @@ export function installMessageHandler(): void {
         if (!provider || !(await supportsNewConversation(provider, origin))) {
           throw new Error('The active provider does not support starting a new conversation.');
         }
-        await startQueueConversation({ ...createQueue(origin, provider, false, new Date().toISOString()), tabId: tab.id });
+        await startQueueConversation({
+          ...createQueue(origin, provider, false, new Date().toISOString()),
+          tabId: tab.id
+        });
         return { ok: true, provider };
       });
     }
@@ -122,7 +167,16 @@ export function installMessageHandler(): void {
           }
         }
 
-        let page: { matched: boolean; provider?: ProviderId; profile?: DebugSnapshot['page']['profile']; detection?: DebugSnapshot['page']['detection']; elements: DebugElementCheck[]; error?: string } | undefined;
+        let page:
+          | {
+              matched: boolean;
+              provider?: ProviderId;
+              profile?: DebugSnapshot['page']['profile'];
+              detection?: DebugSnapshot['page']['detection'];
+              elements: DebugElementCheck[];
+              error?: string;
+            }
+          | undefined;
         if (typeof tab?.id === 'number') {
           try {
             await detectProvider(tab.id);
@@ -134,23 +188,30 @@ export function installMessageHandler(): void {
               provider: response?.provider,
               profile: (() => {
                 const profile = loadedProvider(response?.provider);
-                return profile ? {
-                  name: profile.name,
-                  source: profile.learned.sourceOrigin,
-                  revision: profile.learned.updatedAt,
-                  capabilities: [
-                    'composer',
-                    'submit',
-                    'assistant response',
-                    ...(profile.newConversation ? ['new conversation'] : [])
-                  ]
-                } : undefined;
+                return profile
+                  ? {
+                      name: profile.name,
+                      source: profile.learned.sourceOrigin,
+                      revision: profile.learned.updatedAt,
+                      capabilities: [
+                        'composer',
+                        'submit',
+                        'assistant response',
+                        ...(profile.newConversation ? ['new conversation'] : [])
+                      ]
+                    }
+                  : undefined;
               })(),
               detection: getDetectionDiagnostics(tab.id),
               elements: response?.elements ?? []
             };
           } catch (error) {
-            page = { matched: Boolean(expectedProviderForUrl(tab.url)), provider: expectedProviderForUrl(tab.url), elements: [], error: errorMessage(error) };
+            page = {
+              matched: Boolean(expectedProviderForUrl(tab.url)),
+              provider: expectedProviderForUrl(tab.url),
+              elements: [],
+              error: errorMessage(error)
+            };
           }
         } else {
           page = { matched: false, elements: [], error: 'No active browser tab.' };
@@ -180,7 +241,10 @@ export function installMessageHandler(): void {
         const tab = await activeTab();
         if (typeof tab?.id === 'number') {
           await syncDebugSubscription(tab.id);
-          if (!message.enabled) await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_DEBUG_SUBSCRIBE', enabled: false }).catch(() => undefined);
+          if (!message.enabled)
+            await chrome.tabs
+              .sendMessage(tab.id, { type: 'ROVER_DEBUG_SUBSCRIBE', enabled: false })
+              .catch(() => undefined);
         }
         return { ok: true };
       });
@@ -199,7 +263,8 @@ export function installMessageHandler(): void {
       message.type === 'ROVER_QUEUE_STOP' ||
       message.type === 'ROVER_QUEUE_SKIP' ||
       message.type === 'ROVER_QUEUE_RETRY'
-    ) return handleQueueMessage(message, sendResponse);
+    )
+      return handleQueueMessage(message, sendResponse);
 
     if (message.type === 'ROVER_PREPARE') {
       return respond(sendResponse, async () => {
@@ -210,7 +275,10 @@ export function installMessageHandler(): void {
         const origin = await resolveOrigin(message.origin);
         const tab = await activeTab();
         const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
-        const session = await new McplabClient(origin).start(message.testCaseId, provider ?? 'manual');
+        const session = await new McplabClient(origin).start(
+          message.testCaseId,
+          provider ?? 'manual'
+        );
         const state: RoverState = {
           requestId: crypto.randomUUID(),
           sessionId: session.id,
@@ -232,13 +300,27 @@ export function installMessageHandler(): void {
     if (message.type === 'ROVER_EXECUTE') {
       void serializeQueueOperation(async () => {
         const state = await getState();
-        if (!state || state.status !== 'ready' || !state.provider || typeof state.tabId !== 'number') {
+        if (
+          !state ||
+          state.status !== 'ready' ||
+          !state.provider ||
+          typeof state.tabId !== 'number'
+        ) {
           throw new Error('No prepared Live Test is ready for browser execution.');
         }
-        const running: RoverState = { ...state, status: 'running', startedAt: new Date().toISOString() };
+        const running: RoverState = {
+          ...state,
+          status: 'running',
+          startedAt: new Date().toISOString()
+        };
         await saveState(running);
         try {
-          await chrome.tabs.sendMessage(state.tabId, { type: 'ROVER_ASK', requestId: state.requestId, sessionId: state.sessionId, prompt: state.prompt });
+          await chrome.tabs.sendMessage(state.tabId, {
+            type: 'ROVER_ASK',
+            requestId: state.requestId,
+            sessionId: state.sessionId,
+            prompt: state.prompt
+          });
           sendResponse({ ok: true, state: running });
         } catch (error) {
           await fail(running, error);
@@ -265,31 +347,58 @@ export function installMessageHandler(): void {
     if (message.type === 'ROVER_CANCEL') {
       return respond(sendResponse, async () => {
         const state = await getState();
-        if (state && state.status === 'running' && state.requestId && typeof state.tabId === 'number') {
-          await chrome.tabs.sendMessage(state.tabId, { type: 'ROVER_CANCEL_ASK', requestId: state.requestId }).catch(() => undefined);
+        if (
+          state &&
+          state.status === 'running' &&
+          state.requestId &&
+          typeof state.tabId === 'number'
+        ) {
+          await chrome.tabs
+            .sendMessage(state.tabId, { type: 'ROVER_CANCEL_ASK', requestId: state.requestId })
+            .catch(() => undefined);
         }
-        if (state && state.status !== 'completed') await new McplabClient(state.origin).cancel(state.sessionId).catch(() => undefined);
+        if (state && state.status !== 'completed')
+          await new McplabClient(state.origin).cancel(state.sessionId).catch(() => undefined);
         await chrome.storage.session.remove(STATE_KEY);
         return { ok: true };
       });
     }
 
     if (message.type === 'ROVER_RESULT') {
-      void serializeQueueOperation(() => handleResult(message)).catch((error) => console.error('[Rover] result handling failed', error));
+      void serializeQueueOperation(() => handleResult(message)).catch((error) =>
+        console.error('[Rover] result handling failed', error)
+      );
     }
   });
 }
 
-export async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RESULT' }>): Promise<void> {
+export async function handleResult(
+  message: Extract<ExtensionMessage, { type: 'ROVER_RESULT' }>
+): Promise<void> {
   if (message.queueId && message.queueItemId) {
     const queue = await getQueue();
     const item = queue?.items.find((candidate) => candidate.queueItemId === message.queueItemId);
-    if (!queue || queue.queueId !== message.queueId || queue.activeItemId !== message.queueItemId || item?.requestId !== message.requestId || item.sessionId !== message.sessionId || (queue.leaseId && message.leaseId !== queue.leaseId)) {
-      console.info('[Rover debug] ignored stale result', { queueId: message.queueId, queueItemId: message.queueItemId, requestId: message.requestId, sessionId: message.sessionId });
+    if (
+      !queue ||
+      queue.queueId !== message.queueId ||
+      queue.activeItemId !== message.queueItemId ||
+      item?.requestId !== message.requestId ||
+      item.sessionId !== message.sessionId ||
+      (queue.leaseId && message.leaseId !== queue.leaseId)
+    ) {
+      console.info('[Rover debug] ignored stale result', {
+        queueId: message.queueId,
+        queueItemId: message.queueItemId,
+        requestId: message.requestId,
+        sessionId: message.sessionId
+      });
       return;
     }
     if (item.cancelRequestedAt) {
-      console.info('[Rover debug] ignored cancelled result', { queueId: message.queueId, queueItemId: message.queueItemId });
+      console.info('[Rover debug] ignored cancelled result', {
+        queueId: message.queueId,
+        queueItemId: message.queueItemId
+      });
       return;
     }
     console.info('[Rover debug] result received', {
@@ -305,30 +414,91 @@ export async function handleResult(message: Extract<ExtensionMessage, { type: 'R
     }
     const finalText = message.result.text;
     sendStage(queue, item.testCaseId, 'response_captured');
-    const evaluating: RoverQueueState = { ...queue, items: queue.items.map((candidate) => candidate.queueItemId === item.queueItemId ? { ...candidate, status: 'evaluating' as const, text: finalText } : candidate), updatedAt: new Date().toISOString() };
+    const evaluating: RoverQueueState = {
+      ...queue,
+      items: queue.items.map((candidate) =>
+        candidate.queueItemId === item.queueItemId
+          ? { ...candidate, status: 'evaluating' as const, text: finalText }
+          : candidate
+      ),
+      updatedAt: new Date().toISOString()
+    };
     await saveQueue(evaluating);
-    sendScenarioStatus(evaluating, evaluating.items.find((candidate) => candidate.queueItemId === item.queueItemId)!);
+    sendScenarioStatus(
+      evaluating,
+      evaluating.items.find((candidate) => candidate.queueItemId === item.queueItemId)!
+    );
     try {
       sendStage(queue, item.testCaseId, 'evaluating');
-      const result = await new McplabClient(queue.origin).complete(item.sessionId, { finalText, startedAt: item.startedAt ?? new Date().toISOString(), completedAt: new Date().toISOString() });
+      const result = await new McplabClient(queue.origin).complete(item.sessionId, {
+        finalText,
+        startedAt: item.startedAt ?? new Date().toISOString(),
+        completedAt: new Date().toISOString()
+      });
       const latest = await getQueue();
-      if (!latest || latest.queueId !== queue.queueId || latest.activeItemId !== item.queueItemId) return;
-      const latestItem = latest.items.find((candidate) => candidate.queueItemId === item.queueItemId);
+      if (!latest || latest.queueId !== queue.queueId || latest.activeItemId !== item.queueItemId)
+        return;
+      const latestItem = latest.items.find(
+        (candidate) => candidate.queueItemId === item.queueItemId
+      );
       if (latestItem?.cancelRequestedAt) return;
       const resultUrl = queue.evaluationRunId
         ? `/results/${encodeURIComponent(queue.evaluationRunId)}`
         : result.resultUrl;
-      const completed = recordQueueItemOutcome(latest, item.queueItemId, result.outcome, { runId: result.runId, resultUrl, checkCounts: result.checkCounts, text: finalText, ...(result.outcome === 'error' ? { error: result.error ?? 'Evaluation returned an error.' } : {}) }, new Date().toISOString());
+      const completed = recordQueueItemOutcome(
+        latest,
+        item.queueItemId,
+        result.outcome,
+        {
+          runId: result.runId,
+          resultUrl,
+          checkCounts: result.checkCounts,
+          text: finalText,
+          ...(result.outcome === 'error'
+            ? { error: result.error ?? 'Evaluation returned an error.' }
+            : {})
+        },
+        new Date().toISOString()
+      );
       await saveQueue(completed);
-      sendScenarioStatus(completed, completed.items.find((candidate) => candidate.queueItemId === item.queueItemId)!, item.startedAt ? Math.max(0, Date.now() - Date.parse(item.startedAt)) : undefined);
+      sendScenarioStatus(
+        completed,
+        completed.items.find((candidate) => candidate.queueItemId === item.queueItemId)!,
+        item.startedAt ? Math.max(0, Date.now() - Date.parse(item.startedAt)) : undefined
+      );
       sendStage(queue, item.testCaseId, 'persisted');
       const socket = currentSocket();
       if (socket?.readyState === WebSocket.OPEN) {
-        const durationMs = item.startedAt ? Math.max(0, Date.parse(new Date().toISOString()) - Date.parse(item.startedAt)) : undefined;
-        socket.send(JSON.stringify({ type: 'progress', jobId: queue.queueId, ...(queue.leaseId ? { leaseId: queue.leaseId } : {}), completed: completed.items.filter((candidate) => ['passed', 'failed', 'incomplete', 'skipped', 'stopped'].includes(candidate.status)).length, total: completed.items.length, currentScenarioId: completed.activeItemId ? completed.items.find((candidate) => candidate.queueItemId === completed.activeItemId)?.testCaseId : undefined, lastDurationMs: durationMs, ...(result.outcome === 'failed' || result.outcome === 'error' ? { error: result.outcome } : {}) }));
+        const durationMs = item.startedAt
+          ? Math.max(0, Date.parse(new Date().toISOString()) - Date.parse(item.startedAt))
+          : undefined;
+        socket.send(
+          JSON.stringify({
+            type: 'progress',
+            jobId: queue.queueId,
+            ...(queue.leaseId ? { leaseId: queue.leaseId } : {}),
+            completed: completed.items.filter((candidate) =>
+              ['passed', 'failed', 'incomplete', 'skipped', 'stopped'].includes(candidate.status)
+            ).length,
+            total: completed.items.length,
+            currentScenarioId: completed.activeItemId
+              ? completed.items.find(
+                  (candidate) => candidate.queueItemId === completed.activeItemId
+                )?.testCaseId
+              : undefined,
+            lastDurationMs: durationMs,
+            ...(result.outcome === 'failed' || result.outcome === 'error'
+              ? { error: result.outcome }
+              : {})
+          })
+        );
       }
       if (completed.status === 'completed' && completed.leaseId) {
-        await finalizeManagedQueue(completed, { outcome: result.outcome, runId: result.runId, releaseReason: 'completed' });
+        await finalizeManagedQueue(completed, {
+          outcome: result.outcome,
+          runId: result.runId,
+          releaseReason: 'completed'
+        });
       }
       if (completed.status === 'running') {
         try {

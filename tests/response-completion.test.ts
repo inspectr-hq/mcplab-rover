@@ -7,7 +7,11 @@ describe('waitForCompletedResponse', () => {
     const result = await waitForCompletedResponse({
       read: () => {
         reads += 1;
-        return { text: reads < 3 ? 'partial' : 'final', isGenerating: reads < 4, isIdle: reads >= 4 };
+        return {
+          text: reads < 3 ? 'partial' : 'final',
+          isGenerating: reads < 4,
+          isIdle: reads >= 4
+        };
       },
       pollMs: 1,
       stabilityMs: 3,
@@ -20,7 +24,12 @@ describe('waitForCompletedResponse', () => {
   it('rejects when the provider reports an error', async () => {
     await expect(
       waitForCompletedResponse({
-        read: () => ({ text: 'partial', isGenerating: true, isIdle: false, error: 'Something went wrong' }),
+        read: () => ({
+          text: 'partial',
+          isGenerating: true,
+          isIdle: false,
+          error: 'Something went wrong'
+        }),
         pollMs: 1,
         stabilityMs: 3,
         timeoutMs: 100

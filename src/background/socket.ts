@@ -1,9 +1,24 @@
 import type { ProviderId } from '../contracts';
 import type { WaitingEvaluation } from '../contracts';
 import { McplabClient } from '../mcplab/api-client';
-import { archiveCompletedQueueItems, createQueue, startQueue, stopQueue, stopScenario } from '../queue/state';
+import {
+  archiveCompletedQueueItems,
+  createQueue,
+  startQueue,
+  stopQueue,
+  stopScenario
+} from '../queue/state';
 import { activeTab, detectProvider } from './browser';
-import { cancelActiveQueueItem, failManagedQueue, finalizeManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation, waitForProviderReady } from './queue-runner';
+import {
+  cancelActiveQueueItem,
+  failManagedQueue,
+  finalizeManagedQueue,
+  pauseQueue,
+  runQueueItem,
+  sendScenarioStatus,
+  startQueueConversation,
+  waitForProviderReady
+} from './queue-runner';
 import { registrationPayload, ROVER_PROTOCOL_VERSION } from '../mcplab/rover-protocol';
 import { getQueue, QUEUE_KEY, resolveOrigin, saveQueue } from './store';
 import type { RoverQueueState } from '../queue/state';
@@ -45,15 +60,33 @@ export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
   roverLeaseRenewal = setInterval(() => {
     void serializeQueueOperation(async () => {
       const latest = await getQueue();
-      if (!latest?.leaseId || latest.status !== 'running' || !roverSocket || roverSocket.readyState !== WebSocket.OPEN) {
+      if (
+        !latest?.leaseId ||
+        latest.status !== 'running' ||
+        !roverSocket ||
+        roverSocket.readyState !== WebSocket.OPEN
+      ) {
         stopLeaseRenewal();
         return;
       }
       const leaseExpiresAt = new Date(Date.now() + 30_000).toISOString();
-      roverSocket.send(JSON.stringify({ type: 'lease_renew', jobId: latest.queueId, leaseId: latest.leaseId, leaseExpiresAt }));
+      roverSocket.send(
+        JSON.stringify({
+          type: 'lease_renew',
+          jobId: latest.queueId,
+          leaseId: latest.leaseId,
+          leaseExpiresAt
+        })
+      );
       lastLeaseRenewalAt = new Date().toISOString();
-      await saveQueue(transitionManagedLease(latest, { type: 'renewed', leaseId: latest.leaseId, leaseExpiresAt }));
-    }).catch((error) => debugLog('lease renewal failed', { error: error instanceof Error ? error.message : String(error) }));
+      await saveQueue(
+        transitionManagedLease(latest, { type: 'renewed', leaseId: latest.leaseId, leaseExpiresAt })
+      );
+    }).catch((error) =>
+      debugLog('lease renewal failed', {
+        error: error instanceof Error ? error.message : String(error)
+      })
+    );
   }, 15_000);
 }
 
@@ -70,7 +103,14 @@ async function reconcileQueueAfterRegistration(origin: string): Promise<void> {
   }
   if (!queue.leaseId) {
     stopLeaseRenewal();
-    await saveQueue(createQueue(origin, queue.provider, queue.newConversationBetweenItems, new Date().toISOString()));
+    await saveQueue(
+      createQueue(
+        origin,
+        queue.provider,
+        queue.newConversationBetweenItems,
+        new Date().toISOString()
+      )
+    );
     return;
   }
   try {
@@ -85,9 +125,19 @@ async function reconcileQueueAfterRegistration(origin: string): Promise<void> {
       let reconciled = queue;
       if (queue.managedPhase === 'accepted' && queue.leaseId) {
         if (roverSocket?.readyState !== WebSocket.OPEN) return;
-        roverSocket.send(JSON.stringify({ type: 'assignment_accept', jobId: queue.queueId, leaseId: queue.leaseId, ...(typeof queue.tabId === 'number' ? { tabId: queue.tabId } : {}) }));
+        roverSocket.send(
+          JSON.stringify({
+            type: 'assignment_accept',
+            jobId: queue.queueId,
+            leaseId: queue.leaseId,
+            ...(typeof queue.tabId === 'number' ? { tabId: queue.tabId } : {})
+          })
+        );
         const startedQueue = startQueue(queue, new Date().toISOString());
-        reconciled = transitionManagedLease(startedQueue, { type: 'running', leaseId: queue.leaseId });
+        reconciled = transitionManagedLease(startedQueue, {
+          type: 'running',
+          leaseId: queue.leaseId
+        });
         await saveQueue(reconciled);
       }
       await startLeaseRenewal(reconciled);
@@ -95,14 +145,29 @@ async function reconcileQueueAfterRegistration(origin: string): Promise<void> {
       return;
     }
     stopLeaseRenewal();
-    await saveQueue(createQueue(origin, queue.provider, queue.newConversationBetweenItems, new Date().toISOString()));
+    await saveQueue(
+      createQueue(
+        origin,
+        queue.provider,
+        queue.newConversationBetweenItems,
+        new Date().toISOString()
+      )
+    );
   } catch {
     // Preserve local state if MCPLab is temporarily unreachable.
   }
 }
 
-export function leaseDebugState(): { negotiatedCapabilities: string[]; lastLeaseRenewalAt?: string; lastAssignmentDecision?: { decision: string; reason?: string; at: string } } {
-  return { negotiatedCapabilities: [...negotiatedCapabilities], lastLeaseRenewalAt, lastAssignmentDecision };
+export function leaseDebugState(): {
+  negotiatedCapabilities: string[];
+  lastLeaseRenewalAt?: string;
+  lastAssignmentDecision?: { decision: string; reason?: string; at: string };
+} {
+  return {
+    negotiatedCapabilities: [...negotiatedCapabilities],
+    lastLeaseRenewalAt,
+    lastAssignmentDecision
+  };
 }
 
 export function waitingForMatching(): WaitingEvaluation[] {
@@ -115,12 +180,29 @@ async function replayPendingLeaseAction(): Promise<void> {
   if (!queue || !action || !roverSocket || roverSocket.readyState !== WebSocket.OPEN) return;
   const attempted = reduceLeaseOutbox(queue, { type: 'attempt', at: new Date().toISOString() });
   await saveQueue(attempted);
-  roverSocket.send(JSON.stringify(action.type === 'complete'
-    ? { type: 'complete', jobId: queue.queueId, leaseId: action.leaseId, outcome: action.outcome, runId: action.runId }
-    : { type: 'lease_release', jobId: queue.queueId, leaseId: action.leaseId, reason: action.reason ?? 'error' }));
+  roverSocket.send(
+    JSON.stringify(
+      action.type === 'complete'
+        ? {
+            type: 'complete',
+            jobId: queue.queueId,
+            leaseId: action.leaseId,
+            outcome: action.outcome,
+            runId: action.runId
+          }
+        : {
+            type: 'lease_release',
+            jobId: queue.queueId,
+            leaseId: action.leaseId,
+            reason: action.reason ?? 'error'
+          }
+    )
+  );
 }
 
-export function loadedProvider(providerId?: string): import('../mcplab/types').BrowserProviderProfile | undefined {
+export function loadedProvider(
+  providerId?: string
+): import('../mcplab/types').BrowserProviderProfile | undefined {
   return providerId ? loadedProviders.get(providerId) : undefined;
 }
 
@@ -133,13 +215,19 @@ export async function loadProfilesIntoTab(tabId: number, origin: string): Promis
   }
   loadedProviders.clear();
   for (const profile of profiles) loadedProviders.set(profile.id, profile);
-  await chrome.tabs.sendMessage(tabId, { type: 'ROVER_SET_PROFILES', profiles }).catch(() => undefined);
+  await chrome.tabs
+    .sendMessage(tabId, { type: 'ROVER_SET_PROFILES', profiles })
+    .catch(() => undefined);
 }
 
 export async function connectToMcplab(): Promise<void> {
   const origin = await resolveOrigin();
   waitingEvaluations = [];
-  if (roverSocket && (roverSocket.readyState === WebSocket.OPEN || roverSocket.readyState === WebSocket.CONNECTING)) return;
+  if (
+    roverSocket &&
+    (roverSocket.readyState === WebSocket.OPEN || roverSocket.readyState === WebSocket.CONNECTING)
+  )
+    return;
   const initialTab = await activeTab();
   if (typeof initialTab?.id !== 'number') {
     debugLog('waiting for an active tab before connecting');
@@ -161,7 +249,11 @@ export async function connectToMcplab(): Promise<void> {
       await loadProfilesIntoTab(tab.id, origin);
       provider = await detectProvider(tab.id);
     }
-    debugLog('provider detection complete', { tabId: tab?.id, tabOrigin: tab?.url ? new URL(tab.url).origin : undefined, provider });
+    debugLog('provider detection complete', {
+      tabId: tab?.id,
+      tabOrigin: tab?.url ? new URL(tab.url).origin : undefined,
+      provider
+    });
     if (!provider) {
       // Chrome can report no active tab while the extension or service-worker
       // inspector has focus. Keep the transport open and let tab activation or
@@ -169,7 +261,16 @@ export async function connectToMcplab(): Promise<void> {
       debugLog('waiting for an active supported tab');
       return;
     }
-    socket.send(JSON.stringify(registrationPayload(provider, tab?.url ?? '', chrome.runtime.getManifest().version, loadedProviders.get(provider)?.learned.updatedAt)));
+    socket.send(
+      JSON.stringify(
+        registrationPayload(
+          provider,
+          tab?.url ?? '',
+          chrome.runtime.getManifest().version,
+          loadedProviders.get(provider)?.learned.updatedAt
+        )
+      )
+    );
     registeredTabId = typeof tab?.id === 'number' ? tab.id : undefined;
     debugLog('registration sent', { provider, tabId: tab?.id });
     // Start heartbeats only after sending registration. The server rejects
@@ -181,7 +282,25 @@ export async function connectToMcplab(): Promise<void> {
   };
   socket.onmessage = (event) => {
     try {
-      const message = JSON.parse(String(event.data)) as { type?: string; protocolVersion?: number; capabilities?: unknown; leaseId?: string; leaseExpiresAt?: string; tabId?: number; jobId?: string; scenarioId?: string; evaluationRunId?: string; configPath?: string; evaluationName?: string; agentName?: string; action?: 'complete' | 'release'; agent?: { provider?: ProviderId; providerRevision?: string }; provider?: import('../mcplab/types').BrowserProviderProfile; scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>; newConversationBetweenScenarios?: boolean };
+      const message = JSON.parse(String(event.data)) as {
+        type?: string;
+        protocolVersion?: number;
+        capabilities?: unknown;
+        leaseId?: string;
+        leaseExpiresAt?: string;
+        tabId?: number;
+        jobId?: string;
+        scenarioId?: string;
+        evaluationRunId?: string;
+        configPath?: string;
+        evaluationName?: string;
+        agentName?: string;
+        action?: 'complete' | 'release';
+        agent?: { provider?: ProviderId; providerRevision?: string };
+        provider?: import('../mcplab/types').BrowserProviderProfile;
+        scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>;
+        newConversationBetweenScenarios?: boolean;
+      };
       if (message.type === 'lease_unknown' && message.jobId && message.leaseId) {
         const unknownJobId = message.jobId;
         const unknownLeaseId = message.leaseId;
@@ -189,9 +308,24 @@ export async function connectToMcplab(): Promise<void> {
           const queue = await getQueue();
           if (!queue || !leaseOutboxMatches(queue, unknownJobId, unknownLeaseId)) return;
           stopLeaseRenewal();
-          await saveQueue(createQueue(queue.origin, queue.provider, queue.newConversationBetweenItems, new Date().toISOString()));
-          lastAssignmentDecision = { decision: 'released', reason: 'unknown_lease', at: new Date().toISOString() };
-        }).catch((error) => debugLog('unknown lease cleanup failed', { error: error instanceof Error ? error.message : String(error) }));
+          await saveQueue(
+            createQueue(
+              queue.origin,
+              queue.provider,
+              queue.newConversationBetweenItems,
+              new Date().toISOString()
+            )
+          );
+          lastAssignmentDecision = {
+            decision: 'released',
+            reason: 'unknown_lease',
+            at: new Date().toISOString()
+          };
+        }).catch((error) =>
+          debugLog('unknown lease cleanup failed', {
+            error: error instanceof Error ? error.message : String(error)
+          })
+        );
         return;
       }
       if (message.type === 'registered' && roverSocket === socket) {
@@ -199,8 +333,14 @@ export async function connectToMcplab(): Promise<void> {
         negotiatedCapabilities = Array.isArray(message.capabilities)
           ? message.capabilities.filter((value): value is string => typeof value === 'string')
           : [];
-        if (message.protocolVersion !== ROVER_PROTOCOL_VERSION || !negotiatedCapabilities.includes('assignment_lease')) {
-          debugLog('incompatible MCPLab protocol', { protocolVersion: message.protocolVersion, capabilities: negotiatedCapabilities });
+        if (
+          message.protocolVersion !== ROVER_PROTOCOL_VERSION ||
+          !negotiatedCapabilities.includes('assignment_lease')
+        ) {
+          debugLog('incompatible MCPLab protocol', {
+            protocolVersion: message.protocolVersion,
+            capabilities: negotiatedCapabilities
+          });
           socket.close(1008, 'MCPLab Rover protocol v2 with assignment_lease is required.');
           return;
         }
@@ -209,7 +349,9 @@ export async function connectToMcplab(): Promise<void> {
           await replayPendingLeaseAction();
           await reconcileQueueAfterRegistration(origin);
         }).catch((error) => {
-          debugLog('registration reconciliation failed', { error: error instanceof Error ? error.message : String(error) });
+          debugLog('registration reconciliation failed', {
+            error: error instanceof Error ? error.message : String(error)
+          });
         });
       }
       if (message.type === 'lease_action_ack' && message.jobId && message.leaseId) {
@@ -221,31 +363,57 @@ export async function connectToMcplab(): Promise<void> {
           const queue = await getQueue();
           if (!queue || queue.queueId !== acknowledgedJobId) return;
           const acknowledged = leaseOutboxHead(queue);
-          const shouldClearQueue = acknowledged?.leaseId === acknowledgedLeaseId && acknowledged.type === acknowledgedAction && acknowledged.clearQueue === true;
-          const next = reduceLeaseOutbox(queue, { type: 'acknowledge', jobId: acknowledgedJobId, leaseId: acknowledgedLeaseId, actionType: acknowledgedAction });
+          const shouldClearQueue =
+            acknowledged?.leaseId === acknowledgedLeaseId &&
+            acknowledged.type === acknowledgedAction &&
+            acknowledged.clearQueue === true;
+          const next = reduceLeaseOutbox(queue, {
+            type: 'acknowledge',
+            jobId: acknowledgedJobId,
+            leaseId: acknowledgedLeaseId,
+            actionType: acknowledgedAction
+          });
           if (next !== queue) {
-            if (shouldClearQueue && !next.pendingLeaseActions?.length) await chrome.storage.session.remove(QUEUE_KEY);
+            if (shouldClearQueue && !next.pendingLeaseActions?.length)
+              await chrome.storage.session.remove(QUEUE_KEY);
             else {
               await saveQueue(next);
               if (next.pendingLeaseActions?.length) await replayPendingLeaseAction();
             }
           }
-        }).catch((error) => debugLog('lease acknowledgement handling failed', { error: error instanceof Error ? error.message : String(error) }));
+        }).catch((error) =>
+          debugLog('lease acknowledgement handling failed', {
+            error: error instanceof Error ? error.message : String(error)
+          })
+        );
         return;
       }
       if (message.type === 'provider_updated' && message.provider) {
         loadedProviders.set(message.provider.id, message.provider);
-        void activeTab().then((tab) => typeof tab?.id === 'number'
-          ? chrome.tabs.sendMessage(tab.id, { type: 'ROVER_SET_PROFILES', profiles: [...loadedProviders.values()] }).catch(() => undefined)
-          : undefined);
+        void activeTab().then((tab) =>
+          typeof tab?.id === 'number'
+            ? chrome.tabs
+                .sendMessage(tab.id, {
+                  type: 'ROVER_SET_PROFILES',
+                  profiles: [...loadedProviders.values()]
+                })
+                .catch(() => undefined)
+            : undefined
+        );
         return;
       }
       if (message.type === 'queue_waiting' && Array.isArray((message as { jobs?: unknown }).jobs)) {
-        waitingEvaluations = ((message as { jobs: unknown[] }).jobs).filter((job): job is WaitingEvaluation => {
-          if (!job || typeof job !== 'object') return false;
-          const candidate = job as Partial<WaitingEvaluation>;
-          return typeof candidate.jobId === 'string' && typeof candidate.provider === 'string' && typeof candidate.position === 'number';
-        });
+        waitingEvaluations = (message as { jobs: unknown[] }).jobs.filter(
+          (job): job is WaitingEvaluation => {
+            if (!job || typeof job !== 'object') return false;
+            const candidate = job as Partial<WaitingEvaluation>;
+            return (
+              typeof candidate.jobId === 'string' &&
+              typeof candidate.provider === 'string' &&
+              typeof candidate.position === 'number'
+            );
+          }
+        );
         return;
       }
       if (message.type === 'stop' && message.jobId) {
@@ -256,33 +424,59 @@ export async function connectToMcplab(): Promise<void> {
           await cancelActiveQueueItem(queue);
           await persistLeaseRelease(stopQueue(queue, new Date().toISOString()), 'stopped');
         }).catch((error) => {
-          debugLog('whole queue stop failed', { error: error instanceof Error ? error.message : String(error) });
+          debugLog('whole queue stop failed', {
+            error: error instanceof Error ? error.message : String(error)
+          });
         });
         return;
       }
       if (message.type === 'stop_scenario' && message.jobId && message.scenarioId) {
-        debugLog('stop_scenario command received', { jobId: message.jobId, scenarioId: message.scenarioId });
+        debugLog('stop_scenario command received', {
+          jobId: message.jobId,
+          scenarioId: message.scenarioId
+        });
         void serializeQueueOperation(async () => {
           const queue = await getQueue();
           const item = queue?.activeItemId
-            ? queue.items.find((candidate) => candidate.queueItemId === queue.activeItemId && candidate.testCaseId === message.scenarioId)
-              ?? queue.items.find((candidate) => candidate.testCaseId === message.scenarioId && candidate.status === 'queued')
-            : queue?.items.find((candidate) => candidate.testCaseId === message.scenarioId && candidate.status === 'queued');
+            ? (queue.items.find(
+                (candidate) =>
+                  candidate.queueItemId === queue.activeItemId &&
+                  candidate.testCaseId === message.scenarioId
+              ) ??
+              queue.items.find(
+                (candidate) =>
+                  candidate.testCaseId === message.scenarioId && candidate.status === 'queued'
+              ))
+            : queue?.items.find(
+                (candidate) =>
+                  candidate.testCaseId === message.scenarioId && candidate.status === 'queued'
+              );
           if (!queue || queue.queueId !== message.jobId || !item) return;
           const wasActive = queue.activeItemId === item.queueItemId;
           const next = stopScenario(queue, message.scenarioId!, new Date().toISOString());
           await saveQueue(next);
-          const stopped = next.items.find((candidate) => candidate.queueItemId === item.queueItemId);
+          const stopped = next.items.find(
+            (candidate) => candidate.queueItemId === item.queueItemId
+          );
           if (stopped?.status === 'stopped') sendScenarioStatus(next, stopped);
           if (roverSocket?.readyState === WebSocket.OPEN) {
-            roverSocket.send(JSON.stringify({
-              type: 'progress',
-              jobId: next.queueId,
-              ...(next.leaseId ? { leaseId: next.leaseId } : {}),
-              completed: next.items.filter((candidate) => ['passed', 'failed', 'incomplete', 'skipped', 'stopped'].includes(candidate.status)).length,
-              total: next.items.length,
-              currentScenarioId: next.activeItemId ? next.items.find((candidate) => candidate.queueItemId === next.activeItemId)?.testCaseId : undefined
-            }));
+            roverSocket.send(
+              JSON.stringify({
+                type: 'progress',
+                jobId: next.queueId,
+                ...(next.leaseId ? { leaseId: next.leaseId } : {}),
+                completed: next.items.filter((candidate) =>
+                  ['passed', 'failed', 'incomplete', 'skipped', 'stopped'].includes(
+                    candidate.status
+                  )
+                ).length,
+                total: next.items.length,
+                currentScenarioId: next.activeItemId
+                  ? next.items.find((candidate) => candidate.queueItemId === next.activeItemId)
+                      ?.testCaseId
+                  : undefined
+              })
+            );
           }
           if (wasActive) {
             await cancelActiveQueueItem(queue);
@@ -295,25 +489,57 @@ export async function connectToMcplab(): Promise<void> {
                 else await pauseQueue(next, error);
               }
             } else if (next.status === 'completed') {
-              if (next.leaseId) await finalizeManagedQueue(next, { outcome: 'incomplete', releaseReason: 'stopped' });
-              else if (roverSocket?.readyState === WebSocket.OPEN) roverSocket.send(JSON.stringify({ type: 'complete', jobId: next.queueId, outcome: 'incomplete' }));
+              if (next.leaseId)
+                await finalizeManagedQueue(next, {
+                  outcome: 'incomplete',
+                  releaseReason: 'stopped'
+                });
+              else if (roverSocket?.readyState === WebSocket.OPEN)
+                roverSocket.send(
+                  JSON.stringify({ type: 'complete', jobId: next.queueId, outcome: 'incomplete' })
+                );
             }
           }
         }).catch((error) => {
-          debugLog('scenario stop failed', { error: error instanceof Error ? error.message : String(error) });
+          debugLog('scenario stop failed', {
+            error: error instanceof Error ? error.message : String(error)
+          });
         });
         return;
       }
-      if (message.type !== 'assignment' || !message.jobId || !message.agent?.provider || !message.scenarios?.length) return;
-      debugLog('assignment received', { jobId: message.jobId, provider: message.agent.provider, scenarios: message.scenarios.length });
+      if (
+        message.type !== 'assignment' ||
+        !message.jobId ||
+        !message.agent?.provider ||
+        !message.scenarios?.length
+      )
+        return;
+      debugLog('assignment received', {
+        jobId: message.jobId,
+        provider: message.agent.provider,
+        scenarios: message.scenarios.length
+      });
       let accepted = false;
       const reportAssignmentError = (reason: string) => {
         if (socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ type: 'progress', jobId: message.jobId, completed: 0, total: message.scenarios?.length ?? 0, error: reason, message: `Rover could not start the assignment: ${reason}` }));
+          socket.send(
+            JSON.stringify({
+              type: 'progress',
+              jobId: message.jobId,
+              completed: 0,
+              total: message.scenarios?.length ?? 0,
+              error: reason,
+              message: `Rover could not start the assignment: ${reason}`
+            })
+          );
         }
       };
       if (typeof message.leaseId !== 'string') {
-        lastAssignmentDecision = { decision: 'rejected', reason: 'assignment_lease_required', at: new Date().toISOString() };
+        lastAssignmentDecision = {
+          decision: 'rejected',
+          reason: 'assignment_lease_required',
+          at: new Date().toISOString()
+        };
         reportAssignmentError('assignment_lease_required');
         return;
       }
@@ -321,18 +547,27 @@ export async function connectToMcplab(): Promise<void> {
       const rejectAssignment = (reason: string) => {
         lastAssignmentDecision = { decision: 'rejected', reason, at: new Date().toISOString() };
         if (socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ type: 'assignment_reject', jobId: message.jobId, leaseId, reason, retryable: true }));
+          socket.send(
+            JSON.stringify({
+              type: 'assignment_reject',
+              jobId: message.jobId,
+              leaseId,
+              reason,
+              retryable: true
+            })
+          );
         }
-      }
+      };
       void serializeQueueOperation(async () => {
         if (!message.leaseExpiresAt || Date.parse(message.leaseExpiresAt) <= Date.now()) {
           rejectAssignment('expired_assignment');
           return;
         }
-        const registeredTab = typeof registeredTabId === 'number'
-          ? await chrome.tabs.get(registeredTabId).catch(() => undefined)
-          : undefined;
-        const tab = registeredTab ?? await activeTab();
+        const registeredTab =
+          typeof registeredTabId === 'number'
+            ? await chrome.tabs.get(registeredTabId).catch(() => undefined)
+            : undefined;
+        const tab = registeredTab ?? (await activeTab());
         if (typeof tab?.id !== 'number') {
           rejectAssignment('provider_unavailable');
           return;
@@ -343,9 +578,16 @@ export async function connectToMcplab(): Promise<void> {
           return;
         }
         await waitForProviderReady(tab.id, message.agent!.provider);
-        if (message.agent?.providerRevision && loadedProviders.get(message.agent.provider ?? '')?.learned.updatedAt !== message.agent.providerRevision) {
+        if (
+          message.agent?.providerRevision &&
+          loadedProviders.get(message.agent.provider ?? '')?.learned.updatedAt !==
+            message.agent.providerRevision
+        ) {
           await loadProfilesIntoTab(tab.id, origin);
-          if (loadedProviders.get(message.agent.provider ?? '')?.learned.updatedAt !== message.agent.providerRevision) {
+          if (
+            loadedProviders.get(message.agent.provider ?? '')?.learned.updatedAt !==
+            message.agent.providerRevision
+          ) {
             rejectAssignment('stale_provider');
             return;
           }
@@ -367,14 +609,49 @@ export async function connectToMcplab(): Promise<void> {
           return;
         }
         const history = previous ? archiveCompletedQueueItems(previous).recentHistory : undefined;
-        const queue = createQueue(origin, message.agent!.provider!, message.newConversationBetweenScenarios !== false, new Date().toISOString());
-        const assignedBase = { ...queue, recentHistory: history, queueId: message.jobId!, evaluationRunId: message.evaluationRunId, sourceConfigPath: message.configPath, sourceConfigName: message.evaluationName, sourceAgentName: message.agentName, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
-        let assigned = transitionManagedLease(assignedBase, { type: 'offer', leaseId, leaseExpiresAt: message.leaseExpiresAt! });
+        const queue = createQueue(
+          origin,
+          message.agent!.provider!,
+          message.newConversationBetweenScenarios !== false,
+          new Date().toISOString()
+        );
+        const assignedBase = {
+          ...queue,
+          recentHistory: history,
+          queueId: message.jobId!,
+          evaluationRunId: message.evaluationRunId,
+          sourceConfigPath: message.configPath,
+          sourceConfigName: message.evaluationName,
+          sourceAgentName: message.agentName,
+          tabId: tab.id,
+          items: message.scenarios!.map((scenario) => ({
+            queueItemId: crypto.randomUUID(),
+            testCaseId: scenario.id,
+            id: scenario.id,
+            name: scenario.name ?? scenario.id,
+            prompt: scenario.prompt,
+            assertionCount: 0,
+            status: 'queued' as const
+          }))
+        };
+        let assigned = transitionManagedLease(assignedBase, {
+          type: 'offer',
+          leaseId,
+          leaseExpiresAt: message.leaseExpiresAt!
+        });
         const acceptedQueue = transitionManagedLease(assigned, { type: 'accepted', leaseId });
         await saveQueue(acceptedQueue);
         accepted = true;
-        if (socket.readyState !== WebSocket.OPEN) throw new Error('Rover connection closed before assignment acceptance.');
-        socket.send(JSON.stringify({ type: 'assignment_accept', jobId: message.jobId, leaseId, tabId: tab.id }));
+        if (socket.readyState !== WebSocket.OPEN)
+          throw new Error('Rover connection closed before assignment acceptance.');
+        socket.send(
+          JSON.stringify({
+            type: 'assignment_accept',
+            jobId: message.jobId,
+            leaseId,
+            tabId: tab.id
+          })
+        );
         const startedQueue = startQueue(acceptedQueue, new Date().toISOString());
         const started = transitionManagedLease(startedQueue, { type: 'running', leaseId });
         await saveQueue(started);
@@ -396,16 +673,26 @@ export async function connectToMcplab(): Promise<void> {
           // has already requeued and cleared the offered lease.
           if (accepted) {
             const currentQueue = await getQueue();
-            if (currentQueue && currentQueue.queueId === message.jobId && currentQueue.leaseId === leaseId) {
+            if (
+              currentQueue &&
+              currentQueue.queueId === message.jobId &&
+              currentQueue.leaseId === leaseId
+            ) {
               await persistLeaseRelease(currentQueue, 'error');
             }
           }
         } catch (cleanupError) {
-          debugLog('assignment cleanup failed', { error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError) });
+          debugLog('assignment cleanup failed', {
+            error: cleanupError instanceof Error ? cleanupError.message : String(cleanupError)
+          });
         }
-        debugLog('assignment handling failed', { error: error instanceof Error ? error.message : String(error) });
+        debugLog('assignment handling failed', {
+          error: error instanceof Error ? error.message : String(error)
+        });
       });
-    } catch { /* ignore malformed server messages */ }
+    } catch {
+      /* ignore malformed server messages */
+    }
   };
   socket.onclose = (event) => {
     if (roverSocket !== socket) return;
@@ -417,8 +704,13 @@ export async function connectToMcplab(): Promise<void> {
     waitingEvaluations = [];
     void serializeQueueOperation(async () => {
       const queue = await getQueue();
-      if (queue?.evaluationRunId && !queue.leaseId && queue.status === 'running') await pauseQueue(queue, new Error('MCPLab connection lost.'), 'mcplab');
-    }).catch((error) => debugLog('legacy queue pause failed', { error: error instanceof Error ? error.message : String(error) }));
+      if (queue?.evaluationRunId && !queue.leaseId && queue.status === 'running')
+        await pauseQueue(queue, new Error('MCPLab connection lost.'), 'mcplab');
+    }).catch((error) =>
+      debugLog('legacy queue pause failed', {
+        error: error instanceof Error ? error.message : String(error)
+      })
+    );
     roverSocket = null;
     if (registeredSocket === socket) registeredSocket = null;
     if (registeredSocket === null) registeredTabId = undefined;
@@ -426,7 +718,9 @@ export async function connectToMcplab(): Promise<void> {
     if (roverReconnectAttempt >= 8) return;
     const delay = Math.min(30_000, 1_000 * 2 ** roverReconnectAttempt);
     roverReconnectAttempt += 1;
-    setTimeout(() => { void connectToMcplab().catch(() => undefined); }, delay);
+    setTimeout(() => {
+      void connectToMcplab().catch(() => undefined);
+    }, delay);
   };
 }
 
@@ -439,15 +733,33 @@ export async function updateRoverRegistration(tabId: number): Promise<void> {
     return;
   }
   const provider = await detectProvider(tabId);
-  void chrome.runtime.sendMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED', provider }).catch(() => undefined);
+  void chrome.runtime
+    .sendMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED', provider })
+    .catch(() => undefined);
   if (!provider) return;
   const tab = await chrome.tabs.get(tabId).catch(() => undefined);
   if (registeredSocket !== roverSocket) {
-    roverSocket.send(JSON.stringify(registrationPayload(provider, tab?.url ?? '', chrome.runtime.getManifest().version, loadedProviders.get(provider)?.learned.updatedAt)));
+    roverSocket.send(
+      JSON.stringify(
+        registrationPayload(
+          provider,
+          tab?.url ?? '',
+          chrome.runtime.getManifest().version,
+          loadedProviders.get(provider)?.learned.updatedAt
+        )
+      )
+    );
     registeredTabId = tabId;
     return;
   }
-  roverSocket.send(JSON.stringify({ type: 'register_update', provider, providerRevision: loadedProviders.get(provider)?.learned.updatedAt, pageUrl: tab?.url ?? '' }));
+  roverSocket.send(
+    JSON.stringify({
+      type: 'register_update',
+      provider,
+      providerRevision: loadedProviders.get(provider)?.learned.updatedAt,
+      pageUrl: tab?.url ?? ''
+    })
+  );
   registeredTabId = tabId;
   await serializeQueueOperation(() => reconcileQueueAfterRegistration(origin));
 }

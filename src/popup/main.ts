@@ -1,7 +1,20 @@
-import type { BrowserProviderDiscoveryDraft, DebugElementCheck, DebugSnapshot, RoverState } from '../contracts';
+import type {
+  BrowserProviderDiscoveryDraft,
+  DebugElementCheck,
+  DebugSnapshot,
+  RoverState
+} from '../contracts';
 import type { LiveTestCatalogItem } from '../mcplab/types';
 import type { RoverQueueState } from '../queue/state';
-import { debugFingerprint, filterTestCases, formatCheckCounts, managedPhaseLabel, modeVisibility, projectQueueForProvider, suggestedProviderName } from './view-model';
+import {
+  debugFingerprint,
+  filterTestCases,
+  formatCheckCounts,
+  managedPhaseLabel,
+  modeVisibility,
+  projectQueueForProvider,
+  suggestedProviderName
+} from './view-model';
 import './style.css';
 
 const shell = document.querySelector<HTMLElement>('.shell')!;
@@ -73,7 +86,10 @@ let debugRequestInFlight = false;
 let lastDebugSnapshot: DebugSnapshot | null = null;
 let modeTransitionInFlight = false;
 
-async function runButtonAction(button: HTMLButtonElement, action: () => Promise<void>): Promise<void> {
+async function runButtonAction(
+  button: HTMLButtonElement,
+  action: () => Promise<void>
+): Promise<void> {
   if (button.disabled) return;
   button.disabled = true;
   try {
@@ -93,18 +109,27 @@ async function runModeTransition(action: () => Promise<void>): Promise<void> {
   }
 }
 
-function setConnectionState(state: 'connecting' | 'connected' | 'disconnected', message: string): void {
+function setConnectionState(
+  state: 'connecting' | 'connected' | 'disconnected',
+  message: string
+): void {
   connectionStatus.dataset.state = state;
   connectionDot.title = message;
   connectionStatus.lastElementChild!.textContent = message;
-  window.parent.postMessage({ type: 'ROVER_CONNECTION_STATE', connected: state === 'connected' }, '*');
+  window.parent.postMessage(
+    { type: 'ROVER_CONNECTION_STATE', connected: state === 'connected' },
+    '*'
+  );
 }
 
 function reportPanelSize(): void {
-  window.parent.postMessage({
-    type: 'ROVER_PANEL_SIZE',
-    height: Math.ceil(Math.max(shell.scrollHeight, shell.getBoundingClientRect().height))
-  }, '*');
+  window.parent.postMessage(
+    {
+      type: 'ROVER_PANEL_SIZE',
+      height: Math.ceil(Math.max(shell.scrollHeight, shell.getBoundingClientRect().height))
+    },
+    '*'
+  );
 }
 
 if (window.parent !== window && 'ResizeObserver' in window) {
@@ -129,70 +154,91 @@ newConversation.addEventListener('click', async () => {
   status.textContent = 'New conversation started.';
 });
 manualMode.addEventListener('click', () => void runModeTransition(() => setMode('manual')));
-queueMode.addEventListener('click', () => void runModeTransition(async () => {
-  await setMode('queue');
-  if (!currentQueue) {
-    const response = await chrome.runtime.sendMessage({
-      type: 'ROVER_QUEUE_CREATE',
-      origin: origin.value,
-      newConversationBetweenItems: queueNewChat.checked
-    });
-    if (response?.ok) renderQueue(response.queue);
-    else queueStatus.textContent = response?.error ?? 'Could not create queue.';
-  }
-}));
+queueMode.addEventListener(
+  'click',
+  () =>
+    void runModeTransition(async () => {
+      await setMode('queue');
+      if (!currentQueue) {
+        const response = await chrome.runtime.sendMessage({
+          type: 'ROVER_QUEUE_CREATE',
+          origin: origin.value,
+          newConversationBetweenItems: queueNewChat.checked
+        });
+        if (response?.ok) renderQueue(response.queue);
+        else queueStatus.textContent = response?.error ?? 'Could not create queue.';
+      }
+    })
+);
 debugMode.addEventListener('click', () => void runModeTransition(() => setMode('debug')));
 learnMode.addEventListener('click', () => void runModeTransition(() => setMode('learn')));
-learnStart.addEventListener('click', () => void runButtonAction(learnStart, async () => {
-  if (learnStart.textContent === 'Stop learning') {
-    const response = await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_STOP' });
-    if (!response?.ok) {
-      learnStatus.textContent = response?.error ?? 'Could not stop learning.';
-      return;
-    }
-    learnStart.textContent = 'Start learning';
-    learnStatus.textContent = 'Learning stopped. Start again when you are ready.';
-    return;
-  }
-  discoveryDraft = null;
-  learnCapabilities.replaceChildren();
-  learnName.hidden = true;
-  learnSave.hidden = true;
-  learnStart.textContent = 'Stop learning';
-  learnStatus.textContent = 'Learning is active. Send one message in the chat, then wait for the response.';
-  const response = await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_START' });
-  if (!response?.ok) {
-    learnStatus.textContent = response?.error ?? 'Could not start learning.';
-    learnStart.textContent = 'Start learning';
-  }
-}));
-learnSave.addEventListener('click', () => void runButtonAction(learnSave, async () => {
-  if (!discoveryDraft) return;
-  const name = learnName.value.trim();
-  if (!name) {
-    learnStatus.textContent = 'Enter a provider name first.';
-    return;
-  }
-  const profile = { ...discoveryDraft.profile, id: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, ''), name };
-  try {
-    const agentId = `${profile.id}-browser`;
-    const providerOrigin = profile.match.origins[0];
-    if (!providerOrigin) throw new Error('The learned provider has no page origin.');
-    const response = await chrome.runtime.sendMessage({
-      type: 'ROVER_LEARN_SAVE',
-      profile,
-      agent: { id: agentId, name: `${name} browser`, url: providerOrigin },
-      origin: origin.value
-    });
-    if (!response?.ok) throw new Error(response?.error ?? 'Could not save provider.');
-    learnStatus.textContent = `Saved ${name} to MCPLab.`;
-    learnSave.hidden = true;
-    discoveryDraft = null;
-    await chrome.storage.local.remove([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]);
-  } catch (error) {
-    learnStatus.textContent = error instanceof Error ? error.message : 'Could not save provider.';
-  }
-}));
+learnStart.addEventListener(
+  'click',
+  () =>
+    void runButtonAction(learnStart, async () => {
+      if (learnStart.textContent === 'Stop learning') {
+        const response = await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_STOP' });
+        if (!response?.ok) {
+          learnStatus.textContent = response?.error ?? 'Could not stop learning.';
+          return;
+        }
+        learnStart.textContent = 'Start learning';
+        learnStatus.textContent = 'Learning stopped. Start again when you are ready.';
+        return;
+      }
+      discoveryDraft = null;
+      learnCapabilities.replaceChildren();
+      learnName.hidden = true;
+      learnSave.hidden = true;
+      learnStart.textContent = 'Stop learning';
+      learnStatus.textContent =
+        'Learning is active. Send one message in the chat, then wait for the response.';
+      const response = await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_START' });
+      if (!response?.ok) {
+        learnStatus.textContent = response?.error ?? 'Could not start learning.';
+        learnStart.textContent = 'Start learning';
+      }
+    })
+);
+learnSave.addEventListener(
+  'click',
+  () =>
+    void runButtonAction(learnSave, async () => {
+      if (!discoveryDraft) return;
+      const name = learnName.value.trim();
+      if (!name) {
+        learnStatus.textContent = 'Enter a provider name first.';
+        return;
+      }
+      const profile = {
+        ...discoveryDraft.profile,
+        id: name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, ''),
+        name
+      };
+      try {
+        const agentId = `${profile.id}-browser`;
+        const providerOrigin = profile.match.origins[0];
+        if (!providerOrigin) throw new Error('The learned provider has no page origin.');
+        const response = await chrome.runtime.sendMessage({
+          type: 'ROVER_LEARN_SAVE',
+          profile,
+          agent: { id: agentId, name: `${name} browser`, url: providerOrigin },
+          origin: origin.value
+        });
+        if (!response?.ok) throw new Error(response?.error ?? 'Could not save provider.');
+        learnStatus.textContent = `Saved ${name} to MCPLab.`;
+        learnSave.hidden = true;
+        discoveryDraft = null;
+        await chrome.storage.local.remove([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]);
+      } catch (error) {
+        learnStatus.textContent =
+          error instanceof Error ? error.message : 'Could not save provider.';
+      }
+    })
+);
 debugRefresh.addEventListener('click', () => void refreshDebug(true));
 queueAdd.addEventListener('click', async () => {
   await runButtonAction(queueAdd, async () => {
@@ -207,7 +253,10 @@ queueAdd.addEventListener('click', async () => {
   });
 });
 queueNewChat.addEventListener('change', async () => {
-  const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_SET_NEW_CHAT', enabled: queueNewChat.checked });
+  const response = await chrome.runtime.sendMessage({
+    type: 'ROVER_QUEUE_SET_NEW_CHAT',
+    enabled: queueNewChat.checked
+  });
   if (response?.ok) renderQueue(response.queue);
   else queueStatus.textContent = response?.error ?? 'Could not update conversation setting.';
 });
@@ -219,7 +268,10 @@ queueStart.addEventListener('click', async () => {
   });
 });
 
-function showQueueError(response: { ok?: boolean; error?: string } | undefined, fallback: string): void {
+function showQueueError(
+  response: { ok?: boolean; error?: string } | undefined,
+  fallback: string
+): void {
   if (!response?.ok) queueStatus.textContent = response?.error ?? fallback;
 }
 
@@ -255,7 +307,8 @@ async function setMode(next: 'manual' | 'queue' | 'learn' | 'debug'): Promise<vo
     await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_STOP' });
     learnStart.textContent = 'Start learning';
   }
-  if (mode === 'debug') void chrome.runtime.sendMessage({ type: 'ROVER_DEBUG_SUBSCRIBE', enabled: false });
+  if (mode === 'debug')
+    void chrome.runtime.sendMessage({ type: 'ROVER_DEBUG_SUBSCRIBE', enabled: false });
   if (next === 'queue' || next === 'learn') {
     if (current) {
       await chrome.runtime.sendMessage({ type: 'ROVER_CANCEL' });
@@ -298,11 +351,18 @@ function renderQueue(queue: RoverQueueState | null): void {
   if (!queue) {
     queueItems.replaceChildren();
     queueStatus.textContent = 'Queue mode requires a supported or learned browser provider page.';
-    void chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_WAITING' }).then((waiting: Array<{ evaluationName?: string; provider: string; position: number }> | undefined) => {
-      if (!waiting?.length || currentQueue) return;
-      const first = waiting[0];
-      queueStatus.textContent = `${waiting.length} evaluation${waiting.length === 1 ? '' : 's'} waiting for ${first.provider} on MCPLab. Switch providers if needed.`;
-    });
+    void chrome.runtime
+      .sendMessage({ type: 'ROVER_QUEUE_WAITING' })
+      .then(
+        (
+          waiting:
+            Array<{ evaluationName?: string; provider: string; position: number }> | undefined
+        ) => {
+          if (!waiting?.length || currentQueue) return;
+          const first = waiting[0];
+          queueStatus.textContent = `${waiting.length} evaluation${waiting.length === 1 ? '' : 's'} waiting for ${first.provider} on MCPLab. Switch providers if needed.`;
+        }
+      );
     queueStart.disabled = true;
     queueRetry.hidden = true;
     queueSkip.hidden = true;
@@ -311,13 +371,20 @@ function renderQueue(queue: RoverQueueState | null): void {
     return;
   }
   const providerForView = activeProvider ?? queue.provider;
-  const { active, completed, managed, matchesCurrentAssignment } = projectQueueForProvider(queue, providerForView);
+  const { active, completed, managed, matchesCurrentAssignment } = projectQueueForProvider(
+    queue,
+    providerForView
+  );
   const addRow = queueEvaluation.closest('.queue-add-row') as HTMLElement | null;
   const editable = !managed && matchesCurrentAssignment;
   addRow?.toggleAttribute('hidden', !editable);
   queueNewChat.closest('.checkbox-row')?.toggleAttribute('hidden', !editable);
   queueNewChat.checked = queue.newConversationBetweenItems;
-  const renderGroup = (title: string, items: RoverQueueState['items'], editable: boolean): HTMLElement => {
+  const renderGroup = (
+    title: string,
+    items: RoverQueueState['items'],
+    editable: boolean
+  ): HTMLElement => {
     const group = document.createElement('section');
     group.className = 'queue-group';
     const heading = document.createElement('strong');
@@ -329,28 +396,44 @@ function renderQueue(queue: RoverQueueState | null): void {
       row.className = 'queue-item';
       const name = document.createElement('span');
       name.className = 'queue-item-name';
-      const queueIndex = queue.items.findIndex((candidate) => candidate.queueItemId === item.queueItemId);
+      const queueIndex = queue.items.findIndex(
+        (candidate) => candidate.queueItemId === item.queueItemId
+      );
       name.textContent = `${queueIndex + 1}. ${item.name}`;
       const itemStatus = document.createElement('span');
       itemStatus.className = 'queue-item-status';
       itemStatus.textContent = item.status;
       row.append(name, itemStatus);
       if (editable) {
-        for (const [action, label] of [['up', '↑'], ['down', '↓'], ['remove', '×']] as const) {
+        for (const [action, label] of [
+          ['up', '↑'],
+          ['down', '↓'],
+          ['remove', '×']
+        ] as const) {
           const button = document.createElement('button');
           button.type = 'button';
           button.textContent = label;
           button.title = action;
-          button.disabled = item.status !== 'queued' || (action === 'up' && index === 0) || (action === 'down' && index === items.length - 1);
+          button.disabled =
+            item.status !== 'queued' ||
+            (action === 'up' && index === 0) ||
+            (action === 'down' && index === items.length - 1);
           button.addEventListener('click', () => {
             if (button.disabled) return;
             button.disabled = true;
-            void chrome.runtime.sendMessage({ type: action === 'remove' ? 'ROVER_QUEUE_REMOVE' : 'ROVER_QUEUE_MOVE', queueItemId: item.queueItemId, ...(action === 'remove' ? {} : { direction: action }) })
+            void chrome.runtime
+              .sendMessage({
+                type: action === 'remove' ? 'ROVER_QUEUE_REMOVE' : 'ROVER_QUEUE_MOVE',
+                queueItemId: item.queueItemId,
+                ...(action === 'remove' ? {} : { direction: action })
+              })
               .then((response) => {
                 if (response?.ok) renderQueue(response.queue);
                 else button.disabled = false;
               })
-              .catch(() => { button.disabled = false; });
+              .catch(() => {
+                button.disabled = false;
+              });
           });
           row.append(button);
         }
@@ -370,26 +453,30 @@ function renderQueue(queue: RoverQueueState | null): void {
     return group;
   };
   const groups: HTMLElement[] = [];
-  if (active.length) groups.push(renderGroup(managed ? `${queue.provider} queue` : 'Up next', active, editable));
-  if (completed.length) groups.push(renderGroup(`Recent ${providerForView} evaluations`, completed, false));
+  if (active.length)
+    groups.push(renderGroup(managed ? `${queue.provider} queue` : 'Up next', active, editable));
+  if (completed.length)
+    groups.push(renderGroup(`Recent ${providerForView} evaluations`, completed, false));
   queueItems.replaceChildren(...groups);
   queueItems.parentElement?.classList.toggle('queue-managed', managed);
   queueStart.hidden = !editable;
   const phaseLabel = managedPhaseLabel(queue.managedPhase);
-  queueStatus.textContent = !matchesCurrentAssignment && managed
-    ? `Assignment received for ${queue.provider}. Switch to a matching page to run it (${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} processed).`
-    : !matchesCurrentAssignment
-      ? `Switch to ${queue.provider} to edit or run this queue.`
-    : managed && phaseLabel
-    ? `${phaseLabel}${queue.managedPhase === 'waiting_ack' ? '.' : '...'}`
-    : queue.status === 'paused'
-    ? `Paused: ${queue.error?.message ?? 'Queue needs attention.'}`
-    : queue.status === 'completed'
-      ? 'Queue completed.'
-      : queue.status === 'stopped'
-        ? 'Queue stopped.'
-        : `${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} evaluations processed.`;
-  queueStart.disabled = queue.items.length === 0 || queue.status === 'running' || queue.status === 'paused';
+  queueStatus.textContent =
+    !matchesCurrentAssignment && managed
+      ? `Assignment received for ${queue.provider}. Switch to a matching page to run it (${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} processed).`
+      : !matchesCurrentAssignment
+        ? `Switch to ${queue.provider} to edit or run this queue.`
+        : managed && phaseLabel
+          ? `${phaseLabel}${queue.managedPhase === 'waiting_ack' ? '.' : '...'}`
+          : queue.status === 'paused'
+            ? `Paused: ${queue.error?.message ?? 'Queue needs attention.'}`
+            : queue.status === 'completed'
+              ? 'Queue completed.'
+              : queue.status === 'stopped'
+                ? 'Queue stopped.'
+                : `${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} evaluations processed.`;
+  queueStart.disabled =
+    queue.items.length === 0 || queue.status === 'running' || queue.status === 'paused';
   queueRetry.hidden = queue.status !== 'paused';
   queueSkip.hidden = queue.status !== 'paused';
   queueStop.hidden = !['running', 'paused'].includes(queue.status);
@@ -397,10 +484,15 @@ function renderQueue(queue: RoverQueueState | null): void {
 
 async function refreshActiveProvider(retry = true): Promise<void> {
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_ACTIVE_PROVIDER' }) as { provider?: string; supportsNewConversation?: boolean } | undefined;
+    const response = (await chrome.runtime.sendMessage({ type: 'ROVER_GET_ACTIVE_PROVIDER' })) as
+      { provider?: string; supportsNewConversation?: boolean } | undefined;
     activeProvider = response?.provider;
-    const builtInSupport = response?.provider === 'claude' || response?.provider === 'chatgpt-com' || response?.provider === 'trendminer';
-    activeProviderSupportsNewConversation = response?.supportsNewConversation === true || builtInSupport;
+    const builtInSupport =
+      response?.provider === 'claude' ||
+      response?.provider === 'chatgpt-com' ||
+      response?.provider === 'trendminer';
+    activeProviderSupportsNewConversation =
+      response?.supportsNewConversation === true || builtInSupport;
     newConversation.hidden = !activeProviderSupportsNewConversation;
     if (mode === 'queue') renderQueue(currentQueue);
   } catch {
@@ -414,31 +506,40 @@ function renderCatalog(): void {
   const selectedTestCaseId = testCase.value;
   const selectedQueueEvaluationId = queueEvaluation.value;
   const visible = filterTestCases(items, search.value);
-  testCase.replaceChildren(...visible.map((item) => {
-    const option = document.createElement('option');
-    option.value = item.id;
-    option.textContent = `${item.name}${item.eligible ? '' : ' (unsupported)'}`;
-    return option;
-  }));
-  queueEvaluation.replaceChildren(...visible.map((item) => {
-    const option = document.createElement('option');
-    option.value = item.id;
-    option.textContent = `${item.name}${item.eligible ? '' : ' (unsupported)'}`;
-    option.disabled = !item.eligible;
-    return option;
-  }));
+  testCase.replaceChildren(
+    ...visible.map((item) => {
+      const option = document.createElement('option');
+      option.value = item.id;
+      option.textContent = `${item.name}${item.eligible ? '' : ' (unsupported)'}`;
+      return option;
+    })
+  );
+  queueEvaluation.replaceChildren(
+    ...visible.map((item) => {
+      const option = document.createElement('option');
+      option.value = item.id;
+      option.textContent = `${item.name}${item.eligible ? '' : ' (unsupported)'}`;
+      option.disabled = !item.eligible;
+      return option;
+    })
+  );
   if (visible.some((item) => item.id === selectedTestCaseId)) testCase.value = selectedTestCaseId;
-  if (visible.some((item) => item.id === selectedQueueEvaluationId)) queueEvaluation.value = selectedQueueEvaluationId;
+  if (visible.some((item) => item.id === selectedQueueEvaluationId))
+    queueEvaluation.value = selectedQueueEvaluationId;
   updateSelection();
 }
 
 function updateSelection(): void {
   const item = selectedItem();
   prepare.disabled = !item?.eligible;
-  selectionNote.textContent = item?.ineligibleReason ?? (item ? `${item.assertionCount} checks` : 'Select a test case.');
+  selectionNote.textContent =
+    item?.ineligibleReason ?? (item ? `${item.assertionCount} checks` : 'Select a test case.');
 }
 
-function appendDebugGroup(title: string, entries: Array<{ label: string; state: 'pass' | 'fail' | 'unknown'; detail: string }>): void {
+function appendDebugGroup(
+  title: string,
+  entries: Array<{ label: string; state: 'pass' | 'fail' | 'unknown'; detail: string }>
+): void {
   const group = document.createElement('div');
   group.className = 'debug-group';
   const heading = document.createElement('div');
@@ -469,42 +570,123 @@ function appendDebugGroup(title: string, entries: Array<{ label: string; state: 
 function renderDebug(snapshot: DebugSnapshot): void {
   debugUpdated.textContent = `Last changed ${new Date(snapshot.checkedAt).toLocaleTimeString()}`;
   debugIndicators.replaceChildren();
-  appendDebugGroup('MCPLab endpoint', [{
-    label: snapshot.endpoint.connected ? 'Connected' : 'Disconnected',
-    state: snapshot.endpoint.connected ? 'pass' : 'fail',
-    detail: snapshot.endpoint.error ? `${snapshot.endpoint.origin}: ${snapshot.endpoint.error}` : snapshot.endpoint.origin
-  }]);
+  appendDebugGroup('MCPLab endpoint', [
+    {
+      label: snapshot.endpoint.connected ? 'Connected' : 'Disconnected',
+      state: snapshot.endpoint.connected ? 'pass' : 'fail',
+      detail: snapshot.endpoint.error
+        ? `${snapshot.endpoint.origin}: ${snapshot.endpoint.error}`
+        : snapshot.endpoint.origin
+    }
+  ]);
   appendDebugGroup('Current page', [
     {
-      label: snapshot.page.matched ? `Matched ${snapshot.page.provider ?? 'provider'}` : 'Page not matched',
+      label: snapshot.page.matched
+        ? `Matched ${snapshot.page.provider ?? 'provider'}`
+        : 'Page not matched',
       state: snapshot.page.matched ? 'pass' : 'fail',
       detail: snapshot.page.error ?? snapshot.page.url ?? 'No active page'
     },
-    { label: 'Active tab', state: snapshot.page.tabId === undefined ? 'unknown' : 'pass', detail: snapshot.page.tabId === undefined ? 'Unavailable' : `Tab ${snapshot.page.tabId}` },
-    ...(snapshot.page.detection ? [{ label: 'Detection attempts', state: snapshot.page.detection.provider ? 'pass' as const : 'fail' as const, detail: `${snapshot.page.detection.attempts} attempt(s), last checked ${new Date(snapshot.page.detection.checkedAt).toLocaleTimeString()}${snapshot.page.detection.error ? `, ${snapshot.page.detection.error}` : ''}` }] : [])
+    {
+      label: 'Active tab',
+      state: snapshot.page.tabId === undefined ? 'unknown' : 'pass',
+      detail: snapshot.page.tabId === undefined ? 'Unavailable' : `Tab ${snapshot.page.tabId}`
+    },
+    ...(snapshot.page.detection
+      ? [
+          {
+            label: 'Detection attempts',
+            state: snapshot.page.detection.provider ? ('pass' as const) : ('fail' as const),
+            detail: `${snapshot.page.detection.attempts} attempt(s), last checked ${new Date(snapshot.page.detection.checkedAt).toLocaleTimeString()}${snapshot.page.detection.error ? `, ${snapshot.page.detection.error}` : ''}`
+          }
+        ]
+      : [])
   ]);
   if (snapshot.page.profile) {
     appendDebugGroup('Loaded provider profile', [
-      { label: snapshot.page.profile.name, state: 'pass', detail: `Source: ${snapshot.page.profile.source}` },
+      {
+        label: snapshot.page.profile.name,
+        state: 'pass',
+        detail: `Source: ${snapshot.page.profile.source}`
+      },
       { label: 'Revision', state: 'pass', detail: snapshot.page.profile.revision },
-      { label: 'Capabilities', state: 'pass', detail: snapshot.page.profile.capabilities.join(', ') }
+      {
+        label: 'Capabilities',
+        state: 'pass',
+        detail: snapshot.page.profile.capabilities.join(', ')
+      }
     ]);
   }
-  appendDebugGroup('Expected elements', snapshot.elements.length
-    ? snapshot.elements.map((element: DebugElementCheck) => ({
-      label: element.label,
-      state: element.present ? 'pass' as const : 'fail' as const,
-      detail: element.present ? element.detail : `${element.detail}${element.selector ? ` (${element.selector})` : ''}`
-    }))
-    : [{ label: 'Provider checks', state: 'unknown' as const, detail: 'No matching provider adapter' }]);
+  appendDebugGroup(
+    'Expected elements',
+    snapshot.elements.length
+      ? snapshot.elements.map((element: DebugElementCheck) => ({
+          label: element.label,
+          state: element.present ? ('pass' as const) : ('fail' as const),
+          detail: element.present
+            ? element.detail
+            : `${element.detail}${element.selector ? ` (${element.selector})` : ''}`
+        }))
+      : [
+          {
+            label: 'Provider checks',
+            state: 'unknown' as const,
+            detail: 'No matching provider adapter'
+          }
+        ]
+  );
   appendDebugGroup('Rover state', [
-    { label: 'Manual session', state: snapshot.rover.manualStatus ? 'pass' : 'unknown', detail: snapshot.rover.manualStatus ?? 'None' },
-    { label: 'Queue', state: snapshot.rover.queueStatus ? 'pass' : 'unknown', detail: snapshot.rover.queueStatus ? `${snapshot.rover.queueStatus}${snapshot.rover.activeQueueItem ? `, ${snapshot.rover.activeQueueItem}` : ''}` : 'None' },
-    { label: 'Lease', state: snapshot.rover.leaseId ? 'pass' : 'unknown', detail: snapshot.rover.leaseId ? `${snapshot.rover.leaseState ?? 'unknown'} (${snapshot.rover.leaseId})` : 'None' },
-    ...(snapshot.rover.leaseExpiresAt ? [{ label: 'Lease expiry', state: 'unknown' as const, detail: snapshot.rover.leaseExpiresAt }] : []),
-    ...(snapshot.rover.lastLeaseRenewalAt ? [{ label: 'Last renewal', state: 'pass' as const, detail: snapshot.rover.lastLeaseRenewalAt }] : []),
-    ...(snapshot.rover.boundTabId === undefined ? [] : [{ label: 'Bound tab', state: 'pass' as const, detail: `Tab ${snapshot.rover.boundTabId}` }]),
-    ...(snapshot.rover.lastAssignmentDecision ? [{ label: 'Assignment decision', state: 'pass' as const, detail: `${snapshot.rover.lastAssignmentDecision.decision}${snapshot.rover.lastAssignmentDecision.reason ? `, ${snapshot.rover.lastAssignmentDecision.reason}` : ''}` }] : [])
+    {
+      label: 'Manual session',
+      state: snapshot.rover.manualStatus ? 'pass' : 'unknown',
+      detail: snapshot.rover.manualStatus ?? 'None'
+    },
+    {
+      label: 'Queue',
+      state: snapshot.rover.queueStatus ? 'pass' : 'unknown',
+      detail: snapshot.rover.queueStatus
+        ? `${snapshot.rover.queueStatus}${snapshot.rover.activeQueueItem ? `, ${snapshot.rover.activeQueueItem}` : ''}`
+        : 'None'
+    },
+    {
+      label: 'Lease',
+      state: snapshot.rover.leaseId ? 'pass' : 'unknown',
+      detail: snapshot.rover.leaseId
+        ? `${snapshot.rover.leaseState ?? 'unknown'} (${snapshot.rover.leaseId})`
+        : 'None'
+    },
+    ...(snapshot.rover.leaseExpiresAt
+      ? [
+          {
+            label: 'Lease expiry',
+            state: 'unknown' as const,
+            detail: snapshot.rover.leaseExpiresAt
+          }
+        ]
+      : []),
+    ...(snapshot.rover.lastLeaseRenewalAt
+      ? [
+          {
+            label: 'Last renewal',
+            state: 'pass' as const,
+            detail: snapshot.rover.lastLeaseRenewalAt
+          }
+        ]
+      : []),
+    ...(snapshot.rover.boundTabId === undefined
+      ? []
+      : [
+          { label: 'Bound tab', state: 'pass' as const, detail: `Tab ${snapshot.rover.boundTabId}` }
+        ]),
+    ...(snapshot.rover.lastAssignmentDecision
+      ? [
+          {
+            label: 'Assignment decision',
+            state: 'pass' as const,
+            detail: `${snapshot.rover.lastAssignmentDecision.decision}${snapshot.rover.lastAssignmentDecision.reason ? `, ${snapshot.rover.lastAssignmentDecision.reason}` : ''}`
+          }
+        ]
+      : [])
   ]);
 }
 
@@ -513,22 +695,27 @@ async function refreshDebug(checkEndpoint = true): Promise<void> {
   debugRequestInFlight = true;
   if (!lastDebugFingerprint) debugUpdated.textContent = 'Checking…';
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_DEBUG', origin: origin.value, checkEndpoint });
+    const response = await chrome.runtime.sendMessage({
+      type: 'ROVER_GET_DEBUG',
+      origin: origin.value,
+      checkEndpoint
+    });
     if (response?.endpoint && response?.page && response?.rover) {
       const incoming = response as DebugSnapshot;
-      const snapshot = incoming.endpoint.checked || !lastDebugSnapshot
-        ? incoming
-        : { ...incoming, endpoint: lastDebugSnapshot.endpoint };
+      const snapshot =
+        incoming.endpoint.checked || !lastDebugSnapshot
+          ? incoming
+          : { ...incoming, endpoint: lastDebugSnapshot.endpoint };
       lastDebugSnapshot = snapshot;
       const fingerprint = debugFingerprint(snapshot);
       if (fingerprint !== lastDebugFingerprint) {
         lastDebugFingerprint = fingerprint;
         renderDebug(snapshot);
       }
-    }
-    else debugUpdated.textContent = response?.error ?? 'Could not collect diagnostics.';
+    } else debugUpdated.textContent = response?.error ?? 'Could not collect diagnostics.';
   } catch (error) {
-    debugUpdated.textContent = error instanceof Error ? error.message : 'Could not collect diagnostics.';
+    debugUpdated.textContent =
+      error instanceof Error ? error.message : 'Could not collect diagnostics.';
   } finally {
     debugRequestInFlight = false;
   }
@@ -563,7 +750,9 @@ function render(state: RoverState | null): void {
   }
   testName.textContent = state.testCaseName;
   prompt.textContent = state.prompt;
-  provider.textContent = state.provider ? `Active chat: ${state.provider}` : 'Manual browser handoff';
+  provider.textContent = state.provider
+    ? `Active chat: ${state.provider}`
+    : 'Manual browser handoff';
   result.textContent = state.text ?? '';
   status.textContent = {
     ready: 'Review the prompt, then run it in the active chat.',
@@ -585,7 +774,10 @@ async function loadCatalog(requestedOrigin?: string): Promise<void> {
   setConnectionState('connecting', 'Connecting…');
   status.textContent = 'Connecting to MCPLab…';
   try {
-    const response = await chrome.runtime.sendMessage({ type: 'ROVER_GET_CATALOG', origin: requestedOrigin });
+    const response = await chrome.runtime.sendMessage({
+      type: 'ROVER_GET_CATALOG',
+      origin: requestedOrigin
+    });
     connect.disabled = false;
     if (!response?.ok) {
       setConnectionState('disconnected', 'Disconnected');
@@ -616,8 +808,13 @@ prepare.addEventListener('click', async () => {
     const item = selectedItem();
     if (!item?.eligible) return;
     status.textContent = 'Preparing Live Test…';
-    const response = await chrome.runtime.sendMessage({ type: 'ROVER_PREPARE', testCaseId: item.id, origin: origin.value });
-    if (!response?.ok) status.textContent = `Error: ${response?.error ?? 'Could not prepare Live Test.'}`;
+    const response = await chrome.runtime.sendMessage({
+      type: 'ROVER_PREPARE',
+      testCaseId: item.id,
+      origin: origin.value
+    });
+    if (!response?.ok)
+      status.textContent = `Error: ${response?.error ?? 'Could not prepare Live Test.'}`;
     else render(response.state);
   });
 });
@@ -625,7 +822,8 @@ prepare.addEventListener('click', async () => {
 run.addEventListener('click', async () => {
   await runButtonAction(run, async () => {
     const response = await chrome.runtime.sendMessage({ type: 'ROVER_EXECUTE' });
-    if (!response?.ok) status.textContent = `Error: ${response?.error ?? 'Could not run Live Test.'}`;
+    if (!response?.ok)
+      status.textContent = `Error: ${response?.error ?? 'Could not run Live Test.'}`;
     else render(response.state);
   });
 });
@@ -651,26 +849,37 @@ evaluate.addEventListener('click', async () => {
       status.textContent = 'Paste the final answer first.';
       return;
     }
-    const response = await chrome.runtime.sendMessage({ type: 'ROVER_COMPLETE_MANUAL', text: manualAnswer.value });
-    if (!response?.ok) status.textContent = `Evaluation error: ${response?.error ?? 'Could not evaluate answer.'}`;
+    const response = await chrome.runtime.sendMessage({
+      type: 'ROVER_COMPLETE_MANUAL',
+      text: manualAnswer.value
+    });
+    if (!response?.ok)
+      status.textContent = `Evaluation error: ${response?.error ?? 'Could not evaluate answer.'}`;
     else render(response.state);
   });
 });
 
 openResult.addEventListener('click', async () => {
-  if (current?.resultUrl) await chrome.tabs.create({ url: `${current.origin}${current.resultUrl}` });
+  if (current?.resultUrl)
+    await chrome.tabs.create({ url: `${current.origin}${current.resultUrl}` });
 });
 
-reset.addEventListener('click', () => void runButtonAction(reset, async () => {
-  await chrome.runtime.sendMessage({ type: 'ROVER_CANCEL' });
-  manualAnswer.value = '';
-  render(null);
-  await loadCatalog(origin.value);
-}));
+reset.addEventListener(
+  'click',
+  () =>
+    void runButtonAction(reset, async () => {
+      await chrome.runtime.sendMessage({ type: 'ROVER_CANCEL' });
+      manualAnswer.value = '';
+      render(null);
+      await loadCatalog(origin.value);
+    })
+);
 
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'session' && changes['rover.run']) render(changes['rover.run'].newValue as RoverState | null);
-  if (area === 'session' && changes['rover.queue']) renderQueue(changes['rover.queue'].newValue as RoverQueueState | null);
+  if (area === 'session' && changes['rover.run'])
+    render(changes['rover.run'].newValue as RoverState | null);
+  if (area === 'session' && changes['rover.queue'])
+    renderQueue(changes['rover.queue'].newValue as RoverQueueState | null);
 });
 
 chrome.runtime.onMessage.addListener((message: { type?: string }) => {
@@ -683,15 +892,18 @@ chrome.runtime.onMessage.addListener((message: { type?: string }) => {
     learnName.value = suggestedProviderName(event.draft.profile);
     void chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: event.draft });
     learnStart.textContent = 'Start learning again';
-    learnStatus.textContent = 'Sample captured. Review the capabilities, name the provider, and save it.';
+    learnStatus.textContent =
+      'Sample captured. Review the capabilities, name the provider, and save it.';
     learnName.hidden = false;
     learnSave.hidden = false;
-    learnCapabilities.replaceChildren(...event.draft.capabilities.map((capability) => {
-      const item = document.createElement('span');
-      item.className = 'debug-indicator';
-      item.textContent = `${capability.label}: ${capability.confidence}`;
-      return item;
-    }));
+    learnCapabilities.replaceChildren(
+      ...event.draft.capabilities.map((capability) => {
+        const item = document.createElement('span');
+        item.className = 'debug-indicator';
+        item.textContent = `${capability.label}: ${capability.confidence}`;
+        return item;
+      })
+    );
   }
 });
 
@@ -700,24 +912,29 @@ void chrome.runtime.sendMessage({ type: 'ROVER_GET_STATE' }).then((state: RoverS
   void loadCatalog(state?.origin);
   reportPanelSize();
 });
-void chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_GET' }).then((queue: RoverQueueState | null) => {
-  renderQueue(queue);
-  if (queue) void setMode('queue');
-  else queueMode.click();
-});
+void chrome.runtime
+  .sendMessage({ type: 'ROVER_QUEUE_GET' })
+  .then((queue: RoverQueueState | null) => {
+    renderQueue(queue);
+    if (queue) void setMode('queue');
+    else queueMode.click();
+  });
 void refreshActiveProvider();
 void chrome.storage.local.get([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]).then((stored) => {
-  const draft = (stored[DISCOVERY_DRAFT_KEY] ?? stored[LEGACY_LEARNING_DRAFT_KEY]) as BrowserProviderDiscoveryDraft | undefined;
+  const draft = (stored[DISCOVERY_DRAFT_KEY] ?? stored[LEGACY_LEARNING_DRAFT_KEY]) as
+    BrowserProviderDiscoveryDraft | undefined;
   if (!draft) return;
   discoveryDraft = draft;
   learnName.value = suggestedProviderName(draft.profile);
   learnName.hidden = false;
   learnSave.hidden = false;
   learnStatus.textContent = 'A saved learning draft is ready to review.';
-  learnCapabilities.replaceChildren(...draft.capabilities.map((capability) => {
-    const item = document.createElement('span');
-    item.className = 'debug-indicator';
-    item.textContent = `${capability.label}: ${capability.confidence}`;
-    return item;
-  }));
+  learnCapabilities.replaceChildren(
+    ...draft.capabilities.map((capability) => {
+      const item = document.createElement('span');
+      item.className = 'debug-indicator';
+      item.textContent = `${capability.label}: ${capability.confidence}`;
+      return item;
+    })
+  );
 });

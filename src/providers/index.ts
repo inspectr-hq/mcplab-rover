@@ -18,7 +18,12 @@ export function setLearnedProfiles(profiles: unknown[]): void {
 }
 
 export function findAdapter(provider?: ProviderId): ChatProviderAdapter | null {
-  return adapters.find((adapter) => (!provider || adapter.id === provider) && adapter.matchesPage() && adapter.canHandle()) ?? null;
+  return (
+    adapters.find(
+      (adapter) =>
+        (!provider || adapter.id === provider) && adapter.matchesPage() && adapter.canHandle()
+    ) ?? null
+  );
 }
 
 export function findPageAdapter(): ChatProviderAdapter | null {

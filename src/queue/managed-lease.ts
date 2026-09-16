@@ -12,10 +12,19 @@ function matches(queue: RoverQueueState, leaseId: string): boolean {
   return queue.leaseId === leaseId || leaseOutboxHead(queue)?.leaseId === leaseId;
 }
 
-export function transitionManagedLease(queue: RoverQueueState, event: ManagedLeaseEvent): RoverQueueState {
+export function transitionManagedLease(
+  queue: RoverQueueState,
+  event: ManagedLeaseEvent
+): RoverQueueState {
   if (event.type === 'offer') {
     if (queue.leaseId || queue.pendingLeaseActions?.length) return queue;
-    return { ...queue, leaseId: event.leaseId, leaseExpiresAt: event.leaseExpiresAt, leaseState: 'offered', managedPhase: 'offered' };
+    return {
+      ...queue,
+      leaseId: event.leaseId,
+      leaseExpiresAt: event.leaseExpiresAt,
+      leaseState: 'offered',
+      managedPhase: 'offered'
+    };
   }
   if (!matches(queue, event.leaseId)) return queue;
   if (event.type === 'accepted') {

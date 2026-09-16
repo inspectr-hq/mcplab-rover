@@ -20,30 +20,69 @@ describe('lease outbox reducer', () => {
         { type: 'release', leaseId: 'lease-1', reason: 'terminal_error' }
       ]
     });
-    const unchanged = reduceLeaseOutbox(initial, { type: 'acknowledge', jobId: 'job-1', leaseId: 'lease-1', actionType: 'release' });
+    const unchanged = reduceLeaseOutbox(initial, {
+      type: 'acknowledge',
+      jobId: 'job-1',
+      leaseId: 'lease-1',
+      actionType: 'release'
+    });
     expect(unchanged).toBe(initial);
     expect(initial.managedPhase).toBe('finalizing');
-    const attempted = reduceLeaseOutbox(initial, { type: 'attempt', at: '2026-09-15T00:00:01.000Z' });
+    const attempted = reduceLeaseOutbox(initial, {
+      type: 'attempt',
+      at: '2026-09-15T00:00:01.000Z'
+    });
     expect(attempted.managedPhase).toBe('waiting_ack');
-    const next = reduceLeaseOutbox(attempted, { type: 'acknowledge', jobId: 'job-1', leaseId: 'lease-1', actionType: 'complete' });
+    const next = reduceLeaseOutbox(attempted, {
+      type: 'acknowledge',
+      jobId: 'job-1',
+      leaseId: 'lease-1',
+      actionType: 'complete'
+    });
     expect(leaseOutboxHead(next)?.type).toBe('release');
     expect(next.managedPhase).toBe('waiting_ack');
   });
 
   it('clears lease state on the final acknowledgement or unknown-lease response', () => {
-    const pending = reduceLeaseOutbox(queue(), { type: 'enqueue', actions: [{ type: 'release', leaseId: 'lease-1', reason: 'completed' }] });
-    const acknowledged = reduceLeaseOutbox(pending, { type: 'acknowledge', jobId: 'job-1', leaseId: 'lease-1', actionType: 'release' });
+    const pending = reduceLeaseOutbox(queue(), {
+      type: 'enqueue',
+      actions: [{ type: 'release', leaseId: 'lease-1', reason: 'completed' }]
+    });
+    const acknowledged = reduceLeaseOutbox(pending, {
+      type: 'acknowledge',
+      jobId: 'job-1',
+      leaseId: 'lease-1',
+      actionType: 'release'
+    });
     expect(acknowledged.leaseId).toBeUndefined();
     expect(acknowledged.managedPhase).toBe('idle');
-    expect(clearLeaseState({ ...queue(), status: 'completed', managedPhase: 'running' }).managedPhase).toBe('terminal');
-    const unknown = reduceLeaseOutbox(pending, { type: 'unknown', jobId: 'job-1', leaseId: 'lease-1' });
+    expect(
+      clearLeaseState({ ...queue(), status: 'completed', managedPhase: 'running' }).managedPhase
+    ).toBe('terminal');
+    const unknown = reduceLeaseOutbox(pending, {
+      type: 'unknown',
+      jobId: 'job-1',
+      leaseId: 'lease-1'
+    });
     expect(unknown.leaseId).toBeUndefined();
     expect(unknown.pendingLeaseActions).toBeUndefined();
   });
 
   it('ignores stale events for another job or lease', () => {
-    const pending = reduceLeaseOutbox(queue(), { type: 'enqueue', actions: [{ type: 'release', leaseId: 'lease-1', reason: 'completed' }] });
-    expect(reduceLeaseOutbox(pending, { type: 'unknown', jobId: 'job-2', leaseId: 'lease-1' })).toBe(pending);
-    expect(reduceLeaseOutbox(pending, { type: 'acknowledge', jobId: 'job-1', leaseId: 'stale', actionType: 'release' })).toBe(pending);
+    const pending = reduceLeaseOutbox(queue(), {
+      type: 'enqueue',
+      actions: [{ type: 'release', leaseId: 'lease-1', reason: 'completed' }]
+    });
+    expect(
+      reduceLeaseOutbox(pending, { type: 'unknown', jobId: 'job-2', leaseId: 'lease-1' })
+    ).toBe(pending);
+    expect(
+      reduceLeaseOutbox(pending, {
+        type: 'acknowledge',
+        jobId: 'job-1',
+        leaseId: 'stale',
+        actionType: 'release'
+      })
+    ).toBe(pending);
   });
 });

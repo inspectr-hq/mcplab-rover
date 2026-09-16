@@ -15,7 +15,12 @@ export const ROVER_LEASE_RELEASE_REASONS = [
 ] as const;
 export type RoverLeaseReleaseReason = (typeof ROVER_LEASE_RELEASE_REASONS)[number];
 
-export function registrationPayload(provider: string, pageUrl: string, extensionVersion: string, providerRevision?: string) {
+export function registrationPayload(
+  provider: string,
+  pageUrl: string,
+  extensionVersion: string,
+  providerRevision?: string
+) {
   return {
     type: 'register' as const,
     protocolVersion: ROVER_PROTOCOL_VERSION,
@@ -48,16 +53,19 @@ export interface LeaseUnknownMessage {
   reason: 'unknown_lease';
 }
 
-export function scenarioStatusForItem(item: Pick<RoverQueueItem, 'status' | 'error'> | { status: QueueItemStatus; error?: string }): Omit<ScenarioStatusEvent, 'type' | 'jobId' | 'scenarioId'> {
-  const status: ScenarioWireStatus = item.status === 'queued'
-    ? 'queued'
-    : item.status === 'running' || item.status === 'evaluating'
-      ? 'running'
-      : item.status === 'stopped'
-        ? 'stopped'
-        : item.status === 'error'
-          ? 'error'
-          : 'completed';
+export function scenarioStatusForItem(
+  item: Pick<RoverQueueItem, 'status' | 'error'> | { status: QueueItemStatus; error?: string }
+): Omit<ScenarioStatusEvent, 'type' | 'jobId' | 'scenarioId'> {
+  const status: ScenarioWireStatus =
+    item.status === 'queued'
+      ? 'queued'
+      : item.status === 'running' || item.status === 'evaluating'
+        ? 'running'
+        : item.status === 'stopped'
+          ? 'stopped'
+          : item.status === 'error'
+            ? 'error'
+            : 'completed';
   return {
     status,
     completed: status === 'queued' || status === 'running' ? 0 : 1,

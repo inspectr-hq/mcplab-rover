@@ -8,10 +8,20 @@ export function first<T extends Element>(selectors: string[]): T | null {
   return null;
 }
 
-export function debugCheck(id: string, label: string, selectors: string | string[]): DebugElementCheck {
+export function debugCheck(
+  id: string,
+  label: string,
+  selectors: string | string[]
+): DebugElementCheck {
   const list = Array.isArray(selectors) ? selectors : [selectors];
   const present = Boolean(first<HTMLElement>(list));
-  return { id, label, present, detail: present ? 'Found matching element' : 'Element not found', selector: list.join(', ') };
+  return {
+    id,
+    label,
+    present,
+    detail: present ? 'Found matching element' : 'Element not found',
+    selector: list.join(', ')
+  };
 }
 
 export function pageAlertText(): string | null {

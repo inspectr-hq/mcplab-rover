@@ -44,8 +44,12 @@ export const claudeAdapter: ChatProviderAdapter = {
     const paragraph = composer.querySelector('p') || document.createElement('p');
     paragraph.textContent = text;
     if (!paragraph.parentElement) composer.replaceChildren(paragraph);
-    composer.dispatchEvent(new InputEvent('beforeinput', { bubbles: true, inputType: 'insertText', data: text }));
-    composer.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }));
+    composer.dispatchEvent(
+      new InputEvent('beforeinput', { bubbles: true, inputType: 'insertText', data: text })
+    );
+    composer.dispatchEvent(
+      new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text })
+    );
     composer.dispatchEvent(new Event('change', { bubbles: true }));
   },
   findSubmitButton: () => first<HTMLButtonElement>(submitSelectors),
@@ -55,11 +59,15 @@ export const claudeAdapter: ChatProviderAdapter = {
     button.click();
   },
   stopGeneration: async () => {
-    const stop = document.querySelector<HTMLButtonElement>('[aria-label*="Stop"], button[data-is-streaming="true"]');
+    const stop = document.querySelector<HTMLButtonElement>(
+      '[aria-label*="Stop"], button[data-is-streaming="true"]'
+    );
     stop?.click();
   },
   getAssistantCandidates: () => {
-    const elements = Array.from(document.querySelectorAll<HTMLElement>(assistantSelectors.join(',')));
+    const elements = Array.from(
+      document.querySelectorAll<HTMLElement>(assistantSelectors.join(','))
+    );
     return elements.map((element, index) => ({
       key: element.dataset.messageId || element.dataset.testid || `claude-${index}`,
       text: textFrom(element),

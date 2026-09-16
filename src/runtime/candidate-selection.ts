@@ -5,14 +5,19 @@ export interface ResponseCandidate {
 }
 
 function normalize(text: string): string {
-  return text.replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').trim();
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim();
 }
 
 export function selectResponseCandidate(
   baseline: ResponseCandidate[],
   current: ResponseCandidate[]
 ): ResponseCandidate | null {
-  const previousByKey = new Map(baseline.map((candidate) => [candidate.key, normalize(candidate.text)]));
+  const previousByKey = new Map(
+    baseline.map((candidate) => [candidate.key, normalize(candidate.text)])
+  );
   for (let index = current.length - 1; index >= 0; index -= 1) {
     const candidate = current[index];
     if (!candidate.visible) continue;

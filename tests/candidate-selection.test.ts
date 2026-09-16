@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { selectResponseCandidate, type ResponseCandidate } from '../src/runtime/candidate-selection';
+import {
+  selectResponseCandidate,
+  type ResponseCandidate
+} from '../src/runtime/candidate-selection';
 
-const candidate = (text: string, overrides: Partial<ResponseCandidate> = {}): ResponseCandidate => ({
+const candidate = (
+  text: string,
+  overrides: Partial<ResponseCandidate> = {}
+): ResponseCandidate => ({
   key: overrides.key ?? text,
   text,
   visible: overrides.visible ?? true,

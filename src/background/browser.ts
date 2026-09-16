@@ -22,16 +22,26 @@ export async function detectProvider(tabId: number): Promise<ProviderId | undefi
   for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
     try {
       try {
-        const provider = (await chrome.tabs.sendMessage(tabId, { type: 'ROVER_DETECT' })) ?? undefined;
+        const provider =
+          (await chrome.tabs.sendMessage(tabId, { type: 'ROVER_DETECT' })) ?? undefined;
         if (provider) {
-          detectionDiagnostics.set(tabId, { attempts: attempt + 1, provider, checkedAt: new Date().toISOString() });
+          detectionDiagnostics.set(tabId, {
+            attempts: attempt + 1,
+            provider,
+            checkedAt: new Date().toISOString()
+          });
           return provider;
         }
       } catch {
         await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
-        const provider = (await chrome.tabs.sendMessage(tabId, { type: 'ROVER_DETECT' })) ?? undefined;
+        const provider =
+          (await chrome.tabs.sendMessage(tabId, { type: 'ROVER_DETECT' })) ?? undefined;
         if (provider) {
-          detectionDiagnostics.set(tabId, { attempts: attempt + 1, provider, checkedAt: new Date().toISOString() });
+          detectionDiagnostics.set(tabId, {
+            attempts: attempt + 1,
+            provider,
+            checkedAt: new Date().toISOString()
+          });
           return provider;
         }
       }
@@ -42,7 +52,11 @@ export async function detectProvider(tabId: number): Promise<ProviderId | undefi
     const retryDelay = retryDelaysMs[attempt];
     if (retryDelay !== undefined) await new Promise((resolve) => setTimeout(resolve, retryDelay));
   }
-  detectionDiagnostics.set(tabId, { attempts: retryDelaysMs.length + 1, checkedAt: new Date().toISOString(), error: lastError });
+  detectionDiagnostics.set(tabId, {
+    attempts: retryDelaysMs.length + 1,
+    checkedAt: new Date().toISOString(),
+    error: lastError
+  });
   return undefined;
 }
 

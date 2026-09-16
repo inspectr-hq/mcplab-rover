@@ -29,12 +29,26 @@ describe('queue state', () => {
       status: 'passed' as const
     }));
     const archived = archiveCompletedQueueItems({ ...queue, items });
-    expect(archived.recentHistory?.claude.map((item) => item.queueItemId)).toEqual(['item-0', 'item-1', 'item-2', 'item-3', 'item-4']);
+    expect(archived.recentHistory?.claude.map((item) => item.queueItemId)).toEqual([
+      'item-0',
+      'item-1',
+      'item-2',
+      'item-3',
+      'item-4'
+    ]);
   });
 
   it('does not archive queued or running items', () => {
     const queue = createQueue('http://127.0.0.1:8787', 'claude', true, '2026-09-11T00:00:00.000Z');
-    const item = { queueItemId: 'item-1', testCaseId: 'case-1', id: 'case-1', name: 'Case', prompt: '', assertionCount: 0, status: 'running' as const };
+    const item = {
+      queueItemId: 'item-1',
+      testCaseId: 'case-1',
+      id: 'case-1',
+      name: 'Case',
+      prompt: '',
+      assertionCount: 0,
+      status: 'running' as const
+    };
     const withItem = { ...queue, items: [item] };
     expect(archiveCompletedQueueItems(withItem)).toEqual(withItem);
   });
@@ -43,7 +57,13 @@ describe('queue state', () => {
     let queue = createQueue('http://127.0.0.1:8787', 'claude', true, '2026-09-11T00:00:00.000Z');
     queue = addQueueItem(queue, alpha);
     queue = startQueue(queue, '2026-09-11T00:01:00.000Z');
-    const completed = recordQueueItemOutcome(queue, queue.activeItemId!, 'passed', {}, '2026-09-11T00:02:00.000Z');
+    const completed = recordQueueItemOutcome(
+      queue,
+      queue.activeItemId!,
+      'passed',
+      {},
+      '2026-09-11T00:02:00.000Z'
+    );
     expect(completed.recentHistory?.claude[0]?.testCaseId).toBe('alpha');
   });
   it('supports duplicate evaluations and explicit ordering', () => {
@@ -57,21 +77,48 @@ describe('queue state', () => {
   });
 
   it('advances after evaluated outcomes and completes after the final item', () => {
-    let queue = createQueue('http://127.0.0.1:8787', 'trendminer', true, '2026-09-09T10:00:00.000Z');
+    let queue = createQueue(
+      'http://127.0.0.1:8787',
+      'trendminer',
+      true,
+      '2026-09-09T10:00:00.000Z'
+    );
     queue = addQueueItem(addQueueItem(queue, alpha), beta);
     queue = startQueue(queue, '2026-09-09T10:01:00.000Z');
     const first = queue.items[0]!.queueItemId;
-    queue = recordQueueItemOutcome(queue, first, 'failed', { runId: 'run-1' }, '2026-09-09T10:02:00.000Z');
+    queue = recordQueueItemOutcome(
+      queue,
+      first,
+      'failed',
+      { runId: 'run-1' },
+      '2026-09-09T10:02:00.000Z'
+    );
     expect(queue.status).toBe('running');
     expect(queue.activeItemId).toBe(queue.items[1]!.queueItemId);
-    queue = recordQueueItemOutcome(queue, queue.items[1]!.queueItemId, 'incomplete', { runId: 'run-2' }, '2026-09-09T10:03:00.000Z');
+    queue = recordQueueItemOutcome(
+      queue,
+      queue.items[1]!.queueItemId,
+      'incomplete',
+      { runId: 'run-2' },
+      '2026-09-09T10:03:00.000Z'
+    );
     expect(queue.status).toBe('completed');
     expect(queue.items.map((item) => item.status)).toEqual(['failed', 'incomplete']);
   });
 
   it('pauses for a browser failure and supports skip and stop', () => {
-    let queue = startQueue(addQueueItem(createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z'), alpha), '2026-09-09T10:01:00.000Z');
-    queue = { ...queue, status: 'paused', error: { stage: 'browser', message: 'Composer missing' } };
+    let queue = startQueue(
+      addQueueItem(
+        createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z'),
+        alpha
+      ),
+      '2026-09-09T10:01:00.000Z'
+    );
+    queue = {
+      ...queue,
+      status: 'paused',
+      error: { stage: 'browser', message: 'Composer missing' }
+    };
     queue = skipQueueItem(queue, queue.activeItemId!, '2026-09-09T10:02:00.000Z');
     expect(queue.items[0]?.status).toBe('skipped');
     expect(queue.status).toBe('completed');
@@ -80,15 +127,37 @@ describe('queue state', () => {
   });
 
   it('rejects skipping without the active queue item', () => {
-    let queue = startQueue(addQueueItem(createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z'), alpha), '2026-09-09T10:01:00.000Z');
-    queue = { ...queue, status: 'paused', error: { stage: 'browser', message: 'Composer missing' } };
+    let queue = startQueue(
+      addQueueItem(
+        createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z'),
+        alpha
+      ),
+      '2026-09-09T10:01:00.000Z'
+    );
+    queue = {
+      ...queue,
+      status: 'paused',
+      error: { stage: 'browser', message: 'Composer missing' }
+    };
 
     expect(() => skipQueueItem(queue, '', '2026-09-09T10:02:00.000Z')).toThrow('active');
-    expect(() => skipQueueItem({ ...queue, activeItemId: undefined }, undefined as unknown as string, '2026-09-09T10:02:00.000Z')).toThrow('active');
+    expect(() =>
+      skipQueueItem(
+        { ...queue, activeItemId: undefined },
+        undefined as unknown as string,
+        '2026-09-09T10:02:00.000Z'
+      )
+    ).toThrow('active');
   });
 
   it('removes only queued items', () => {
-    let queue = addQueueItem(addQueueItem(createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z'), alpha), beta);
+    let queue = addQueueItem(
+      addQueueItem(
+        createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z'),
+        alpha
+      ),
+      beta
+    );
     queue = startQueue(queue, '2026-09-09T10:01:00.000Z');
     expect(() => removeQueueItem(queue, queue.activeItemId!)).toThrow('active');
     queue = removeQueueItem(queue, queue.items[1]!.queueItemId);
@@ -99,7 +168,13 @@ describe('queue state', () => {
     let queue = createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z');
     queue = addQueueItem(queue, alpha);
     queue = startQueue(queue, '2026-09-09T10:01:00.000Z');
-    queue = recordQueueItemOutcome(queue, queue.activeItemId!, 'passed', { runId: 'run-1' }, '2026-09-09T10:02:00.000Z');
+    queue = recordQueueItemOutcome(
+      queue,
+      queue.activeItemId!,
+      'passed',
+      { runId: 'run-1' },
+      '2026-09-09T10:02:00.000Z'
+    );
     const restarted = startQueue(queue, '2026-09-09T10:03:00.000Z');
     expect(restarted.status).toBe('running');
     expect(restarted.items[0]?.status).toBe('running');
@@ -116,7 +191,11 @@ describe('queue state', () => {
 
     expect(stopped.activeItemId).toBe(queue.activeItemId);
     expect(stopped.status).toBe('running');
-    expect(stopped.items[1]).toMatchObject({ testCaseId: 'beta', status: 'stopped', completedAt: '2026-09-09T10:02:00.000Z' });
+    expect(stopped.items[1]).toMatchObject({
+      testCaseId: 'beta',
+      status: 'stopped',
+      completedAt: '2026-09-09T10:02:00.000Z'
+    });
     expect(stopped.items[1]!.queueItemId).toBe(pendingId);
   });
 
@@ -137,20 +216,35 @@ describe('queue state', () => {
     let queue = createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z');
     queue = addQueueItem(addQueueItem(queue, alpha), beta);
     queue = startQueue(queue, '2026-09-09T10:01:00.000Z');
-    queue = recordQueueItemOutcome(queue, queue.activeItemId!, 'passed', { runId: 'run-1', text: 'done' }, '2026-09-09T10:02:00.000Z');
+    queue = recordQueueItemOutcome(
+      queue,
+      queue.activeItemId!,
+      'passed',
+      { runId: 'run-1', text: 'done' },
+      '2026-09-09T10:02:00.000Z'
+    );
 
     const stopped = stopScenario(queue, 'beta', '2026-09-09T10:03:00.000Z');
     const repeated = stopScenario(stopped, 'beta', '2026-09-09T10:04:00.000Z');
 
     expect(repeated.items[0]).toMatchObject({ status: 'passed', runId: 'run-1', text: 'done' });
-    expect(repeated.items[1]).toMatchObject({ status: 'stopped', completedAt: '2026-09-09T10:03:00.000Z' });
+    expect(repeated.items[1]).toMatchObject({
+      status: 'stopped',
+      completedAt: '2026-09-09T10:03:00.000Z'
+    });
   });
 
   it('stops the active duplicate instead of an earlier completed duplicate', () => {
     let queue = createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z');
     queue = addQueueItem(addQueueItem(queue, alpha), alpha);
     queue = startQueue(queue, '2026-09-09T10:01:00.000Z');
-    queue = recordQueueItemOutcome(queue, queue.activeItemId!, 'passed', { runId: 'run-1' }, '2026-09-09T10:02:00.000Z');
+    queue = recordQueueItemOutcome(
+      queue,
+      queue.activeItemId!,
+      'passed',
+      { runId: 'run-1' },
+      '2026-09-09T10:02:00.000Z'
+    );
 
     const stopped = stopScenario(queue, 'alpha', '2026-09-09T10:03:00.000Z');
 

@@ -81,7 +81,9 @@ function togglePanel(expand = false): void {
       host.style.transform = '';
     }
     host.classList.toggle('expanded');
-    notch.title = host.classList.contains('expanded') ? 'Collapse MCPLab Rover' : 'Open MCPLab Rover';
+    notch.title = host.classList.contains('expanded')
+      ? 'Collapse MCPLab Rover'
+      : 'Open MCPLab Rover';
     notch.setAttribute('aria-label', notch.title);
   });
   const onMessage = (event: MessageEvent) => {
@@ -90,7 +92,8 @@ function togglePanel(expand = false): void {
     }
     if (event.source === frame.contentWindow && event.data?.type === 'ROVER_PANEL_SIZE') {
       const height = Number(event.data.height);
-      if (Number.isFinite(height)) host.style.height = `${Math.min(Math.max(height, 184), window.innerHeight - 24)}px`;
+      if (Number.isFinite(height))
+        host.style.height = `${Math.min(Math.max(height, 184), window.innerHeight - 24)}px`;
     }
   };
   window.addEventListener('message', onMessage);
@@ -163,21 +166,30 @@ if (runtime.__mcplabRoverInstalled) {
     if (message.type === 'ROVER_NEW_CHAT') {
       void (async () => {
         const adapter = findAdapter();
-        if (!adapter?.startNewConversation) throw new Error('New conversations are not supported on this page');
+        if (!adapter?.startNewConversation)
+          throw new Error('New conversations are not supported on this page');
         await adapter.startNewConversation();
         sendResponse({ ok: true });
-      })().catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+      })().catch((error) =>
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) })
+      );
       return true;
     }
     if (message.type === 'ROVER_CANCEL_ASK') {
       const controller = activeAskControllers.get(message.requestId);
-      console.info('[Rover debug] cancel ask received', { requestId: message.requestId, hasController: Boolean(controller) });
+      console.info('[Rover debug] cancel ask received', {
+        requestId: message.requestId,
+        hasController: Boolean(controller)
+      });
       controller?.abort();
       void Promise.resolve(findAdapter()?.stopGeneration?.())
         .then(() => sendResponse({ ok: true }))
         .catch((error) => {
           console.warn('[Rover] provider generation cancellation failed', error);
-          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+          sendResponse({
+            ok: false,
+            error: error instanceof Error ? error.message : String(error)
+          });
         });
       return true;
     }

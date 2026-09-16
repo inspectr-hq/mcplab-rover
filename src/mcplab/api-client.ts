@@ -1,4 +1,10 @@
-import type { BrowserProviderProfile, LiveTestCatalogItem, LiveTestCompletion, LiveTestSessionView, McplabQueueSnapshot } from './types';
+import type {
+  BrowserProviderProfile,
+  LiveTestCatalogItem,
+  LiveTestCompletion,
+  LiveTestSessionView,
+  McplabQueueSnapshot
+} from './types';
 
 export const DEFAULT_MCPLAB_ORIGIN = 'http://127.0.0.1:8787';
 
@@ -12,14 +18,24 @@ export function normalizeMcplabOrigin(value: string): string {
   if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
     throw new Error('MCPLab V1 supports loopback origins only.');
   }
-  if (url.protocol !== 'http:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) {
+  if (
+    url.protocol !== 'http:' ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash
+  ) {
     throw new Error('MCPLab origin must contain only HTTP protocol, host, and port.');
   }
   return url.origin;
 }
 
 export class McplabApiError extends Error {
-  constructor(message: string, readonly status?: number) {
+  constructor(
+    message: string,
+    readonly status?: number
+  ) {
     super(message);
   }
 }
@@ -27,30 +43,47 @@ export class McplabApiError extends Error {
 export class McplabClient {
   readonly origin: string;
 
-  constructor(origin: string, private readonly fetcher: typeof fetch = globalThis.fetch.bind(globalThis)) {
+  constructor(
+    origin: string,
+    private readonly fetcher: typeof fetch = globalThis.fetch.bind(globalThis)
+  ) {
     this.origin = normalizeMcplabOrigin(origin);
   }
 
   async listTestCases(): Promise<LiveTestCatalogItem[]> {
-    const value = await this.request<{ testCases: LiveTestCatalogItem[] }>('/api/live-tests/test-cases');
-    if (!Array.isArray(value.testCases)) throw new McplabApiError('MCPLab returned an invalid test-case catalog.');
+    const value = await this.request<{ testCases: LiveTestCatalogItem[] }>(
+      '/api/live-tests/test-cases'
+    );
+    if (!Array.isArray(value.testCases))
+      throw new McplabApiError('MCPLab returned an invalid test-case catalog.');
     return value.testCases;
   }
 
   async listBrowserProviders(): Promise<BrowserProviderProfile[]> {
-    const value = await this.request<{ providers: BrowserProviderProfile[] }>('/api/rover/providers');
-    if (!Array.isArray(value.providers)) throw new McplabApiError('MCPLab returned an invalid browser provider catalog.');
+    const value = await this.request<{ providers: BrowserProviderProfile[] }>(
+      '/api/rover/providers'
+    );
+    if (!Array.isArray(value.providers))
+      throw new McplabApiError('MCPLab returned an invalid browser provider catalog.');
     return value.providers;
   }
 
-  saveLearnedBrowserProvider(profile: BrowserProviderProfile, agent?: { id: string; name: string; url: string }): Promise<{ provider: BrowserProviderProfile; revision: string }> {
+  saveLearnedBrowserProvider(
+    profile: BrowserProviderProfile,
+    agent?: { id: string; name: string; url: string }
+  ): Promise<{ provider: BrowserProviderProfile; revision: string }> {
     return this.request('/api/browser-providers/learned', {
       method: 'POST',
       body: JSON.stringify({ profile, ...(agent ? { agent } : {}) })
     });
   }
 
-  start(testCaseId: string, client: string, evaluationRunId?: string, metadata?: { configPath?: string; configName?: string; agentName?: string }): Promise<LiveTestSessionView> {
+  start(
+    testCaseId: string,
+    client: string,
+    evaluationRunId?: string,
+    metadata?: { configPath?: string; configName?: string; agentName?: string }
+  ): Promise<LiveTestSessionView> {
     return this.request('/api/live-tests/sessions', {
       method: 'POST',
       body: JSON.stringify({ testCaseId, client, evaluationRunId, ...metadata })
@@ -61,7 +94,10 @@ export class McplabClient {
     return this.request(`/api/live-tests/sessions/${encodeURIComponent(sessionId)}`);
   }
 
-  complete(sessionId: string, input: { finalText: string; startedAt: string; completedAt: string }): Promise<LiveTestCompletion> {
+  complete(
+    sessionId: string,
+    input: { finalText: string; startedAt: string; completedAt: string }
+  ): Promise<LiveTestCompletion> {
     return this.request(`/api/live-tests/sessions/${encodeURIComponent(sessionId)}/complete`, {
       method: 'POST',
       body: JSON.stringify(input)
@@ -69,7 +105,9 @@ export class McplabClient {
   }
 
   cancel(sessionId: string): Promise<LiveTestSessionView> {
-    return this.request(`/api/live-tests/sessions/${encodeURIComponent(sessionId)}/cancel`, { method: 'POST' });
+    return this.request(`/api/live-tests/sessions/${encodeURIComponent(sessionId)}/cancel`, {
+      method: 'POST'
+    });
   }
 
   getQueue(): Promise<McplabQueueSnapshot> {
@@ -91,11 +129,17 @@ export class McplabClient {
       const detail = error instanceof Error && error.message ? ` (${error.message})` : '';
       throw new McplabApiError(`Could not connect to MCPLab at ${this.origin}.${detail}`);
     }
-    const value = await response.json().catch(() => null) as { error?: unknown } | null;
+    const value = (await response.json().catch(() => null)) as { error?: unknown } | null;
     if (!response.ok) {
-      throw new McplabApiError(typeof value?.error === 'string' ? value.error : `MCPLab request failed (${response.status}).`, response.status);
+      throw new McplabApiError(
+        typeof value?.error === 'string'
+          ? value.error
+          : `MCPLab request failed (${response.status}).`,
+        response.status
+      );
     }
-    if (!value || typeof value !== 'object') throw new McplabApiError('MCPLab returned an invalid response.');
+    if (!value || typeof value !== 'object')
+      throw new McplabApiError('MCPLab returned an invalid response.');
     return value as T;
   }
 }

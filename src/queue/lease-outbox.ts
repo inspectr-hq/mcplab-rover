@@ -17,7 +17,12 @@ export function clearLeaseState(queue: RoverQueueState): RoverQueueState {
   return {
     ...withoutLease,
     ...(queue.managedPhase
-      ? { managedPhase: queue.status === 'completed' || queue.status === 'stopped' ? 'terminal' as const : 'idle' as const }
+      ? {
+          managedPhase:
+            queue.status === 'completed' || queue.status === 'stopped'
+              ? ('terminal' as const)
+              : ('idle' as const)
+        }
       : {})
   };
 }
@@ -26,18 +31,35 @@ export function leaseOutboxHead(queue: RoverQueueState): PendingLeaseAction | un
   return queue.pendingLeaseActions?.[0];
 }
 
-export function leaseOutboxMatches(queue: RoverQueueState, jobId: string, leaseId: string): boolean {
-  return queue.queueId === jobId && (queue.leaseId === leaseId || leaseOutboxHead(queue)?.leaseId === leaseId);
+export function leaseOutboxMatches(
+  queue: RoverQueueState,
+  jobId: string,
+  leaseId: string
+): boolean {
+  return (
+    queue.queueId === jobId &&
+    (queue.leaseId === leaseId || leaseOutboxHead(queue)?.leaseId === leaseId)
+  );
 }
 
-export function enqueueLeaseActions(queue: RoverQueueState, actions: PendingLeaseAction[]): RoverQueueState {
+export function enqueueLeaseActions(
+  queue: RoverQueueState,
+  actions: PendingLeaseAction[]
+): RoverQueueState {
   return reduceLeaseOutbox(queue, { type: 'enqueue', actions });
 }
 
-export function reduceLeaseOutbox(queue: RoverQueueState, event: LeaseOutboxEvent): RoverQueueState {
+export function reduceLeaseOutbox(
+  queue: RoverQueueState,
+  event: LeaseOutboxEvent
+): RoverQueueState {
   if (event.type === 'enqueue') {
     return event.actions.length
-      ? { ...clearLeaseState(queue), managedPhase: 'finalizing' as const, pendingLeaseActions: event.actions }
+      ? {
+          ...clearLeaseState(queue),
+          managedPhase: 'finalizing' as const,
+          pendingLeaseActions: event.actions
+        }
       : clearLeaseState(queue);
   }
   if (event.type === 'attempt') {
@@ -46,12 +68,16 @@ export function reduceLeaseOutbox(queue: RoverQueueState, event: LeaseOutboxEven
     return {
       ...queue,
       managedPhase: 'waiting_ack',
-      pendingLeaseActions: [{ ...head, attempts: (head.attempts ?? 0) + 1, lastAttemptAt: event.at }, ...queue.pendingLeaseActions!.slice(1)]
+      pendingLeaseActions: [
+        { ...head, attempts: (head.attempts ?? 0) + 1, lastAttemptAt: event.at },
+        ...queue.pendingLeaseActions!.slice(1)
+      ]
     };
   }
   if (!leaseOutboxMatches(queue, event.jobId, event.leaseId)) return queue;
   const head = leaseOutboxHead(queue);
-  if (event.type === 'acknowledge' && head && event.actionType && head.type !== event.actionType) return queue;
+  if (event.type === 'acknowledge' && head && event.actionType && head.type !== event.actionType)
+    return queue;
   if (event.type === 'unknown' || event.type === 'acknowledge') {
     const remaining = queue.pendingLeaseActions?.slice(1) ?? [];
     return remaining.length
