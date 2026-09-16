@@ -77,13 +77,22 @@ Rover currently accepts `http://127.0.0.1`, `http://localhost`, or `http://[::1]
 
 If no matching Rover is connected, use **Connect to Rover** in MCPLab to open the configured agent page, then click the Rover extension icon. The waiting assignment is delivered automatically after Rover connects.
 
-### Manually from Rover
+### Run a Live Test from Rover
 
-1. Open a supported browser agent and click the Rover extension icon to inject the sidebar.
-2. Add one or more evaluations from the MCPLab catalog to Rover's local queue.
+1. Open a browser agent and click the Rover extension icon to inject the sidebar.
+2. Open the **Manual** tab and select an evaluation from the MCPLab catalog.
+3. Review the prompt, then run it in the active supported agent.
+4. On an unsupported page, copy the prompt, run it yourself, and paste the final response back into Rover.
+5. Rover submits the captured or pasted response to MCPLab for evaluation.
+6. Select **View in MCPLab** to inspect the completed result.
+
+### Build a local queue in Rover
+
+1. Open the **Queue** tab in a supported browser agent.
+2. Add one or more evaluations from the MCPLab catalog.
 3. Choose whether Rover should start a new conversation between evaluations.
 4. Run the queue. Rover submits each prompt and captures the corresponding response.
-5. Select **View in MCPLab** to inspect a completed result.
+5. Open completed results in MCPLab.
 
 You can stop an active evaluation or queue from Rover. Closing the sidebar does not cancel running work, and clicking the toolbar icon again restores the current state.
 
