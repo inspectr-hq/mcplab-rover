@@ -373,6 +373,9 @@ export function installMessageHandler(): void {
     if (message.type === 'ROVER_CANCEL') {
       return respond(sendResponse, async () => {
         const state = await getState();
+        if (state && state.status === 'running' && state.requestId && typeof state.tabId === 'number') {
+          await chrome.tabs.sendMessage(state.tabId, { type: 'ROVER_CANCEL_ASK', requestId: state.requestId }).catch(() => undefined);
+        }
         if (state && state.status !== 'completed') await new McplabClient(state.origin).cancel(state.sessionId).catch(() => undefined);
         await chrome.storage.session.remove(STATE_KEY);
         return { ok: true };

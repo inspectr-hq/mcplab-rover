@@ -1,4 +1,4 @@
-import type { RoverQueueState, QueueLeaseState } from './state';
+import type { RoverQueueState } from './state';
 import { clearLeaseState, leaseOutboxHead } from './lease-outbox';
 
 export type ManagedLeaseEvent =
@@ -10,10 +10,6 @@ export type ManagedLeaseEvent =
 
 function matches(queue: RoverQueueState, leaseId: string): boolean {
   return queue.leaseId === leaseId || leaseOutboxHead(queue)?.leaseId === leaseId;
-}
-
-export function managedLeaseState(queue: RoverQueueState): QueueLeaseState | undefined {
-  return queue.leaseState;
 }
 
 export function transitionManagedLease(queue: RoverQueueState, event: ManagedLeaseEvent): RoverQueueState {

@@ -173,14 +173,28 @@ if (runtime.__mcplabRoverInstalled) {
       const controller = activeAskControllers.get(message.requestId);
       console.info('[Rover debug] cancel ask received', { requestId: message.requestId, hasController: Boolean(controller) });
       controller?.abort();
-      void Promise.resolve(findAdapter()?.stopGeneration?.()).catch((error) => {
-        console.warn('[Rover] provider generation cancellation failed', error);
-      });
-      sendResponse({ ok: true });
+      void Promise.resolve(findAdapter()?.stopGeneration?.())
+        .then(() => sendResponse({ ok: true }))
+        .catch((error) => {
+          console.warn('[Rover] provider generation cancellation failed', error);
+          sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+        });
       return true;
     }
     if (message.type !== 'ROVER_ASK') return;
     void (async () => {
+      if (activeAskControllers.size > 0) {
+        await chrome.runtime.sendMessage({
+          type: 'ROVER_RESULT',
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          queueId: message.queueId,
+          queueItemId: message.queueItemId,
+          leaseId: message.leaseId,
+          result: { ok: false, error: 'Another Rover execution is still active on this tab.' }
+        });
+        return;
+      }
       const controller = new AbortController();
       activeAskControllers.set(message.requestId, controller);
       try {

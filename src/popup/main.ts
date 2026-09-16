@@ -376,11 +376,15 @@ function renderQueue(queue: RoverQueueState | null): void {
     ? `Assignment received for ${queue.provider}. Switch to a matching page to run it (${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} processed).`
     : !matchesCurrentAssignment
       ? `Switch to ${queue.provider} to edit or run this queue.`
-      : managed && queue.managedPhase && phaseLabel[queue.managedPhase]
+    : managed && queue.managedPhase && phaseLabel[queue.managedPhase]
     ? `${phaseLabel[queue.managedPhase]}${queue.managedPhase === 'waiting_ack' ? '.' : '...'}`
-      : queue.status === 'paused'
+    : queue.status === 'paused'
     ? `Paused: ${queue.error?.message ?? 'Queue needs attention.'}`
-    : queue.status === 'completed' ? 'Queue completed.' : `${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} evaluations processed.`;
+    : queue.status === 'completed'
+      ? 'Queue completed.'
+      : queue.status === 'stopped'
+        ? 'Queue stopped.'
+        : `${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} evaluations processed.`;
   queueStart.disabled = queue.items.length === 0 || queue.status === 'running' || queue.status === 'paused';
   queueRetry.hidden = queue.status !== 'paused';
   queueSkip.hidden = queue.status !== 'paused';
