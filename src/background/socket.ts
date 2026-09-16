@@ -69,19 +69,21 @@ export function queueWithPendingLeaseRelease(queue: RoverQueueState, reason: Lea
   return enqueueLeaseActions(clearLease(queue), [{ type: 'release', leaseId: queue.leaseId, reason, firstQueuedAt: new Date().toISOString(), ...(clearQueue ? { clearQueue: true } : {}) }]);
 }
 
-export async function persistLeaseRelease(queue: RoverQueueState, reason: LeaseReleaseReason, clearQueue = false): Promise<RoverQueueState> {
-  if (!queue.leaseId) {
-    const released = clearLease(queue);
+export async function persistLeaseRelease(queue: RoverQueueState, reason: LeaseReleaseReason, clearQueue = false, replacement?: RoverQueueState): Promise<RoverQueueState> {
+  const target = replacement ?? queue;
+  const releaseSource = queue.leaseId ? queue : target;
+  if (!releaseSource.leaseId) {
+    const released = clearLease(target);
     await saveQueue(released);
     return released;
   }
   if (roverSocket?.readyState === WebSocket.OPEN) {
-    const released = clearLease(queue);
+    const released = clearLease(target);
     await saveQueue(released);
-    releaseLease(queue, reason);
+    releaseLease(releaseSource, reason);
     return released;
   }
-  const pending = queueWithPendingLeaseRelease(queue, reason, clearQueue);
+  const pending = queueWithPendingLeaseRelease({ ...target, leaseId: releaseSource.leaseId }, reason, clearQueue);
   await saveQueue(pending);
   return pending;
 }

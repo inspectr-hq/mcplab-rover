@@ -41,12 +41,6 @@ export interface ScenarioStatusEvent {
   error?: string;
 }
 
-export type LeaseMessage =
-  | { type: 'assignment_accept'; jobId: string; leaseId: string; tabId?: number }
-  | { type: 'assignment_reject'; jobId: string; leaseId: string; reason: string; retryable: boolean }
-  | { type: 'lease_renew'; jobId: string; leaseId: string; leaseExpiresAt: string }
-  | { type: 'lease_release'; jobId: string; leaseId: string; reason: RoverLeaseReleaseReason };
-
 export interface LeaseUnknownMessage {
   type: 'lease_unknown';
   jobId: string;

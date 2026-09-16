@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   socket: null as { readyState: number; send: ReturnType<typeof vi.fn> } | null,
-  saveQueue: vi.fn()
+  saveQueue: vi.fn(),
+  persistLeaseRelease: vi.fn()
 }));
 
 vi.mock('../src/background/socket', () => ({
@@ -18,7 +19,7 @@ vi.mock('../src/background/socket', () => ({
     leaseExpiresAt: undefined,
     pendingLeaseActions: [{ type: 'release', leaseId: queue.leaseId, reason }]
   }),
-  persistLeaseRelease: vi.fn(),
+  persistLeaseRelease: mocks.persistLeaseRelease,
   releaseLease: vi.fn()
 }));
 vi.mock('../src/background/store', () => ({ getQueue: vi.fn(), saveQueue: mocks.saveQueue }));
@@ -116,9 +117,11 @@ describe('server assignment failure handling', () => {
 
     await deferQueueItem(queue, new Error('Browser provider was not ready on the active tab.'));
 
-    expect(mocks.saveQueue).toHaveBeenCalledWith(expect.objectContaining({
-      queueId: 'job-offline',
-      pendingLeaseActions: [expect.objectContaining({ leaseId: 'lease-offline', reason: 'provider_unavailable' })]
-    }));
+    expect(mocks.persistLeaseRelease).toHaveBeenCalledWith(
+      expect.objectContaining({ queueId: 'job-offline', leaseId: 'lease-offline' }),
+      'provider_unavailable',
+      false,
+      expect.objectContaining({ queueId: 'job-offline', provider: 'm365-cloud-microsoft' })
+    );
   });
 });
