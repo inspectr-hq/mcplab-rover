@@ -1,7 +1,6 @@
 import type { ChatProviderAdapter } from './types';
 import { isVisible, textFrom } from './dom';
 import { debugCheck, first, pageAlertText } from './adapter-helpers';
-import type { ResponseCandidate } from '../runtime/candidate-selection';
 
 const composerSelectors = ['div[contenteditable="true"].ProseMirror', '[contenteditable="true"]'];
 const submitSelectors = [

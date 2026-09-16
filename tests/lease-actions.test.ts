@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clearLease, queueWithPendingLeaseRelease } from '../src/background/lease-transport';
+import { queueWithPendingLeaseRelease } from '../src/background/lease-transport';
 import { createQueue } from '../src/queue/state';
 import { reduceLeaseOutbox } from '../src/queue/lease-outbox';
 

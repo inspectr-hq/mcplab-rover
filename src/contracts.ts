@@ -1,5 +1,4 @@
 import type { CheckCounts, RunOutcome } from './mcplab/types';
-import type { RoverQueueState } from './queue/state';
 
 export type ProviderId = string;
 export interface BrowserProviderDiscoveryDraft {
