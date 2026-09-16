@@ -125,7 +125,19 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
         label: 'Assistant response',
         present: candidates().length > 0,
         detail: profile.learned.confidence.assistantMessages ?? 'Learned profile'
-      }
+      },
+      ...(profile.newConversation
+        ? [{
+            id: 'new-chat',
+            label: 'New conversation',
+            present: profile.newConversation.action === 'navigate'
+              ? Boolean(profile.newConversation.url)
+              : Boolean(profile.newConversation.locator && findPath(profile.newConversation.locator)[0]),
+            detail: profile.newConversation.action === 'navigate'
+              ? 'Uses the learned navigation URL'
+              : 'Uses the learned page control'
+          }]
+        : [])
     ]
   };
 }

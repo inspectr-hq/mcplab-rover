@@ -242,6 +242,30 @@ describe('Learned provider adapter', () => {
     expect(clicks).toBe(1);
   });
 
+  it('reports the learned new-conversation control in debug checks', () => {
+    document.body.innerHTML = `
+      <div contenteditable="true"></div>
+      <button data-testid="new-chat">New chat</button>
+    `;
+    const adapter = createLearnedAdapter(learnedProfile);
+
+    expect(adapter.getDebugChecks()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'new-chat', label: 'New conversation', present: true })
+    ]));
+  });
+
+  it('reports a valid learned navigation action as available', () => {
+    document.body.innerHTML = '<div contenteditable="true"></div>';
+    const adapter = createLearnedAdapter({
+      ...learnedProfile,
+      newConversation: { action: 'navigate', url: 'https://chatgpt.com/' }
+    });
+
+    expect(adapter.getDebugChecks()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'new-chat', label: 'New conversation', present: true })
+    ]));
+  });
+
   it('prioritizes a matching learned profile and falls back when cleared', () => {
     document.body.innerHTML = '<div contenteditable="true"></div>';
     setLearnedProfiles([
