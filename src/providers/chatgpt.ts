@@ -1,17 +1,10 @@
 import type { ChatProviderAdapter } from './types';
 import { isVisible, setTextValue, textFrom } from './dom';
+import { debugCheck, first } from './adapter-helpers';
 
 const composerSelectors = ['[aria-label="Chat with ChatGPT"]', '[contenteditable="true"]'];
 const assistantSelector = '[data-message-author-role="assistant"], [data-testid^="conversation-turn-"]';
 const newConversationSelectors = ['a[href="/"], a[href="/new"]', 'button[aria-label*="New chat"]', 'button[aria-label*="New conversation"]'];
-
-function first<T extends Element>(selectors: string[]): T | null {
-  for (const selector of selectors) {
-    const element = document.querySelector<T>(selector);
-    if (element) return element;
-  }
-  return null;
-}
 
 export const chatgptAdapter: ChatProviderAdapter = {
   id: 'chatgpt-com',
@@ -57,8 +50,3 @@ export const chatgptAdapter: ChatProviderAdapter = {
     return { text: candidates.at(-1)?.text ?? '', isGenerating, isIdle: !isGenerating, error };
   }
 };
-
-function debugCheck(id: string, label: string, selectors: string[]) {
-  const present = Boolean(first<HTMLElement>(selectors));
-  return { id, label, present, detail: present ? 'Found matching element' : 'Element not found', selector: selectors.join(', ') };
-}

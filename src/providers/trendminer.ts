@@ -1,5 +1,6 @@
 import type { ChatProviderAdapter } from './types';
 import { isVisible, setTextValue, textFrom } from './dom';
+import { debugCheck } from './adapter-helpers';
 
 const assistantSelector = '[data-test="chat-messages_message"].chat-messages__message--assistant';
 
@@ -58,8 +59,3 @@ export const trendminerAdapter: ChatProviderAdapter = {
     };
   }
 };
-
-function debugCheck(id: string, label: string, selector: string) {
-  const present = Boolean(document.querySelector(selector));
-  return { id, label, present, detail: present ? 'Found matching element' : 'Element not found', selector };
-}

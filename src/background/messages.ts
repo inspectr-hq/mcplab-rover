@@ -17,7 +17,8 @@ import { createDebugSnapshot } from './debug';
 import { errorMessage } from './errors';
 import { complete, fail } from './live-test';
 import { cancelActiveQueueItem, failManagedQueue, finalizeManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation } from './queue-runner';
-import { currentSocket, leaseDebugState, loadedProvider, loadProfilesIntoTab, persistLeaseRelease, updateRoverRegistration, waitingForMatching } from './socket';
+import { leaseDebugState, loadedProvider, loadProfilesIntoTab, updateRoverRegistration, waitingForMatching } from './socket';
+import { currentSocket, persistLeaseRelease } from './lease-transport';
 import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, saveState, STATE_KEY } from './store';
 import { serializeQueueOperation } from '../queue/operations';
 
@@ -214,6 +215,10 @@ export function installMessageHandler(): void {
 
     if (message.type === 'ROVER_QUEUE_CREATE') {
       return respond(sendResponse, async () => {
+        const liveState = await getState();
+        if (liveState && ['ready', 'running', 'manual', 'evaluating'].includes(liveState.status)) {
+          throw new Error('Finish or stop the active Live Test before starting a queue.');
+        }
         const origin = await resolveOrigin(message.origin);
         const tab = await activeTab();
         const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
@@ -252,6 +257,10 @@ export function installMessageHandler(): void {
 
     if (message.type === 'ROVER_QUEUE_START') {
       void serializeQueueOperation(async () => {
+        const liveState = await getState();
+        if (liveState && ['ready', 'running', 'manual', 'evaluating'].includes(liveState.status)) {
+          throw new Error('Finish or stop the active Live Test before starting a queue.');
+        }
         const queue = await getQueue();
         if (!queue) throw new Error('No queue has been created.');
         if (queue.status === 'running') {
@@ -302,6 +311,10 @@ export function installMessageHandler(): void {
 
     if (message.type === 'ROVER_PREPARE') {
       return respond(sendResponse, async () => {
+        const queue = await getQueue();
+        if (queue && ['running', 'paused'].includes(queue.status)) {
+          throw new Error('Finish or stop the active queue before starting a Live Test.');
+        }
         const origin = await resolveOrigin(message.origin);
         const tab = await activeTab();
         const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;

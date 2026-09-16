@@ -4,13 +4,14 @@ import { McplabClient } from '../mcplab/api-client';
 import { archiveCompletedQueueItems, createQueue, startQueue, stopQueue, stopScenario } from '../queue/state';
 import { activeTab, detectProvider } from './browser';
 import { cancelActiveQueueItem, failManagedQueue, finalizeManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation, waitForProviderReady } from './queue-runner';
-import { registrationPayload, ROVER_LEASE_RELEASE_REASONS, ROVER_PROTOCOL_VERSION, type RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
+import { registrationPayload, ROVER_PROTOCOL_VERSION } from '../mcplab/rover-protocol';
 import { getQueue, QUEUE_KEY, resolveOrigin, saveQueue } from './store';
 import type { RoverQueueState } from '../queue/state';
-import { clearLeaseState, enqueueLeaseActions, leaseOutboxHead, leaseOutboxMatches, reduceLeaseOutbox } from '../queue/lease-outbox';
+import { leaseOutboxHead, leaseOutboxMatches, reduceLeaseOutbox } from '../queue/lease-outbox';
 import { transitionManagedLease } from '../queue/managed-lease';
 import { queueNeedsResume } from '../queue/recovery';
 import { serializeQueueOperation } from '../queue/operations';
+import { configureLeaseTransport, persistLeaseRelease } from './lease-transport';
 
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
@@ -29,6 +30,8 @@ function stopLeaseRenewal(): void {
   roverLeaseRenewal = null;
 }
 
+configureLeaseTransport({ getSocket: () => roverSocket, stopRenewal: stopLeaseRenewal });
+
 export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
   stopLeaseRenewal();
   if (!queue.leaseId) return;
@@ -45,47 +48,6 @@ export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
       await saveQueue(transitionManagedLease(latest, { type: 'renewed', leaseId: latest.leaseId, leaseExpiresAt }));
     }).catch((error) => debugLog('lease renewal failed', { error: error instanceof Error ? error.message : String(error) }));
   }, 15_000);
-}
-
-export function clearLease(queue: RoverQueueState): RoverQueueState {
-  return clearLeaseState(queue);
-}
-
-export const LEASE_RELEASE_REASONS = ROVER_LEASE_RELEASE_REASONS;
-export type LeaseReleaseReason = RoverLeaseReleaseReason;
-
-export function releaseLease(queue: RoverQueueState, reason: LeaseReleaseReason): RoverQueueState {
-  if (!queue.leaseId) return queue;
-  if (roverSocket?.readyState === WebSocket.OPEN) {
-    roverSocket.send(JSON.stringify({ type: 'lease_release', jobId: queue.queueId, leaseId: queue.leaseId, reason }));
-  }
-  lastAssignmentDecision = { decision: 'released', reason, at: new Date().toISOString() };
-  if (reason !== 'connection_lost') stopLeaseRenewal();
-  return clearLease(queue);
-}
-
-export function queueWithPendingLeaseRelease(queue: RoverQueueState, reason: LeaseReleaseReason, clearQueue = false): RoverQueueState {
-  if (!queue.leaseId) return clearLease(queue);
-  return enqueueLeaseActions(clearLease(queue), [{ type: 'release', leaseId: queue.leaseId, reason, firstQueuedAt: new Date().toISOString(), ...(clearQueue ? { clearQueue: true } : {}) }]);
-}
-
-export async function persistLeaseRelease(queue: RoverQueueState, reason: LeaseReleaseReason, clearQueue = false, replacement?: RoverQueueState): Promise<RoverQueueState> {
-  const target = replacement ?? queue;
-  const releaseSource = queue.leaseId ? queue : target;
-  if (!releaseSource.leaseId) {
-    const released = clearLease(target);
-    await saveQueue(released);
-    return released;
-  }
-  if (roverSocket?.readyState === WebSocket.OPEN) {
-    const released = clearLease(target);
-    await saveQueue(released);
-    releaseLease(releaseSource, reason);
-    return released;
-  }
-  const pending = queueWithPendingLeaseRelease({ ...target, leaseId: releaseSource.leaseId }, reason, clearQueue);
-  await saveQueue(pending);
-  return pending;
 }
 
 function debugLog(event: string, details: Record<string, unknown> = {}): void {
@@ -130,10 +92,6 @@ async function reconcileQueueAfterRegistration(origin: string): Promise<void> {
   } catch {
     // Preserve local state if MCPLab is temporarily unreachable.
   }
-}
-
-export function currentSocket(): WebSocket | null {
-  return roverSocket;
 }
 
 export function leaseDebugState(): { negotiatedCapabilities: string[]; lastLeaseRenewalAt?: string; lastAssignmentDecision?: { decision: string; reason?: string; at: string } } {

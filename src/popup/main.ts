@@ -72,6 +72,16 @@ let lastDebugFingerprint = '';
 let debugRequestInFlight = false;
 let lastDebugSnapshot: DebugSnapshot | null = null;
 
+async function runButtonAction(button: HTMLButtonElement, action: () => Promise<void>): Promise<void> {
+  if (button.disabled) return;
+  button.disabled = true;
+  try {
+    await action();
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function setConnectionState(state: 'connecting' | 'connected' | 'disconnected', message: string): void {
   connectionStatus.dataset.state = state;
   connectionDot.title = message;
@@ -174,14 +184,16 @@ learnSave.addEventListener('click', async () => {
 });
 debugRefresh.addEventListener('click', () => void refreshDebug(true));
 queueAdd.addEventListener('click', async () => {
-  const item = items.find((candidate) => candidate.id === queueEvaluation.value);
-  if (!item?.eligible) return;
-  const response = await chrome.runtime.sendMessage({
-    type: 'ROVER_QUEUE_ADD',
-    item: { id: item.id, name: item.name, prompt: '', assertionCount: item.assertionCount }
+  await runButtonAction(queueAdd, async () => {
+    const item = items.find((candidate) => candidate.id === queueEvaluation.value);
+    if (!item?.eligible) return;
+    const response = await chrome.runtime.sendMessage({
+      type: 'ROVER_QUEUE_ADD',
+      item: { id: item.id, name: item.name, prompt: '', assertionCount: item.assertionCount }
+    });
+    if (response?.ok) renderQueue(response.queue);
+    else queueStatus.textContent = response?.error ?? 'Could not add evaluation.';
   });
-  if (response?.ok) renderQueue(response.queue);
-  else queueStatus.textContent = response?.error ?? 'Could not add evaluation.';
 });
 queueNewChat.addEventListener('change', async () => {
   const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_SET_NEW_CHAT', enabled: queueNewChat.checked });
@@ -189,9 +201,11 @@ queueNewChat.addEventListener('change', async () => {
   else queueStatus.textContent = response?.error ?? 'Could not update conversation setting.';
 });
 queueStart.addEventListener('click', async () => {
-  const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_START' });
-  if (response?.ok) renderQueue(response.queue);
-  else queueStatus.textContent = response?.error ?? 'Could not start queue.';
+  await runButtonAction(queueStart, async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_START' });
+    if (response?.ok) renderQueue(response.queue);
+    else queueStatus.textContent = response?.error ?? 'Could not start queue.';
+  });
 });
 
 function showQueueError(response: { ok?: boolean; error?: string } | undefined, fallback: string): void {
@@ -199,19 +213,25 @@ function showQueueError(response: { ok?: boolean; error?: string } | undefined, 
 }
 
 queueRetry.addEventListener('click', async () => {
-  const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_RETRY' });
-  if (response?.ok) renderQueue(response.queue);
-  else showQueueError(response, 'Could not retry queue item.');
+  await runButtonAction(queueRetry, async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_RETRY' });
+    if (response?.ok) renderQueue(response.queue);
+    else showQueueError(response, 'Could not retry queue item.');
+  });
 });
 queueSkip.addEventListener('click', async () => {
-  const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_SKIP' });
-  if (response?.ok) renderQueue(response.queue);
-  else showQueueError(response, 'Could not skip queue item.');
+  await runButtonAction(queueSkip, async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_SKIP' });
+    if (response?.ok) renderQueue(response.queue);
+    else showQueueError(response, 'Could not skip queue item.');
+  });
 });
 queueStop.addEventListener('click', async () => {
-  const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_STOP' });
-  if (response?.ok) renderQueue(response.queue);
-  else showQueueError(response, 'Could not stop queue.');
+  await runButtonAction(queueStop, async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'ROVER_QUEUE_STOP' });
+    if (response?.ok) renderQueue(response.queue);
+    else showQueueError(response, 'Could not stop queue.');
+  });
 });
 
 function selectedItem(): LiveTestCatalogItem | undefined {
@@ -311,7 +331,16 @@ function renderQueue(queue: RoverQueueState | null): void {
           button.textContent = label;
           button.title = action;
           button.disabled = item.status !== 'queued' || (action === 'up' && index === 0) || (action === 'down' && index === items.length - 1);
-          button.addEventListener('click', () => void chrome.runtime.sendMessage({ type: action === 'remove' ? 'ROVER_QUEUE_REMOVE' : 'ROVER_QUEUE_MOVE', queueItemId: item.queueItemId, ...(action === 'remove' ? {} : { direction: action }) }));
+          button.addEventListener('click', () => {
+            if (button.disabled) return;
+            button.disabled = true;
+            void chrome.runtime.sendMessage({ type: action === 'remove' ? 'ROVER_QUEUE_REMOVE' : 'ROVER_QUEUE_MOVE', queueItemId: item.queueItemId, ...(action === 'remove' ? {} : { direction: action }) })
+              .then((response) => {
+                if (response?.ok) renderQueue(response.queue);
+                else button.disabled = false;
+              })
+              .catch(() => { button.disabled = false; });
+          });
           row.append(button);
         }
       }
@@ -335,11 +364,21 @@ function renderQueue(queue: RoverQueueState | null): void {
   queueItems.replaceChildren(...groups);
   queueItems.parentElement?.classList.toggle('queue-managed', managed);
   queueStart.hidden = !editable;
+  const phaseLabel: Record<string, string> = {
+    offered: 'Offer received',
+    accepted: 'Assignment accepted',
+    running: 'Running in agent',
+    finalizing: 'Finalizing in MCPLab',
+    waiting_ack: 'Waiting for MCPLab acknowledgement',
+    terminal: 'Stopped'
+  };
   queueStatus.textContent = !matchesCurrentAssignment && managed
     ? `Assignment received for ${queue.provider}. Switch to a matching page to run it (${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} processed).`
     : !matchesCurrentAssignment
       ? `Switch to ${queue.provider} to edit or run this queue.`
-    : queue.status === 'paused'
+      : managed && queue.managedPhase && phaseLabel[queue.managedPhase]
+    ? `${phaseLabel[queue.managedPhase]}${queue.managedPhase === 'waiting_ack' ? '.' : '...'}`
+      : queue.status === 'paused'
     ? `Paused: ${queue.error?.message ?? 'Queue needs attention.'}`
     : queue.status === 'completed' ? 'Queue completed.' : `${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} evaluations processed.`;
   queueStart.disabled = queue.items.length === 0 || queue.status === 'running' || queue.status === 'paused';
@@ -364,6 +403,8 @@ async function refreshActiveProvider(retry = true): Promise<void> {
 }
 
 function renderCatalog(): void {
+  const selectedTestCaseId = testCase.value;
+  const selectedQueueEvaluationId = queueEvaluation.value;
   const visible = filterTestCases(items, search.value);
   testCase.replaceChildren(...visible.map((item) => {
     const option = document.createElement('option');
@@ -378,6 +419,8 @@ function renderCatalog(): void {
     option.disabled = !item.eligible;
     return option;
   }));
+  if (visible.some((item) => item.id === selectedTestCaseId)) testCase.value = selectedTestCaseId;
+  if (visible.some((item) => item.id === selectedQueueEvaluationId)) queueEvaluation.value = selectedQueueEvaluationId;
   updateSelection();
 }
 
@@ -561,32 +604,32 @@ search.addEventListener('input', renderCatalog);
 testCase.addEventListener('change', updateSelection);
 
 prepare.addEventListener('click', async () => {
-  const item = selectedItem();
-  if (!item?.eligible) return;
-  prepare.disabled = true;
-  status.textContent = 'Preparing Live Test…';
-  const response = await chrome.runtime.sendMessage({ type: 'ROVER_PREPARE', testCaseId: item.id, origin: origin.value });
-  prepare.disabled = false;
-  if (!response?.ok) status.textContent = `Error: ${response?.error ?? 'Could not prepare Live Test.'}`;
-  else render(response.state);
+  await runButtonAction(prepare, async () => {
+    const item = selectedItem();
+    if (!item?.eligible) return;
+    status.textContent = 'Preparing Live Test…';
+    const response = await chrome.runtime.sendMessage({ type: 'ROVER_PREPARE', testCaseId: item.id, origin: origin.value });
+    if (!response?.ok) status.textContent = `Error: ${response?.error ?? 'Could not prepare Live Test.'}`;
+    else render(response.state);
+  });
 });
 
 run.addEventListener('click', async () => {
-  run.disabled = true;
-  const response = await chrome.runtime.sendMessage({ type: 'ROVER_EXECUTE' });
-  run.disabled = false;
-  if (!response?.ok) status.textContent = `Error: ${response?.error ?? 'Could not run Live Test.'}`;
-  else render(response.state);
+  await runButtonAction(run, async () => {
+    const response = await chrome.runtime.sendMessage({ type: 'ROVER_EXECUTE' });
+    if (!response?.ok) status.textContent = `Error: ${response?.error ?? 'Could not run Live Test.'}`;
+    else render(response.state);
+  });
 });
 
 stop.addEventListener('click', async () => {
-  stop.disabled = true;
-  status.textContent = 'Stopping Live Test…';
-  await chrome.runtime.sendMessage({ type: 'ROVER_CANCEL' });
-  stop.disabled = false;
-  manualAnswer.value = '';
-  render(null);
-  await loadCatalog(origin.value);
+  await runButtonAction(stop, async () => {
+    status.textContent = 'Stopping Live Test…';
+    await chrome.runtime.sendMessage({ type: 'ROVER_CANCEL' });
+    manualAnswer.value = '';
+    render(null);
+    await loadCatalog(origin.value);
+  });
 });
 
 copyPrompt.addEventListener('click', async () => {
@@ -595,15 +638,15 @@ copyPrompt.addEventListener('click', async () => {
 });
 
 evaluate.addEventListener('click', async () => {
-  if (!manualAnswer.value.trim()) {
-    status.textContent = 'Paste the final answer first.';
-    return;
-  }
-  evaluate.disabled = true;
-  const response = await chrome.runtime.sendMessage({ type: 'ROVER_COMPLETE_MANUAL', text: manualAnswer.value });
-  evaluate.disabled = false;
-  if (!response?.ok) status.textContent = `Evaluation error: ${response?.error ?? 'Could not evaluate answer.'}`;
-  else render(response.state);
+  await runButtonAction(evaluate, async () => {
+    if (!manualAnswer.value.trim()) {
+      status.textContent = 'Paste the final answer first.';
+      return;
+    }
+    const response = await chrome.runtime.sendMessage({ type: 'ROVER_COMPLETE_MANUAL', text: manualAnswer.value });
+    if (!response?.ok) status.textContent = `Evaluation error: ${response?.error ?? 'Could not evaluate answer.'}`;
+    else render(response.state);
+  });
 });
 
 openResult.addEventListener('click', async () => {

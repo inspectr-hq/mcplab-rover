@@ -1,5 +1,6 @@
 import type { ChatProviderAdapter } from './types';
 import { isVisible, textFrom } from './dom';
+import { debugCheck, first } from './adapter-helpers';
 import type { ResponseCandidate } from '../runtime/candidate-selection';
 
 const composerSelectors = ['div[contenteditable="true"].ProseMirror', '[contenteditable="true"]'];
@@ -15,14 +16,6 @@ const assistantSelectors = [
   '[data-testid="assistant-message"]',
   '[data-testid="message-content"]'
 ];
-
-function first<T extends Element>(selectors: string[]): T | null {
-  for (const selector of selectors) {
-    const element = document.querySelector<T>(selector);
-    if (element) return element;
-  }
-  return null;
-}
 
 async function waitForEnabledButton(timeoutMs = 3000): Promise<HTMLButtonElement> {
   const startedAt = Date.now();
@@ -87,8 +80,3 @@ export const claudeAdapter: ChatProviderAdapter = {
     };
   }
 };
-
-function debugCheck(id: string, label: string, selectors: string[]) {
-  const present = Boolean(first<HTMLElement>(selectors));
-  return { id, label, present, detail: present ? 'Found matching element' : 'Element not found', selector: selectors.join(', ') };
-}

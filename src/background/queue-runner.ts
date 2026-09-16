@@ -8,7 +8,7 @@ import { activeTab, detectProvider } from './browser';
 import type { RoverStage } from '../contracts';
 import { errorMessage } from './errors';
 import { getQueue, saveQueue } from './store';
-import { clearLease, currentSocket, persistLeaseRelease, type LeaseReleaseReason } from './socket';
+import { clearLease, currentSocket, persistLeaseRelease, type LeaseReleaseReason } from './lease-transport';
 import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover-protocol';
 import { selectMatchingExecutionTab } from './execution-tab';
 import { enqueueLeaseActions } from '../queue/lease-outbox';
