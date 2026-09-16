@@ -1,6 +1,6 @@
 import type { ChatProviderAdapter } from './types';
 import { isVisible, setTextValue, textFrom } from './dom';
-import { debugCheck } from './adapter-helpers';
+import { debugCheck, pageAlertText } from './adapter-helpers';
 
 const assistantSelector = '[data-test="chat-messages_message"].chat-messages__message--assistant';
 
@@ -50,7 +50,7 @@ export const trendminerAdapter: ChatProviderAdapter = {
     })),
   getResponseState: (candidates) => {
     const submit = trendminerAdapter.findSubmitButton();
-    const error = document.querySelector('[role="alert"]')?.textContent?.trim() || null;
+    const error = pageAlertText();
     return {
       text: candidates.at(-1)?.text ?? '',
       isGenerating: Boolean(submit?.disabled),

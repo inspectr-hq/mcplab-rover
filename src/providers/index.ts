@@ -5,6 +5,7 @@ import { chatgptAdapter } from './chatgpt';
 import { trendminerAdapter } from './trendminer';
 import { createLearnedAdapter } from './learned';
 import { isValidBrowserProviderProfile } from './profile-validation';
+export { BUILT_IN_PROVIDER_IDS, isBuiltInProvider } from './catalog';
 
 const builtInAdapters: ChatProviderAdapter[] = [claudeAdapter, chatgptAdapter, trendminerAdapter];
 let learnedAdapters: ChatProviderAdapter[] = [];

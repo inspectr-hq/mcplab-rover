@@ -2,6 +2,7 @@ import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
 import type { ChatProviderAdapter } from './types';
 import type { ResponseCandidate } from '../runtime/candidate-selection';
 import { isVisible, setTextValue, textFrom } from './dom';
+import { pageAlertText } from './adapter-helpers';
 
 function findFallbackSubmit(): HTMLElement | null {
   return Array.from(document.querySelectorAll<HTMLElement>('button,[role="button"]')).find((element) => {
@@ -78,7 +79,7 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
     getResponseState: (items: ResponseCandidate[]) => {
       const generating = profile.completion.generatingLocator ? Boolean(findPath(profile.completion.generatingLocator)[0]) : false;
       const idle = profile.completion.idleLocator ? Boolean(findPath(profile.completion.idleLocator)[0]) : !generating;
-      const error = document.querySelector('[role="alert"]')?.textContent?.trim() || null;
+      const error = pageAlertText();
       return { text: items.at(-1)?.text ?? '', isGenerating: generating, isIdle: idle, error };
     },
     getDebugChecks: () => [

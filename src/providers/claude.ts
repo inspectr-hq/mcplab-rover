@@ -1,6 +1,6 @@
 import type { ChatProviderAdapter } from './types';
 import { isVisible, textFrom } from './dom';
-import { debugCheck, first } from './adapter-helpers';
+import { debugCheck, first, pageAlertText } from './adapter-helpers';
 import type { ResponseCandidate } from '../runtime/candidate-selection';
 
 const composerSelectors = ['div[contenteditable="true"].ProseMirror', '[contenteditable="true"]'];
@@ -69,7 +69,7 @@ export const claudeAdapter: ChatProviderAdapter = {
   getResponseState: (candidates) => {
     const stop = document.querySelector('[aria-label*="Stop"], button[data-is-streaming="true"]');
     const submit = claudeAdapter.findSubmitButton();
-    const error = document.querySelector('[role="alert"]')?.textContent?.trim() || null;
+    const error = pageAlertText();
     const isGenerating = Boolean(stop || document.querySelector('[data-is-streaming="true"]'));
     const hasCompletedContainer = Boolean(document.querySelector('[data-is-streaming="false"]'));
     return {

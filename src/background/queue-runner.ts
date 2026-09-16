@@ -5,7 +5,6 @@ import {
   type RoverQueueState
 } from '../queue/state';
 import { activeTab, detectProvider } from './browser';
-import type { RoverStage } from '../contracts';
 import { errorMessage } from './errors';
 import { getQueue, saveQueue } from './store';
 import { clearLease, currentSocket, persistLeaseRelease } from './lease-transport';
@@ -13,16 +12,11 @@ import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover
 import type { RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
 import { selectMatchingExecutionTab } from './execution-tab';
 import { enqueueLeaseActions } from '../queue/lease-outbox';
+import { isBuiltInProvider } from '../providers/catalog';
+import { sendStage } from './queue-message-helpers';
 
 function debugLog(event: string, details: Record<string, unknown> = {}): void {
   console.info(`[Rover debug] ${event}`, details);
-}
-
-function sendStage(queue: RoverQueueState, itemId: string, stage: RoverStage): void {
-  const socket = currentSocket();
-  if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ type: 'stage', jobId: queue.queueId, scenarioId: itemId, stage, ...(queue.leaseId ? { leaseId: queue.leaseId } : {}) }));
-  }
 }
 
 export function sendScenarioStatus(queue: RoverQueueState, item: RoverQueueState['items'][number], lastDurationMs?: number): void {
@@ -167,7 +161,7 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
       debugLog('rebinding queue to matching active tab', { queueId: queue.queueId, provider: queue.provider, previousTabId: queue.tabId, tabId: executionTabId });
       queue = { ...queue, tabId: executionTabId };
     }
-    if (queue.provider !== 'claude' && queue.provider !== 'trendminer' && queue.provider !== 'chatgpt-com') {
+    if (!isBuiltInProvider(queue.provider)) {
       const profile = (await client.listBrowserProviders()).find((candidate) => candidate.id === queue.provider);
       if (!profile) throw new Error(`Learned browser provider '${queue.provider}' is no longer available in MCPLab.`);
     }

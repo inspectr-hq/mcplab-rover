@@ -4,7 +4,7 @@ import { trendminerAdapter } from '../src/providers/trendminer';
 import { chatgptAdapter } from '../src/providers/chatgpt';
 import { claudeAdapter } from '../src/providers/claude';
 import { createLearnedAdapter } from '../src/providers/learned';
-import { adapters, findAdapter, findPageAdapter, setLearnedProfiles } from '../src/providers';
+import { adapters, findAdapter, findPageAdapter, isBuiltInProvider, setLearnedProfiles } from '../src/providers';
 import { isValidBrowserProviderProfile } from '../src/providers/profile-validation';
 
 const learnedProfile = {
@@ -24,6 +24,15 @@ describe('learned provider profile validation', () => {
   it('rejects malformed optional locators instead of treating them as absent', () => {
     expect(isValidBrowserProviderProfile({ ...learnedProfile, assistantMessages: { ...learnedProfile.assistantMessages, textLocator: 'not-a-locator' } })).toBe(false);
     expect(isValidBrowserProviderProfile(learnedProfile)).toBe(true);
+  });
+});
+
+describe('provider catalog helpers', () => {
+  it('centralizes built-in provider identity', () => {
+    expect(isBuiltInProvider('claude')).toBe(true);
+    expect(isBuiltInProvider('chatgpt-com')).toBe(true);
+    expect(isBuiltInProvider('trendminer')).toBe(true);
+    expect(isBuiltInProvider('custom-browser')).toBe(false);
   });
 });
 

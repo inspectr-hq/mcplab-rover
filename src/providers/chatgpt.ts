@@ -1,6 +1,6 @@
 import type { ChatProviderAdapter } from './types';
 import { isVisible, setTextValue, textFrom } from './dom';
-import { debugCheck, first } from './adapter-helpers';
+import { debugCheck, first, pageAlertText } from './adapter-helpers';
 
 const composerSelectors = ['[aria-label="Chat with ChatGPT"]', '[contenteditable="true"]'];
 const assistantSelector = '[data-message-author-role="assistant"], [data-testid^="conversation-turn-"]';
@@ -46,7 +46,7 @@ export const chatgptAdapter: ChatProviderAdapter = {
   })),
   getResponseState: (candidates) => {
     const isGenerating = Boolean(document.querySelector('button[aria-label*="Stop"], [data-testid="stop-button"]'));
-    const error = document.querySelector('[role="alert"]')?.textContent?.trim() || null;
+    const error = pageAlertText();
     return { text: candidates.at(-1)?.text ?? '', isGenerating, isIdle: !isGenerating, error };
   }
 };

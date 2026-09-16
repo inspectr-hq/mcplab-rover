@@ -13,3 +13,7 @@ export function debugCheck(id: string, label: string, selectors: string | string
   const present = Boolean(first<HTMLElement>(list));
   return { id, label, present, detail: present ? 'Found matching element' : 'Element not found', selector: list.join(', ') };
 }
+
+export function pageAlertText(): string | null {
+  return document.querySelector('[role="alert"]')?.textContent?.trim() || null;
+}
