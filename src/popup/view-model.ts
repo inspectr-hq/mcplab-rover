@@ -5,6 +5,19 @@ import type { RoverQueueItem } from '../queue/state';
 
 export type PopupMode = 'manual' | 'queue' | 'learn' | 'debug';
 
+export const managedPhaseLabels: Record<string, string> = {
+  offered: 'Offer received',
+  accepted: 'Assignment accepted',
+  running: 'Running in agent',
+  finalizing: 'Finalizing in MCPLab',
+  waiting_ack: 'Waiting for MCPLab acknowledgement',
+  terminal: 'Stopped'
+};
+
+export function managedPhaseLabel(phase: string | undefined): string | undefined {
+  return phase ? managedPhaseLabels[phase] : undefined;
+}
+
 export function modeVisibility(mode: PopupMode, hasManualSession: boolean): { catalog: boolean; session: boolean; queue: boolean; debug: boolean } {
   if (mode === 'debug') return { catalog: false, session: false, queue: false, debug: true };
   if (mode === 'learn') return { catalog: false, session: false, queue: false, debug: false };

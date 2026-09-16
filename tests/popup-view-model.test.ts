@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility, projectQueueForProvider, splitQueueItems, suggestedProviderName } from '../src/popup/view-model';
+import { debugFingerprint, filterTestCases, formatCheckCounts, managedPhaseLabel, modeVisibility, projectQueueForProvider, splitQueueItems, suggestedProviderName } from '../src/popup/view-model';
 
 const cases = [
   { id: 'alpha', name: 'Restaurant search', tags: ['food'], assertionCount: 2, eligible: true },
@@ -23,6 +23,12 @@ describe('popup view model', () => {
     expect(modeVisibility('manual', true)).toEqual({ catalog: false, session: true, queue: false, debug: false });
     expect(modeVisibility('queue', false)).toEqual({ catalog: false, session: false, queue: true, debug: false });
     expect(modeVisibility('debug', false)).toEqual({ catalog: false, session: false, queue: false, debug: true });
+  });
+
+  it('labels managed lease phases for the popup', () => {
+    expect(managedPhaseLabel('running')).toBe('Running in agent');
+    expect(managedPhaseLabel('waiting_ack')).toBe('Waiting for MCPLab acknowledgement');
+    expect(managedPhaseLabel('idle')).toBeUndefined();
   });
 
   it('ignores diagnostic check timestamps when comparing snapshots', () => {

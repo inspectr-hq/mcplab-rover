@@ -5,6 +5,7 @@ import { chatgptAdapter } from '../src/providers/chatgpt';
 import { claudeAdapter } from '../src/providers/claude';
 import { createLearnedAdapter } from '../src/providers/learned';
 import { adapters, findAdapter, findPageAdapter, setLearnedProfiles } from '../src/providers';
+import { isValidBrowserProviderProfile } from '../src/providers/profile-validation';
 
 const learnedProfile = {
   schemaVersion: 1 as const,
@@ -18,6 +19,13 @@ const learnedProfile = {
   newConversation: { action: 'click' as const, locator: { segments: ['[data-testid="new-chat"]'] } },
   learned: { sourceOrigin: 'https://chatgpt.com', createdAt: '2026-09-10T00:00:00.000Z', updatedAt: '2026-09-10T00:01:00.000Z', confidence: {} }
 };
+
+describe('learned provider profile validation', () => {
+  it('rejects malformed optional locators instead of treating them as absent', () => {
+    expect(isValidBrowserProviderProfile({ ...learnedProfile, assistantMessages: { ...learnedProfile.assistantMessages, textLocator: 'not-a-locator' } })).toBe(false);
+    expect(isValidBrowserProviderProfile(learnedProfile)).toBe(true);
+  });
+});
 
 describe('TrendMiner adapter', () => {
   it('reports semantic element diagnostics', () => {

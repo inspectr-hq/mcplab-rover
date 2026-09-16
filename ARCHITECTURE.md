@@ -54,14 +54,14 @@ Provider changes are availability updates, not cancellation requests. A running 
 
 ## WebSocket protocol
 
-Keep `protocolVersion: 1`. Add optional lease fields and advertise the `assignment_lease` capability alongside `scenario_control`.
+Keep `protocolVersion: 2`. Add lease fields and advertise the `assignment_lease` capability alongside `scenario_control`.
 
 Registration:
 
 ```json
 {
   "type": "register",
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "capabilities": ["scenario_control", "assignment_lease"],
   "provider": "chatgpt-com",
   "pageUrl": "https://chatgpt.com/",

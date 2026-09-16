@@ -11,7 +11,8 @@ function validSelector(selector: unknown): selector is string {
 }
 
 function validLocator(value: unknown, required = true): value is ShadowLocator {
-  if (!value || typeof value !== 'object') return !required;
+  if (!value) return !required;
+  if (typeof value !== 'object') return false;
   const segments = (value as { segments?: unknown }).segments;
   return Array.isArray(segments) && segments.length > 0 && segments.every(validSelector);
 }

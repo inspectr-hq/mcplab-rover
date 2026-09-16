@@ -1,7 +1,7 @@
 import type { BrowserProviderDiscoveryDraft, DebugElementCheck, DebugSnapshot, RoverState } from '../contracts';
 import type { LiveTestCatalogItem } from '../mcplab/types';
 import type { RoverQueueState } from '../queue/state';
-import { debugFingerprint, filterTestCases, formatCheckCounts, modeVisibility, projectQueueForProvider, suggestedProviderName } from './view-model';
+import { debugFingerprint, filterTestCases, formatCheckCounts, managedPhaseLabel, modeVisibility, projectQueueForProvider, suggestedProviderName } from './view-model';
 import './style.css';
 
 const shell = document.querySelector<HTMLElement>('.shell')!;
@@ -117,8 +117,8 @@ newConversation.addEventListener('click', async () => {
   }
   status.textContent = 'New conversation started.';
 });
-manualMode.addEventListener('click', () => void setMode('manual'));
-queueMode.addEventListener('click', async () => {
+manualMode.addEventListener('click', () => void runButtonAction(manualMode, () => setMode('manual')));
+queueMode.addEventListener('click', () => void runButtonAction(queueMode, async () => {
   await setMode('queue');
   if (!currentQueue) {
     const response = await chrome.runtime.sendMessage({
@@ -129,10 +129,10 @@ queueMode.addEventListener('click', async () => {
     if (response?.ok) renderQueue(response.queue);
     else queueStatus.textContent = response?.error ?? 'Could not create queue.';
   }
-});
-debugMode.addEventListener('click', () => void setMode('debug'));
-learnMode.addEventListener('click', () => void setMode('learn'));
-learnStart.addEventListener('click', async () => {
+}));
+debugMode.addEventListener('click', () => void runButtonAction(debugMode, () => setMode('debug')));
+learnMode.addEventListener('click', () => void runButtonAction(learnMode, () => setMode('learn')));
+learnStart.addEventListener('click', () => void runButtonAction(learnStart, async () => {
   if (learnStart.textContent === 'Stop learning') {
     const response = await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_STOP' });
     if (!response?.ok) {
@@ -154,7 +154,7 @@ learnStart.addEventListener('click', async () => {
     learnStatus.textContent = response?.error ?? 'Could not start learning.';
     learnStart.textContent = 'Start learning';
   }
-});
+}));
 learnSave.addEventListener('click', async () => {
   if (!discoveryDraft) return;
   const name = learnName.value.trim();
@@ -364,20 +364,13 @@ function renderQueue(queue: RoverQueueState | null): void {
   queueItems.replaceChildren(...groups);
   queueItems.parentElement?.classList.toggle('queue-managed', managed);
   queueStart.hidden = !editable;
-  const phaseLabel: Record<string, string> = {
-    offered: 'Offer received',
-    accepted: 'Assignment accepted',
-    running: 'Running in agent',
-    finalizing: 'Finalizing in MCPLab',
-    waiting_ack: 'Waiting for MCPLab acknowledgement',
-    terminal: 'Stopped'
-  };
+  const phaseLabel = managedPhaseLabel(queue.managedPhase);
   queueStatus.textContent = !matchesCurrentAssignment && managed
     ? `Assignment received for ${queue.provider}. Switch to a matching page to run it (${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} processed).`
     : !matchesCurrentAssignment
       ? `Switch to ${queue.provider} to edit or run this queue.`
-    : managed && queue.managedPhase && phaseLabel[queue.managedPhase]
-    ? `${phaseLabel[queue.managedPhase]}${queue.managedPhase === 'waiting_ack' ? '.' : '...'}`
+    : managed && phaseLabel
+    ? `${phaseLabel}${queue.managedPhase === 'waiting_ack' ? '.' : '...'}`
     : queue.status === 'paused'
     ? `Paused: ${queue.error?.message ?? 'Queue needs attention.'}`
     : queue.status === 'completed'
@@ -657,12 +650,12 @@ openResult.addEventListener('click', async () => {
   if (current?.resultUrl) await chrome.tabs.create({ url: `${current.origin}${current.resultUrl}` });
 });
 
-reset.addEventListener('click', async () => {
+reset.addEventListener('click', () => void runButtonAction(reset, async () => {
   await chrome.runtime.sendMessage({ type: 'ROVER_CANCEL' });
   manualAnswer.value = '';
   render(null);
   await loadCatalog(origin.value);
-});
+}));
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'session' && changes['rover.run']) render(changes['rover.run'].newValue as RoverState | null);
