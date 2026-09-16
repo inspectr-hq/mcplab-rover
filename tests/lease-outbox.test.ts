@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { leaseOutboxHead, reduceLeaseOutbox } from '../src/queue/lease-outbox';
+import { clearLeaseState, leaseOutboxHead, reduceLeaseOutbox } from '../src/queue/lease-outbox';
 import { createQueue } from '../src/queue/state';
 
 function queue() {
@@ -35,6 +35,7 @@ describe('lease outbox reducer', () => {
     const acknowledged = reduceLeaseOutbox(pending, { type: 'acknowledge', jobId: 'job-1', leaseId: 'lease-1', actionType: 'release' });
     expect(acknowledged.leaseId).toBeUndefined();
     expect(acknowledged.managedPhase).toBe('idle');
+    expect(clearLeaseState({ ...queue(), status: 'completed', managedPhase: 'running' }).managedPhase).toBe('terminal');
     const unknown = reduceLeaseOutbox(pending, { type: 'unknown', jobId: 'job-1', leaseId: 'lease-1' });
     expect(unknown.leaseId).toBeUndefined();
     expect(unknown.pendingLeaseActions).toBeUndefined();

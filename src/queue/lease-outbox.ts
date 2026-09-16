@@ -14,7 +14,12 @@ export function clearLeaseState(queue: RoverQueueState): RoverQueueState {
     pendingLeaseActions: _pendingLeaseActions,
     ...withoutLease
   } = queue;
-  return { ...withoutLease, ...(queue.managedPhase ? { managedPhase: 'idle' as const } : {}) };
+  return {
+    ...withoutLease,
+    ...(queue.managedPhase
+      ? { managedPhase: queue.status === 'completed' || queue.status === 'stopped' ? 'terminal' as const : 'idle' as const }
+      : {})
+  };
 }
 
 export function leaseOutboxHead(queue: RoverQueueState): PendingLeaseAction | undefined {
