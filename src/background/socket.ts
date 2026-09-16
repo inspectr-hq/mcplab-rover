@@ -348,6 +348,11 @@ export async function connectToMcplab(): Promise<void> {
           reportAssignmentError(reason);
         }
       };
+      if (!leaseBearing) {
+        lastAssignmentDecision = { decision: 'rejected', reason: 'assignment_lease_required', at: new Date().toISOString() };
+        reportAssignmentError('assignment_lease_required');
+        return;
+      }
       void serializeQueueOperation(async () => {
         if (leaseBearing && (!message.leaseExpiresAt || Date.parse(message.leaseExpiresAt) <= Date.now())) {
           rejectAssignment('expired_assignment');
