@@ -4,7 +4,7 @@ import { trendminerAdapter } from '../src/providers/trendminer';
 import { chatgptAdapter } from '../src/providers/chatgpt';
 import { claudeAdapter } from '../src/providers/claude';
 import { createLearnedAdapter } from '../src/providers/learned';
-import { findAdapter, findPageAdapter, setLearnedProfiles } from '../src/providers';
+import { adapters, findAdapter, findPageAdapter, setLearnedProfiles } from '../src/providers';
 
 const learnedProfile = {
   schemaVersion: 1 as const,
@@ -204,5 +204,15 @@ describe('Learned provider adapter', () => {
 
     setLearnedProfiles([]);
     expect(findAdapter()?.id).toBeUndefined();
+  });
+
+  it('ignores malformed learned profiles without affecting built-in detection', () => {
+    document.body.innerHTML = '<div aria-label="Chat with ChatGPT" contenteditable="true"></div>';
+
+    expect(() => setLearnedProfiles([{ id: 'broken' } as never])).not.toThrow();
+    expect(adapters.map((adapter) => adapter.id)).toEqual(['claude', 'chatgpt-com', 'trendminer']);
+
+    expect(() => setLearnedProfiles([{ ...learnedProfile, composer: { ...learnedProfile.composer, locator: { segments: ['['] } } }])).not.toThrow();
+    expect(adapters.map((adapter) => adapter.id)).toEqual(['claude', 'chatgpt-com', 'trendminer']);
   });
 });

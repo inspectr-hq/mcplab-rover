@@ -91,6 +91,7 @@ export function startProviderDiscovery(onDraft: (draft: BrowserProviderDiscovery
   let assistant: HTMLElement | null = null;
   let submittedAt = 0;
   let submissionArmed = false;
+  let emitted = false;
   let stopped = false;
   const startedAt = new Date().toISOString();
   const origin = location.origin;
@@ -98,7 +99,7 @@ export function startProviderDiscovery(onDraft: (draft: BrowserProviderDiscovery
   let lastScanSignature = '';
   discoveryLog('started', { origin, href: location.href, baselineTextCount: baselineTexts.size });
   const scan = () => {
-    if (stopped || assistant || (!submittedAt && !submissionArmed)) return;
+    if (stopped || emitted || (!submittedAt && !submissionArmed)) return;
     const candidates = allElements('*')
       .filter((element) => !element.isContentEditable && element !== composer && !composer?.contains(element))
       .filter((element) => element.children.length === 0 || (element.innerText?.length ?? 0) > 20)
@@ -167,6 +168,7 @@ export function startProviderDiscovery(onDraft: (draft: BrowserProviderDiscovery
   };
   const emit = () => {
     if (!composer || !assistant) return;
+    emitted = true;
     const submitLocator = submit && submit !== composer ? locator(submit) : undefined;
     const newConversation = allElements('button,[role="button"],a').find((element) => {
       if (!visible(element)) return false;

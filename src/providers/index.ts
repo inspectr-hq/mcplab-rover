@@ -4,15 +4,15 @@ import { claudeAdapter } from './claude';
 import { chatgptAdapter } from './chatgpt';
 import { trendminerAdapter } from './trendminer';
 import { createLearnedAdapter } from './learned';
-import type { BrowserProviderProfile } from '../mcplab/types';
+import { isValidBrowserProviderProfile } from './profile-validation';
 
 const builtInAdapters: ChatProviderAdapter[] = [claudeAdapter, chatgptAdapter, trendminerAdapter];
 let learnedAdapters: ChatProviderAdapter[] = [];
 
 export const adapters: ChatProviderAdapter[] = [...builtInAdapters];
 
-export function setLearnedProfiles(profiles: BrowserProviderProfile[]): void {
-  learnedAdapters = profiles.map(createLearnedAdapter);
+export function setLearnedProfiles(profiles: unknown[]): void {
+  learnedAdapters = profiles.filter(isValidBrowserProviderProfile).map(createLearnedAdapter);
   adapters.splice(0, adapters.length, ...learnedAdapters, ...builtInAdapters);
 }
 
