@@ -2,6 +2,18 @@ import type { QueueItemStatus, RoverQueueItem } from '../queue/state';
 
 export const ROVER_CAPABILITIES = ['scenario_control', 'assignment_lease'] as const;
 export const ROVER_PROTOCOL_VERSION = 2 as const;
+export const ROVER_LEASE_RELEASE_REASONS = [
+  'completed',
+  'error',
+  'stopped',
+  'connection_lost',
+  'provider_unavailable',
+  'provider_mismatch',
+  'stale_provider',
+  'bound_tab_unavailable',
+  'terminal_error'
+] as const;
+export type RoverLeaseReleaseReason = (typeof ROVER_LEASE_RELEASE_REASONS)[number];
 
 export function registrationPayload(provider: string, pageUrl: string, extensionVersion: string, providerRevision?: string) {
   return {
@@ -33,7 +45,7 @@ export type LeaseMessage =
   | { type: 'assignment_accept'; jobId: string; leaseId: string; tabId?: number }
   | { type: 'assignment_reject'; jobId: string; leaseId: string; reason: string; retryable: boolean }
   | { type: 'lease_renew'; jobId: string; leaseId: string; leaseExpiresAt: string }
-  | { type: 'lease_release'; jobId: string; leaseId: string; reason: 'completed' | 'error' | 'stopped' | 'connection_lost' | 'provider_unavailable' | 'provider_mismatch' | 'stale_provider' | 'bound_tab_unavailable' | 'terminal_error' };
+  | { type: 'lease_release'; jobId: string; leaseId: string; reason: RoverLeaseReleaseReason };
 
 export interface LeaseUnknownMessage {
   type: 'lease_unknown';

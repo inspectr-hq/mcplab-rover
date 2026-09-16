@@ -4,7 +4,7 @@ import { McplabClient } from '../mcplab/api-client';
 import { archiveCompletedQueueItems, createQueue, startQueue, stopQueue, stopScenario } from '../queue/state';
 import { activeTab, detectProvider } from './browser';
 import { cancelActiveQueueItem, failManagedQueue, finalizeManagedQueue, pauseQueue, runQueueItem, sendScenarioStatus, startQueueConversation, waitForProviderReady } from './queue-runner';
-import { registrationPayload, ROVER_PROTOCOL_VERSION } from '../mcplab/rover-protocol';
+import { registrationPayload, ROVER_LEASE_RELEASE_REASONS, ROVER_PROTOCOL_VERSION, type RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
 import { getQueue, QUEUE_KEY, resolveOrigin, saveQueue } from './store';
 import type { RoverQueueState } from '../queue/state';
 import { clearLeaseState, enqueueLeaseActions, leaseOutboxHead, leaseOutboxMatches, reduceLeaseOutbox } from '../queue/lease-outbox';
@@ -51,7 +51,8 @@ export function clearLease(queue: RoverQueueState): RoverQueueState {
   return clearLeaseState(queue);
 }
 
-export type LeaseReleaseReason = 'completed' | 'error' | 'stopped' | 'connection_lost' | 'provider_unavailable' | 'provider_mismatch' | 'stale_provider' | 'bound_tab_unavailable' | 'terminal_error';
+export const LEASE_RELEASE_REASONS = ROVER_LEASE_RELEASE_REASONS;
+export type LeaseReleaseReason = RoverLeaseReleaseReason;
 
 export function releaseLease(queue: RoverQueueState, reason: LeaseReleaseReason): RoverQueueState {
   if (!queue.leaseId) return queue;

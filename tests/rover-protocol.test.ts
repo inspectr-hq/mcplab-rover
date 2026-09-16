@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { registrationPayload, scenarioStatusForItem, ROVER_CAPABILITIES } from '../src/mcplab/rover-protocol';
+import { registrationPayload, scenarioStatusForItem, ROVER_CAPABILITIES, ROVER_LEASE_RELEASE_REASONS } from '../src/mcplab/rover-protocol';
 
 describe('Rover protocol', () => {
   it('maps queue item state to scenario status events', () => {
@@ -16,5 +16,12 @@ describe('Rover protocol', () => {
       protocolVersion: 2,
       capabilities: ['scenario_control', 'assignment_lease'],
     });
+  });
+
+  it('defines the complete lease release reason contract', () => {
+    expect(ROVER_LEASE_RELEASE_REASONS).toEqual([
+      'completed', 'error', 'stopped', 'connection_lost', 'provider_unavailable',
+      'provider_mismatch', 'stale_provider', 'bound_tab_unavailable', 'terminal_error'
+    ]);
   });
 });
