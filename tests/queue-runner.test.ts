@@ -6,21 +6,13 @@ const mocks = vi.hoisted(() => ({
   persistLeaseRelease: vi.fn()
 }));
 
-vi.mock('../src/background/socket', () => ({
+vi.mock('../src/background/lease-transport', () => ({
   currentSocket: () => mocks.socket,
   clearLease: (queue: Record<string, unknown>) => {
     const { leaseId: _leaseId, leaseState: _leaseState, leaseExpiresAt: _leaseExpiresAt, ...cleared } = queue;
     return cleared;
   },
-  queueWithPendingLeaseRelease: (queue: Record<string, unknown>, reason: string) => ({
-    ...queue,
-    leaseId: undefined,
-    leaseState: undefined,
-    leaseExpiresAt: undefined,
-    pendingLeaseActions: [{ type: 'release', leaseId: queue.leaseId, reason }]
-  }),
-  persistLeaseRelease: mocks.persistLeaseRelease,
-  releaseLease: vi.fn()
+  persistLeaseRelease: mocks.persistLeaseRelease
 }));
 vi.mock('../src/background/store', () => ({ getQueue: vi.fn(), saveQueue: mocks.saveQueue }));
 

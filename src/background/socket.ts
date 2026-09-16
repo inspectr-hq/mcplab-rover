@@ -11,7 +11,7 @@ import { leaseOutboxHead, leaseOutboxMatches, reduceLeaseOutbox } from '../queue
 import { transitionManagedLease } from '../queue/managed-lease';
 import { queueNeedsResume } from '../queue/recovery';
 import { serializeQueueOperation } from '../queue/operations';
-import { configureLeaseTransport, persistLeaseRelease } from './lease-transport';
+import { configureLeaseTransport, persistLeaseRelease, type LeaseReleaseReason } from './lease-transport';
 
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
@@ -30,7 +30,13 @@ function stopLeaseRenewal(): void {
   roverLeaseRenewal = null;
 }
 
-configureLeaseTransport({ getSocket: () => roverSocket, stopRenewal: stopLeaseRenewal });
+configureLeaseTransport({
+  getSocket: () => roverSocket,
+  stopRenewal: stopLeaseRenewal,
+  onRelease: (reason: LeaseReleaseReason) => {
+    lastAssignmentDecision = { decision: 'released', reason, at: new Date().toISOString() };
+  }
+});
 
 export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
   stopLeaseRenewal();

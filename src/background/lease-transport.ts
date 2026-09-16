@@ -1,17 +1,18 @@
 import type { RoverQueueState } from '../queue/state';
 import { clearLeaseState, enqueueLeaseActions } from '../queue/lease-outbox';
-import { getQueue, saveQueue } from './store';
-import { ROVER_LEASE_RELEASE_REASONS, type RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
+import { saveQueue } from './store';
+import type { RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
 
 let socketProvider: () => WebSocket | null = () => null;
 let stopRenewal: () => void = () => undefined;
+let releaseObserver: (reason: LeaseReleaseReason) => void = () => undefined;
 
 export type LeaseReleaseReason = RoverLeaseReleaseReason;
-export const LEASE_RELEASE_REASONS = ROVER_LEASE_RELEASE_REASONS;
 
-export function configureLeaseTransport(options: { getSocket: () => WebSocket | null; stopRenewal: () => void }): void {
+export function configureLeaseTransport(options: { getSocket: () => WebSocket | null; stopRenewal: () => void; onRelease?: (reason: LeaseReleaseReason) => void }): void {
   socketProvider = options.getSocket;
   stopRenewal = options.stopRenewal;
+  releaseObserver = options.onRelease ?? (() => undefined);
 }
 
 export function currentSocket(): WebSocket | null {
@@ -22,12 +23,13 @@ export function clearLease(queue: RoverQueueState): RoverQueueState {
   return clearLeaseState(queue);
 }
 
-export function releaseLease(queue: RoverQueueState, reason: LeaseReleaseReason): RoverQueueState {
+function sendLeaseRelease(queue: RoverQueueState, reason: LeaseReleaseReason): RoverQueueState {
   if (!queue.leaseId) return queue;
   const socket = currentSocket();
   if (socket?.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ type: 'lease_release', jobId: queue.queueId, leaseId: queue.leaseId, reason }));
   }
+  releaseObserver(reason);
   if (reason !== 'connection_lost') stopRenewal();
   return clearLease(queue);
 }
@@ -48,14 +50,10 @@ export async function persistLeaseRelease(queue: RoverQueueState, reason: LeaseR
   if (currentSocket()?.readyState === WebSocket.OPEN) {
     const released = clearLease(target);
     await saveQueue(released);
-    releaseLease(releaseSource, reason);
+    sendLeaseRelease(releaseSource, reason);
     return released;
   }
   const pending = queueWithPendingLeaseRelease({ ...target, leaseId: releaseSource.leaseId }, reason, clearQueue);
   await saveQueue(pending);
   return pending;
-}
-
-export async function queueForLeasePersistence(): Promise<RoverQueueState | null> {
-  return getQueue();
 }
