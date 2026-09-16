@@ -71,6 +71,7 @@ const LEGACY_LEARNING_DRAFT_KEY = 'rover.learning-draft';
 let lastDebugFingerprint = '';
 let debugRequestInFlight = false;
 let lastDebugSnapshot: DebugSnapshot | null = null;
+let modeTransitionInFlight = false;
 
 async function runButtonAction(button: HTMLButtonElement, action: () => Promise<void>): Promise<void> {
   if (button.disabled) return;
@@ -79,6 +80,16 @@ async function runButtonAction(button: HTMLButtonElement, action: () => Promise<
     await action();
   } finally {
     button.disabled = false;
+  }
+}
+
+async function runModeTransition(action: () => Promise<void>): Promise<void> {
+  if (modeTransitionInFlight) return;
+  modeTransitionInFlight = true;
+  try {
+    await action();
+  } finally {
+    modeTransitionInFlight = false;
   }
 }
 
@@ -117,8 +128,8 @@ newConversation.addEventListener('click', async () => {
   }
   status.textContent = 'New conversation started.';
 });
-manualMode.addEventListener('click', () => void runButtonAction(manualMode, () => setMode('manual')));
-queueMode.addEventListener('click', () => void runButtonAction(queueMode, async () => {
+manualMode.addEventListener('click', () => void runModeTransition(() => setMode('manual')));
+queueMode.addEventListener('click', () => void runModeTransition(async () => {
   await setMode('queue');
   if (!currentQueue) {
     const response = await chrome.runtime.sendMessage({
@@ -130,8 +141,8 @@ queueMode.addEventListener('click', () => void runButtonAction(queueMode, async 
     else queueStatus.textContent = response?.error ?? 'Could not create queue.';
   }
 }));
-debugMode.addEventListener('click', () => void runButtonAction(debugMode, () => setMode('debug')));
-learnMode.addEventListener('click', () => void runButtonAction(learnMode, () => setMode('learn')));
+debugMode.addEventListener('click', () => void runModeTransition(() => setMode('debug')));
+learnMode.addEventListener('click', () => void runModeTransition(() => setMode('learn')));
 learnStart.addEventListener('click', () => void runButtonAction(learnStart, async () => {
   if (learnStart.textContent === 'Stop learning') {
     const response = await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_STOP' });
@@ -155,7 +166,7 @@ learnStart.addEventListener('click', () => void runButtonAction(learnStart, asyn
     learnStart.textContent = 'Start learning';
   }
 }));
-learnSave.addEventListener('click', async () => {
+learnSave.addEventListener('click', () => void runButtonAction(learnSave, async () => {
   if (!discoveryDraft) return;
   const name = learnName.value.trim();
   if (!name) {
@@ -181,7 +192,7 @@ learnSave.addEventListener('click', async () => {
   } catch (error) {
     learnStatus.textContent = error instanceof Error ? error.message : 'Could not save provider.';
   }
-});
+}));
 debugRefresh.addEventListener('click', () => void refreshDebug(true));
 queueAdd.addEventListener('click', async () => {
   await runButtonAction(queueAdd, async () => {
