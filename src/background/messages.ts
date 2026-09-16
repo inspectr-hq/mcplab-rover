@@ -280,7 +280,7 @@ export function installMessageHandler(): void {
   });
 }
 
-async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RESULT' }>): Promise<void> {
+export async function handleResult(message: Extract<ExtensionMessage, { type: 'ROVER_RESULT' }>): Promise<void> {
   if (message.queueId && message.queueItemId) {
     const queue = await getQueue();
     const item = queue?.items.find((candidate) => candidate.queueItemId === message.queueItemId);
