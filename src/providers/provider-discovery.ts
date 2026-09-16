@@ -69,6 +69,15 @@ function allElements(selectorText: string): HTMLElement[] {
   );
 }
 
+function findNewConversationControl(): HTMLElement | undefined {
+  return allElements('button,[role="button"],a,[tabindex]:not([tabindex="-1"]),[aria-label],[title],[data-test],[data-testid],[trackingtest]').find((element) => {
+    if (!visible(element) || (element instanceof HTMLButtonElement && element.disabled)) return false;
+    const label =
+      `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.getAttribute('data-test') ?? ''} ${element.getAttribute('data-testid') ?? ''} ${element.getAttribute('trackingtest') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
+    return /new[\s_-]*(chat|conversation)|new[\s_-]*thread|start[\s_-]*(a[\s_-]*)?new/.test(label);
+  });
+}
+
 function descriptor(element: HTMLElement, baselineTexts: Set<string>): ChatCandidateDescriptor {
   const ancestors: string[] = [];
   let parent = element.parentElement;
@@ -243,12 +252,7 @@ export function startProviderDiscovery(
     if (!composer || !assistant) return;
     emitted = true;
     const submitLocator = submit && submit !== composer ? locator(submit) : undefined;
-    const newConversation = allElements('button,[role="button"],a').find((element) => {
-      if (!visible(element)) return false;
-      const label =
-        `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
-      return /new\s*(chat|conversation)|new\s*thread|start\s*(a\s*)?new/.test(label);
-    });
+    const newConversation = findNewConversationControl();
     const newConversationProfile = newConversation
       ? newConversation instanceof HTMLAnchorElement && newConversation.href
         ? { action: 'navigate' as const, url: newConversation.href }
