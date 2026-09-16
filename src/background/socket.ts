@@ -333,28 +333,26 @@ export async function connectToMcplab(): Promise<void> {
       }
       if (message.type !== 'assignment' || !message.jobId || !message.agent?.provider || !message.scenarios?.length) return;
       debugLog('assignment received', { jobId: message.jobId, provider: message.agent.provider, scenarios: message.scenarios.length });
-      const leaseBearing = typeof message.leaseId === 'string';
       let accepted = false;
       const reportAssignmentError = (reason: string) => {
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(JSON.stringify({ type: 'progress', jobId: message.jobId, completed: 0, total: message.scenarios?.length ?? 0, error: reason, message: `Rover could not start the assignment: ${reason}` }));
         }
       };
-      const rejectAssignment = (reason: string) => {
-        lastAssignmentDecision = { decision: 'rejected', reason, at: new Date().toISOString() };
-        if (leaseBearing && socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ type: 'assignment_reject', jobId: message.jobId, leaseId: message.leaseId, reason, retryable: true }));
-        } else {
-          reportAssignmentError(reason);
-        }
-      };
-      if (!leaseBearing) {
+      if (typeof message.leaseId !== 'string') {
         lastAssignmentDecision = { decision: 'rejected', reason: 'assignment_lease_required', at: new Date().toISOString() };
         reportAssignmentError('assignment_lease_required');
         return;
       }
+      const leaseId = message.leaseId;
+      const rejectAssignment = (reason: string) => {
+        lastAssignmentDecision = { decision: 'rejected', reason, at: new Date().toISOString() };
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: 'assignment_reject', jobId: message.jobId, leaseId, reason, retryable: true }));
+        }
+      }
       void serializeQueueOperation(async () => {
-        if (leaseBearing && (!message.leaseExpiresAt || Date.parse(message.leaseExpiresAt) <= Date.now())) {
+        if (!message.leaseExpiresAt || Date.parse(message.leaseExpiresAt) <= Date.now()) {
           rejectAssignment('expired_assignment');
           return;
         }
@@ -385,35 +383,31 @@ export async function connectToMcplab(): Promise<void> {
           return;
         }
         const previous = await getQueue();
-        if (previous && ['running', 'paused'].includes(previous.status) && (leaseBearing || Boolean(previous.leaseId))) {
+        if (previous && ['running', 'paused'].includes(previous.status)) {
           rejectAssignment('busy');
           return;
         }
         const history = previous ? archiveCompletedQueueItems(previous).recentHistory : undefined;
         const queue = createQueue(origin, message.agent!.provider!, message.newConversationBetweenScenarios !== false, new Date().toISOString());
         const assignedBase = { ...queue, recentHistory: history, queueId: message.jobId!, evaluationRunId: message.evaluationRunId, sourceConfigPath: message.configPath, sourceConfigName: message.evaluationName, sourceAgentName: message.agentName, tabId: tab.id, items: message.scenarios!.map((scenario) => ({ queueItemId: crypto.randomUUID(), testCaseId: scenario.id, id: scenario.id, name: scenario.name ?? scenario.id, prompt: scenario.prompt, assertionCount: 0, status: 'queued' as const })) };
-        let assigned = leaseBearing
-          ? transitionManagedLease(assignedBase, { type: 'offer', leaseId: message.leaseId!, leaseExpiresAt: message.leaseExpiresAt! })
-          : assignedBase;
+        let assigned = transitionManagedLease(assignedBase, { type: 'offer', leaseId, leaseExpiresAt: message.leaseExpiresAt! });
         await saveQueue(assigned);
-        if (leaseBearing) {
-          if (socket.readyState !== WebSocket.OPEN) throw new Error('Rover connection closed before assignment acceptance.');
-          socket.send(JSON.stringify({ type: 'assignment_accept', jobId: message.jobId, leaseId: message.leaseId, tabId: tab.id }));
-          accepted = true;
-          const acceptedQueue = transitionManagedLease(assigned, { type: 'accepted', leaseId: message.leaseId! });
-          await saveQueue(acceptedQueue);
-          assigned = acceptedQueue;
-          lastAssignmentDecision = { decision: 'accepted', at: new Date().toISOString() };
-          waitingEvaluations = waitingEvaluations.filter((job) => job.jobId !== message.jobId);
-        }
+        if (socket.readyState !== WebSocket.OPEN) throw new Error('Rover connection closed before assignment acceptance.');
+        socket.send(JSON.stringify({ type: 'assignment_accept', jobId: message.jobId, leaseId, tabId: tab.id }));
+        accepted = true;
+        const acceptedQueue = transitionManagedLease(assigned, { type: 'accepted', leaseId });
+        await saveQueue(acceptedQueue);
+        assigned = acceptedQueue;
+        lastAssignmentDecision = { decision: 'accepted', at: new Date().toISOString() };
+        waitingEvaluations = waitingEvaluations.filter((job) => job.jobId !== message.jobId);
         for (const item of assigned.items) sendScenarioStatus(assigned, item);
         const startedQueue = startQueue(assigned, new Date().toISOString());
-        const started = leaseBearing ? transitionManagedLease(startedQueue, { type: 'running', leaseId: message.leaseId! }) : startedQueue;
+        const started = transitionManagedLease(startedQueue, { type: 'running', leaseId });
         await saveQueue(started);
         await startLeaseRenewal(started);
         await runQueueItem(started);
       }).catch(async (error) => {
-        if (leaseBearing && !accepted && socket.readyState === WebSocket.OPEN) {
+        if (!accepted && socket.readyState === WebSocket.OPEN) {
           rejectAssignment('provider_unavailable');
         } else {
           reportAssignmentError(error instanceof Error ? error.message : String(error));
@@ -422,9 +416,9 @@ export async function connectToMcplab(): Promise<void> {
           // Before acceptance, assignment_reject is the protocol-owned cleanup.
           // Do not follow it with a release for the same lease, because MCPLab
           // has already requeued and cleared the offered lease.
-          if (leaseBearing && accepted) {
+          if (accepted) {
             const currentQueue = await getQueue();
-            if (currentQueue && currentQueue.queueId === message.jobId && currentQueue.leaseId === message.leaseId) {
+            if (currentQueue && currentQueue.queueId === message.jobId && currentQueue.leaseId === leaseId) {
               await persistLeaseRelease(currentQueue, 'error');
             }
           }
