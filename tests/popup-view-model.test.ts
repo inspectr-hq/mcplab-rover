@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   debugFingerprint,
+  debugCheckedLabel,
   filterTestCases,
   formatCheckCounts,
   managedPhaseLabel,
@@ -16,6 +17,10 @@ const cases = [
 ];
 
 describe('popup view model', () => {
+  it('labels diagnostic timestamps as checked time', () => {
+    expect(debugCheckedLabel('2026-09-10T09:30:00.000Z')).toMatch(/^Last checked /);
+  });
+
   it('filters by name, id, and tag without case sensitivity', () => {
     expect(filterTestCases(cases, 'FOOD').map((item) => item.id)).toEqual(['alpha']);
     expect(filterTestCases(cases, 'beta').map((item) => item.id)).toEqual(['beta']);

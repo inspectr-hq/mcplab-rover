@@ -71,6 +71,10 @@ export function debugFingerprint(snapshot: DebugSnapshot): string {
   });
 }
 
+export function debugCheckedLabel(checkedAt: string): string {
+  return `Last checked ${new Date(checkedAt).toLocaleTimeString()}`;
+}
+
 const completedQueueStatuses = new Set<RoverQueueItem['status']>([
   'passed',
   'failed',

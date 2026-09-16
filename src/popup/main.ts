@@ -8,6 +8,7 @@ import type { LiveTestCatalogItem } from '../mcplab/types';
 import type { RoverQueueState } from '../queue/state';
 import {
   debugFingerprint,
+  debugCheckedLabel,
   filterTestCases,
   formatCheckCounts,
   managedPhaseLabel,
@@ -568,7 +569,7 @@ function appendDebugGroup(
 }
 
 function renderDebug(snapshot: DebugSnapshot): void {
-  debugUpdated.textContent = `Last changed ${new Date(snapshot.checkedAt).toLocaleTimeString()}`;
+  debugUpdated.textContent = debugCheckedLabel(snapshot.checkedAt);
   debugIndicators.replaceChildren();
   appendDebugGroup('MCPLab endpoint', [
     {
