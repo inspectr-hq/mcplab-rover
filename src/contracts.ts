@@ -3,12 +3,44 @@ import type { CheckCounts, RunOutcome } from './mcplab/types';
 export type ProviderId = string;
 export interface BrowserProviderDiscoveryDraft {
   profile: import('./mcplab/types').BrowserProviderProfile;
+  readyToSave?: boolean;
+  proposalDiagnostics?: { rationale: string[]; warnings: string[] };
   capabilities: Array<{
     id: string;
     label: string;
     confidence: 'high' | 'medium' | 'low';
     detail: string;
   }>;
+  trace?: BrowserProviderDiscoveryTrace;
+}
+export interface BrowserProviderDiscoveryTraceEvent {
+  phase: 'baseline' | 'submitted' | 'generating' | 'candidate' | 'final';
+  at: string;
+  candidateCount: number;
+  changedCandidateCount: number;
+  visibleControlCount: number;
+  disabledControlCount: number;
+  selectedCandidate?: { tagName: string; testId?: string; textLength: number };
+  textHash?: string;
+  snapshot?: Array<{
+    selector: string;
+    tagName: string;
+    role?: string;
+    ariaLabel?: string;
+    testId?: string;
+    visible: boolean;
+    disabled: boolean;
+    textLength: number;
+  }>;
+}
+export interface BrowserProviderDiscoveryTrace {
+  observedGeneration: boolean;
+  selectorValidation: {
+    composer: { valid: boolean; matchCount: number; visible: boolean };
+    submit: { valid: boolean; matchCount: number; visible: boolean };
+    assistant: { valid: boolean; matchCount: number; visible: boolean };
+  };
+  events: BrowserProviderDiscoveryTraceEvent[];
 }
 export type RoverStage =
   'prompt_sent' | 'waiting_for_response' | 'response_captured' | 'evaluating' | 'persisted';
@@ -117,6 +149,20 @@ export type ExtensionMessage =
       profile: import('./mcplab/types').BrowserProviderProfile;
       agent?: { id: string; name: string; url: string };
       origin?: string;
+      trace?: BrowserProviderDiscoveryTrace;
+      proposalDiagnostics?: { rationale: string[]; warnings: string[] };
+    }
+  | {
+      type: 'ROVER_LEARN_PROPOSE';
+      profile: import('./mcplab/types').BrowserProviderProfile;
+      trace?: BrowserProviderDiscoveryTrace;
+      origin?: string;
+      agentName?: string;
+    }
+  | {
+      type: 'ROVER_LEARN_VALIDATE';
+      profile: import('./mcplab/types').BrowserProviderProfile;
+      trace?: BrowserProviderDiscoveryTrace;
     }
   | { type: 'ROVER_LEARN_RESULT'; draft: BrowserProviderDiscoveryDraft }
   | {
@@ -135,5 +181,7 @@ export type ExtensionMessage =
       queueId?: string;
       queueItemId?: string;
       leaseId?: string;
-      result: { ok: true; text: string } | { ok: false; error: string };
+      result:
+        | { ok: true; text: string }
+        | { ok: false; error: string; code?: string };
     };

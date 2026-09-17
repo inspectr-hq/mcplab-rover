@@ -87,7 +87,11 @@ export function installMessageHandler(): void {
     }
     if (message.type === 'ROVER_LEARN_START' || message.type === 'ROVER_LEARN_STOP') {
       return respond(sendResponse, async () => {
-        const response = await sendToActiveTab(message);
+        const response = (await sendToActiveTab(message)) as {
+          ok?: boolean;
+          validation?: { passed: boolean; reasons: string[] };
+          error?: string;
+        } | null;
         return response ?? { ok: true };
       });
     }
@@ -96,9 +100,33 @@ export function installMessageHandler(): void {
         const endpoint = await resolveOrigin(message.origin);
         const result = await new McplabClient(endpoint).saveLearnedBrowserProvider(
           message.profile,
-          message.agent
+          message.agent,
+          { trace: message.trace, proposalDiagnostics: message.proposalDiagnostics }
         );
         return { ok: true, provider: result.provider, revision: result.revision };
+      });
+    }
+    if (message.type === 'ROVER_LEARN_PROPOSE') {
+      return respond(sendResponse, async () => {
+        const endpoint = await resolveOrigin(message.origin);
+        const proposal = await new McplabClient(endpoint).proposeLearnedBrowserProvider(
+          message.profile,
+          message.trace ?? {},
+          message.agentName
+        );
+        return { ok: true, proposal };
+      });
+    }
+    if (message.type === 'ROVER_LEARN_VALIDATE') {
+      return respond(sendResponse, async () => {
+        const response = (await sendToActiveTab(message)) as {
+          ok?: boolean;
+          validation?: { passed: boolean; reasons: string[] };
+          error?: string;
+        } | null;
+        if (!response?.ok || !response.validation)
+          throw new Error(response?.error ?? 'Could not validate the provider proposal.');
+        return response;
       });
     }
     if (message.type === 'ROVER_GET_STATE') {
@@ -408,8 +436,10 @@ export async function handleResult(
       error: message.result.ok ? undefined : message.result.error
     });
     if (!message.result.ok) {
-      if (queue.leaseId) await failManagedQueue(queue, new Error(message.result.error));
-      else await pauseQueue(queue, new Error(message.result.error));
+      const error = new Error(message.result.error) as Error & { code?: string };
+      if (message.result.code) error.code = message.result.code;
+      if (queue.leaseId) await failManagedQueue(queue, error);
+      else await pauseQueue(queue, error);
       return;
     }
     const finalText = message.result.text;

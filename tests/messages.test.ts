@@ -96,6 +96,29 @@ describe('background message routing', () => {
     expect(mocks.failManagedQueue).toHaveBeenCalledWith(queue, expect.any(Error));
   });
 
+  it('preserves incomplete capture codes for managed queue handling', async () => {
+    const queue = {
+      queueId: 'queue-1',
+      activeItemId: 'item-1',
+      leaseId: 'lease-1',
+      items: [{ queueItemId: 'item-1', requestId: 'request-1', sessionId: 'session-1' }]
+    };
+    mocks.getQueue.mockResolvedValue(queue);
+    await handleResult({
+      type: 'ROVER_RESULT',
+      queueId: 'queue-1',
+      queueItemId: 'item-1',
+      requestId: 'request-1',
+      sessionId: 'session-1',
+      leaseId: 'lease-1',
+      result: { ok: false, error: 'Response capture incomplete', code: 'incomplete' }
+    });
+    expect(mocks.failManagedQueue).toHaveBeenCalledWith(
+      queue,
+      expect.objectContaining({ message: 'Response capture incomplete', code: 'incomplete' })
+    );
+  });
+
   it('does not report an evaluation failure as a Rover execution error', async () => {
     const queue = {
       queueId: 'queue-1',

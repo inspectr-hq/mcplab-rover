@@ -39,6 +39,16 @@ describe('provider discovery recovery', () => {
     await new Promise((resolve) => setTimeout(resolve, 550));
 
     expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({
+      trace: {
+        observedGeneration: false,
+        events: expect.arrayContaining([
+          expect.objectContaining({ phase: 'submitted' }),
+          expect.objectContaining({ phase: 'final' })
+        ])
+      }
+    });
+    expect(JSON.stringify(drafts[0])).not.toContain('A newly discovered answer');
     stop();
   });
 
@@ -80,6 +90,45 @@ describe('provider discovery recovery', () => {
       action: 'click',
       locator: expect.objectContaining({ segments: expect.any(Array) })
     }));
+    stop();
+  });
+
+  it('learns state-aware completion locators when a disabled submit signals generation', async () => {
+    Object.defineProperty(globalThis, 'CSS', {
+      value: { escape: (value: string) => value },
+      configurable: true
+    });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
+    const drafts: any[] = [];
+    const stop = startProviderDiscovery((draft) => drafts.push(draft));
+    const composer = document.createElement('textarea');
+    const submit = document.createElement('button');
+    submit.setAttribute('aria-label', 'Submit');
+    submit.disabled = false;
+    document.body.append(composer, submit);
+    composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    submit.click();
+    submit.disabled = true;
+    setTimeout(() => {
+      submit.disabled = false;
+    }, 350);
+    const response = document.createElement('div');
+    response.setAttribute('data-message-author-role', 'assistant');
+    response.textContent = 'A completed answer';
+    Object.defineProperty(response, 'innerText', {
+      value: 'A completed answer',
+      configurable: true
+    });
+    document.body.append(response);
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].trace.observedGeneration).toBe(true);
+    expect(drafts[0].profile.completion.generatingLocator.segments.at(-1)).toContain(':disabled');
+    expect(drafts[0].profile.completion.idleLocator.segments.at(-1)).toContain(':not([disabled])');
     stop();
   });
 });

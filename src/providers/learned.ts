@@ -56,6 +56,9 @@ function findPath(locator: ShadowLocator, all = false): Element[] {
 }
 
 export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProviderAdapter {
+  let lastCompletion:
+    | { generationObserved: boolean; completionSignal?: string; elapsedMs: number; stableForMs: number }
+    | undefined;
   const findComposer = () =>
     (findPath(profile.composer.locator)[0] as HTMLElement | undefined) ?? null;
   const candidates = () =>
@@ -70,6 +73,10 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
     }));
   return {
     id: profile.id,
+    requiresGenerationSignal: true,
+    recordCompletion: (details) => {
+      lastCompletion = details;
+    },
     matchesPage: () => profile.match.origins.includes(location.origin),
     canHandle: () => Boolean(findComposer()),
     findComposer,
@@ -146,7 +153,24 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
         ? Boolean(findPath(profile.completion.idleLocator)[0])
         : !generating && Boolean(submitControl || findComposer());
       const error = pageAlertText();
-      return { text: items.at(-1)?.text ?? '', isGenerating: generating, isIdle: idle, error };
+      return {
+        text: items.at(-1)?.text ?? '',
+        isGenerating: generating,
+        isIdle: idle,
+        generationObserved: generating,
+        completionSignal: profile.completion.idleLocator
+          ? idle
+            ? 'idle-locator'
+            : generating
+              ? 'generating-locator'
+              : undefined
+          : generating
+            ? 'generation-control'
+            : idle
+              ? 'fallback-idle'
+              : undefined,
+        error
+      };
     },
     getDebugChecks: () => [
       {
@@ -160,6 +184,14 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
         label: 'Assistant response',
         present: candidates().length > 0,
         detail: profile.learned.confidence.assistantMessages ?? 'Learned profile'
+      },
+      {
+        id: 'completion',
+        label: 'Completion signal',
+        present: Boolean(lastCompletion),
+        detail: lastCompletion
+          ? `${lastCompletion.completionSignal ?? 'idle'}; generationObserved=${lastCompletion.generationObserved}; stable=${lastCompletion.stableForMs}ms`
+          : 'No completed response captured yet.'
       },
       ...(profile.newConversation
         ? [{

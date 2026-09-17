@@ -111,6 +111,43 @@ describe('server assignment failure handling', () => {
     );
   });
 
+  it('records an incomplete capture distinctly from a hard browser error', async () => {
+    mocks.socket = { readyState: 1, send: vi.fn() };
+    mocks.saveQueue.mockResolvedValue(undefined);
+    const error = Object.assign(new Error('Response capture incomplete'), { code: 'incomplete' });
+    const queue = {
+      queueId: 'job-incomplete',
+      mode: 'queue' as const,
+      origin: 'http://127.0.0.1:8787',
+      provider: 'claude',
+      evaluationRunId: 'run-incomplete',
+      newConversationBetweenItems: true,
+      status: 'running' as const,
+      activeItemId: 'item-1',
+      items: [
+        {
+          queueItemId: 'item-1',
+          testCaseId: 'scenario-1',
+          id: 'scenario-1',
+          name: 'Scenario 1',
+          prompt: 'Hi',
+          assertionCount: 0,
+          status: 'running' as const
+        }
+      ],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    await pauseQueue(queue, error);
+
+    expect(mocks.saveQueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: [expect.objectContaining({ status: 'incomplete', error: 'Response capture incomplete' })]
+      })
+    );
+  });
+
   it('does not send a server completion for a local queue', async () => {
     mocks.socket = { readyState: 1, send: vi.fn() };
     const queue = {

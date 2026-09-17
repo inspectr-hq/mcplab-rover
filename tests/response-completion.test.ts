@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { waitForCompletedResponse } from '../src/runtime/response-tracker';
+import {
+  IncompleteResponseError,
+  waitForCompletedResponse
+} from '../src/runtime/response-tracker';
 
 describe('waitForCompletedResponse', () => {
   it('waits for stable text and an idle provider before returning', async () => {
@@ -91,5 +94,37 @@ describe('waitForCompletedResponse', () => {
     await vi.advanceTimersByTimeAsync(31);
     await rejection;
     vi.useRealTimers();
+  });
+
+  it('rejects stable text when a required generation signal was never observed', async () => {
+    await expect(
+      waitForCompletedResponse({
+        read: () => ({ text: 'stable text', isGenerating: false, isIdle: true }),
+        pollMs: 1,
+        stabilityMs: 3,
+        timeoutMs: 100,
+        requireGenerationSignal: true
+      })
+    ).rejects.toBeInstanceOf(IncompleteResponseError);
+  });
+
+  it('accepts stable text after a generation transition', async () => {
+    let reads = 0;
+    await expect(
+      waitForCompletedResponse({
+        read: () => {
+          reads += 1;
+          return {
+            text: 'final text',
+            isGenerating: reads === 1,
+            isIdle: reads > 1
+          };
+        },
+        pollMs: 1,
+        stabilityMs: 3,
+        timeoutMs: 100,
+        requireGenerationSignal: true
+      })
+    ).resolves.toBe('final text');
   });
 });

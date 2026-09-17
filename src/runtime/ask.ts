@@ -20,6 +20,15 @@ export async function ask(
     pollMs: 100,
     stabilityMs: adapter.id === 'claude' ? 1500 : 2500,
     minResponseAgeMs: 500,
+    requireGenerationSignal: adapter.requiresGenerationSignal === true,
+    onComplete: (details) =>
+      (() => {
+        adapter.recordCompletion?.(details);
+        console.info('[Rover debug] response capture completed', {
+          provider: adapter.id,
+          ...details
+        });
+      })(),
     timeoutMs: 120_000,
     initialError,
     signal,

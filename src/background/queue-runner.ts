@@ -15,6 +15,16 @@ function debugLog(event: string, details: Record<string, unknown> = {}): void {
   console.info(`[Rover debug] ${event}`, details);
 }
 
+function errorCode(error: unknown): string | undefined {
+  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+    ? error.code
+    : undefined;
+}
+
+function isIncompleteError(error: unknown): boolean {
+  return errorCode(error) === 'incomplete';
+}
+
 export function sendScenarioStatus(
   queue: RoverQueueState,
   item: RoverQueueState['items'][number],
@@ -103,7 +113,7 @@ export async function pauseQueue(
     error: { stage, message },
     items: queue.items.map((item) =>
       item.queueItemId === queue.activeItemId
-        ? { ...item, status: 'error' as const, error: message }
+        ? { ...item, status: isIncompleteError(error) ? ('incomplete' as const) : ('error' as const), error: message }
         : item
     ),
     updatedAt: new Date().toISOString()
@@ -123,10 +133,11 @@ export async function failManagedQueue(
     return;
   }
   const message = errorMessage(error);
+  const itemOutcome = isIncompleteError(error) ? ('incomplete' as const) : ('error' as const);
   const failed = recordQueueItemOutcome(
     queue,
     queue.activeItemId,
-    'error',
+    itemOutcome,
     { error: message },
     new Date().toISOString()
   );
@@ -135,7 +146,7 @@ export async function failManagedQueue(
     (candidate) =>
       candidate.testCaseId ===
         queue.items.find((current) => current.queueItemId === queue.activeItemId)?.testCaseId &&
-      candidate.status === 'error'
+      candidate.status === itemOutcome
   );
   if (item) sendScenarioStatus(failed, item);
   const socket = currentSocket();
@@ -165,7 +176,10 @@ export async function failManagedQueue(
       .includes('bound browser tab')
       ? 'bound_tab_unavailable'
       : 'terminal_error';
-    await finalizeManagedQueue(failed, { outcome: 'error', releaseReason });
+        await finalizeManagedQueue(failed, {
+          outcome: itemOutcome === 'incomplete' ? 'incomplete' : 'error',
+          releaseReason
+        });
     return;
   }
   if (failed.status === 'running') {

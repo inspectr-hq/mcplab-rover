@@ -1,6 +1,11 @@
-import type { BrowserProviderDiscoveryDraft } from '../contracts';
+import type {
+  BrowserProviderDiscoveryDraft,
+  BrowserProviderDiscoveryTrace,
+  BrowserProviderDiscoveryTraceEvent
+} from '../contracts';
 import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
 import { selectAssistantCandidate, type ChatCandidateDescriptor } from './candidate-descriptor';
+import { replayProviderProfile } from './discovery-replay';
 
 const DISCOVERY_LOG = '[MCPLab Rover][provider-discovery]';
 
@@ -111,6 +116,110 @@ function confidence(element: Element): 'high' | 'medium' | 'low' {
       : 'low';
 }
 
+function shortHash(value: string): string {
+  let hash = 2166136261;
+  for (const character of value) {
+    hash ^= character.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function controlState(): {
+  visibleCount: number;
+  disabledCount: number;
+  generating: boolean;
+  generatingControl: HTMLElement | null;
+  idleControl: HTMLElement | null;
+} {
+  const controls = allElements('button,[role="button"]');
+  const visibleControls = controls.filter((element) => visible(element));
+  const generatingControl =
+    visibleControls.find((element) => {
+      const label =
+        `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
+      return /\b(stop|cancel)\b/.test(label);
+    }) ??
+    visibleControls.find((element) => element instanceof HTMLButtonElement && element.disabled) ??
+    null;
+  const idleControl =
+    visibleControls.find((element) => {
+      const label =
+        `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
+      return /\b(send|submit|ask|run)\b/.test(label) &&
+        !(element instanceof HTMLButtonElement && element.disabled);
+    }) ?? null;
+  return {
+    visibleCount: visibleControls.length,
+    disabledCount: visibleControls.filter(
+      (element) => element instanceof HTMLButtonElement && element.disabled
+    ).length,
+    generating: Boolean(generatingControl),
+    generatingControl,
+    idleControl
+  };
+}
+
+function validateLocator(value: ShadowLocator): {
+  valid: boolean;
+  matchCount: number;
+  visible: boolean;
+} {
+  try {
+    const matches = allElements(value.segments.at(-1) ?? '');
+    return {
+      valid: value.segments.length > 0,
+      matchCount: matches.length,
+      visible: matches.some((element) => visible(element))
+    };
+  } catch {
+    return { valid: false, matchCount: 0, visible: false };
+  }
+}
+
+function withFinalSelector(locatorValue: ShadowLocator, suffix: string): ShadowLocator {
+  const segments = [...locatorValue.segments];
+  const last = segments.length - 1;
+  if (last >= 0) segments[last] = `${segments[last]}${suffix}`;
+  return { segments };
+}
+
+function controlLocator(element: HTMLElement, state: 'generating' | 'idle'): ShadowLocator {
+  const base = locator(element);
+  const label =
+    `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
+  if (/\b(stop|cancel)\b/.test(label)) return base;
+  return withFinalSelector(base, state === 'generating' ? ':disabled' : ':not([disabled])');
+}
+
+function lifecycleSnapshot() {
+  return allElements('*')
+    .filter((element) =>
+      element instanceof HTMLButtonElement ||
+      element.getAttribute('role') === 'button' ||
+      element.isContentEditable ||
+      element instanceof HTMLInputElement ||
+      element instanceof HTMLTextAreaElement ||
+      element.getAttribute('data-message-author-role') === 'assistant' ||
+      element.className.toString().includes('message')
+    )
+    .slice(-64)
+    .map((element) => ({
+      selector: selector(element),
+      tagName: element.tagName,
+      ...(element.getAttribute('role') ? { role: element.getAttribute('role')! } : {}),
+      ...(element.getAttribute('aria-label')
+        ? { ariaLabel: element.getAttribute('aria-label')! }
+        : {}),
+      ...(element.getAttribute('data-testid')
+        ? { testId: element.getAttribute('data-testid')! }
+        : {}),
+      visible: visible(element),
+      disabled: element instanceof HTMLButtonElement && element.disabled,
+      textLength: (element.innerText ?? element.textContent ?? '').trim().length
+    }));
+}
+
 export function startProviderDiscovery(
   onDraft: (draft: BrowserProviderDiscoveryDraft) => void
 ): () => void {
@@ -121,6 +230,24 @@ export function startProviderDiscovery(
   let submissionArmed = false;
   let emitted = false;
   let stopped = false;
+  let observedGeneration = false;
+  let generatingControl: HTMLElement | null = null;
+  let idleControl: HTMLElement | null = null;
+  let lastCandidateCount = 0;
+  let lastChangedCandidateCount = 0;
+  let lastSelected: ChatCandidateDescriptor | undefined;
+  let lastControls = controlState();
+  let selectedStableSince: number | null = null;
+  let selectedSignature = '';
+  const trace: BrowserProviderDiscoveryTrace = {
+    observedGeneration: false,
+    selectorValidation: {
+      composer: { valid: false, matchCount: 0, visible: false },
+      submit: { valid: false, matchCount: 0, visible: false },
+      assistant: { valid: false, matchCount: 0, visible: false }
+    },
+    events: []
+  };
   const startedAt = new Date().toISOString();
   const origin = location.origin;
   const baselineTexts = new Set(
@@ -129,6 +256,35 @@ export function startProviderDiscovery(
       .filter((text): text is string => Boolean(text))
   );
   let lastScanSignature = '';
+  const record = (
+    phase: BrowserProviderDiscoveryTraceEvent['phase'],
+    candidateCount: number,
+    changedCandidateCount: number,
+    controls: ReturnType<typeof controlState>,
+    selected?: ChatCandidateDescriptor
+  ) => {
+    trace.events.push({
+      phase,
+      at: new Date().toISOString(),
+      candidateCount,
+      changedCandidateCount,
+      visibleControlCount: controls.visibleCount,
+      disabledControlCount: controls.disabledCount,
+      ...(selected
+        ? {
+            selectedCandidate: {
+              tagName: selected.tagName,
+              ...(selected.testId ? { testId: selected.testId } : {}),
+              textLength: selected.text.length
+            },
+            textHash: shortHash(selected.text)
+          }
+        : {}),
+      snapshot: lifecycleSnapshot()
+    });
+    if (trace.events.length > 32) trace.events.shift();
+  };
+  record('baseline', 0, 0, controlState());
   discoveryLog('started', { origin, href: location.href, baselineTextCount: baselineTexts.size });
   const scan = () => {
     if (stopped || emitted || (!submittedAt && !submissionArmed)) return;
@@ -140,6 +296,14 @@ export function startProviderDiscovery(
       .filter((element) => element.children.length === 0 || (element.innerText?.length ?? 0) > 20)
       .map((element) => ({ element, descriptor: descriptor(element, baselineTexts) }));
     const selected = selectAssistantCandidate(candidates.map((candidate) => candidate.descriptor));
+    const controls = controlState();
+    if (controls.generating) {
+      observedGeneration = true;
+      trace.observedGeneration = true;
+      generatingControl = controls.generatingControl;
+      record('generating', candidates.length, 0, controls, selected ?? undefined);
+    }
+    idleControl = controls.idleControl;
     const topCandidates = candidates
       .map((candidate) => ({ element: candidate.element, descriptor: candidate.descriptor }))
       .filter((candidate) => candidate.descriptor.changed && candidate.descriptor.text.trim())
@@ -150,9 +314,24 @@ export function startProviderDiscovery(
         role: candidate.descriptor.role,
         text: candidate.descriptor.text.slice(0, 120)
       }));
+    lastCandidateCount = candidates.length;
+    lastChangedCandidateCount = topCandidates.length;
+    lastSelected = selected ?? undefined;
+    lastControls = controls;
     const scanSignature = `${candidates.length}:${selected?.testId ?? selected?.tagName ?? 'none'}:${topCandidates.map((candidate) => `${candidate.testId ?? candidate.tag}:${candidate.text}`).join('|')}`;
+    if (scanSignature !== selectedSignature) {
+      selectedSignature = scanSignature;
+      selectedStableSince = selected ? Date.now() : null;
+    }
     if (scanSignature !== lastScanSignature) {
       lastScanSignature = scanSignature;
+      record(
+        selected ? 'candidate' : 'baseline',
+        candidates.length,
+        topCandidates.length,
+        controls,
+        selected ?? undefined
+      );
       discoveryLog('scan', {
         submittedAt: Boolean(submittedAt),
         submissionArmed,
@@ -171,7 +350,13 @@ export function startProviderDiscovery(
     assistant = selected
       ? (candidates.find((candidate) => candidate.descriptor === selected)?.element ?? null)
       : null;
-    if (composer && assistant) {
+    const responseIsReady =
+      !observedGeneration ||
+      (Boolean(controls.idleControl) &&
+        !controls.generating &&
+        selectedStableSince !== null &&
+        Date.now() - selectedStableSince >= 500);
+    if (composer && assistant && responseIsReady) {
       discoveryLog('response selected, emitting draft', {
         responseTestId: assistant.getAttribute('data-testid'),
         responseText: assistant.innerText?.slice(0, 120)
@@ -218,6 +403,7 @@ export function startProviderDiscovery(
       if (/send|submit|enter|ask|run/.test(label)) {
         submit = control;
         submittedAt = Date.now();
+        record('submitted', 0, 0, controlState());
         discoveryLog('send control observed', {
           tag: control.tagName,
           testId: control.getAttribute('data-testid'),
@@ -238,6 +424,7 @@ export function startProviderDiscovery(
         composer = event.target;
       submit = submit ?? composer;
       submittedAt = Date.now();
+      record('submitted', 0, 0, controlState());
       discoveryLog('Enter submission observed', {
         composerTag: composer?.tagName,
         composerTestId: composer?.getAttribute('data-testid')
@@ -246,6 +433,7 @@ export function startProviderDiscovery(
   };
   const onSubmit = () => {
     submittedAt = Date.now();
+    record('submitted', 0, 0, controlState());
     discoveryLog('form submission observed');
   };
   const emit = () => {
@@ -277,7 +465,19 @@ export function startProviderDiscovery(
       },
       submit: submitLocator ? { action: 'click', locator: submitLocator } : { action: 'enter' },
       assistantMessages: { locator: locator(assistant) },
-      completion: { stabilityMs: 2500 },
+      completion: {
+        stabilityMs: 2500,
+        ...(generatingControl
+          ? { generatingLocator: controlLocator(generatingControl, 'generating') }
+          : submit
+            ? { generatingLocator: withFinalSelector(locator(submit), ':disabled') }
+            : {}),
+        ...(idleControl
+          ? { idleLocator: controlLocator(idleControl, 'idle') }
+          : submit
+            ? { idleLocator: withFinalSelector(locator(submit), ':not([disabled])') }
+            : {})
+      },
       ...(newConversationProfile ? { newConversation: newConversationProfile } : {}),
       learned: {
         sourceOrigin: origin,
@@ -290,8 +490,26 @@ export function startProviderDiscovery(
         }
       }
     };
+    trace.selectorValidation = {
+      composer: validateLocator(profile.composer.locator),
+      submit:
+        profile.submit.locator
+          ? validateLocator(profile.submit.locator)
+          : { valid: true, matchCount: 0, visible: true },
+      assistant: validateLocator(profile.assistantMessages.locator)
+    };
+    record(
+      'final',
+      lastCandidateCount,
+      lastChangedCandidateCount,
+      lastControls,
+      lastSelected
+    );
+    const replayPassed = replayProviderProfile(profile, trace).passed;
     onDraft({
       profile,
+      readyToSave: replayPassed,
+      trace,
       capabilities: [
         {
           id: 'composer',
@@ -314,8 +532,10 @@ export function startProviderDiscovery(
         {
           id: 'completion',
           label: 'Completion',
-          confidence: 'medium',
-          detail: 'Uses response stability.'
+          confidence: observedGeneration ? 'high' : 'low',
+          detail: observedGeneration
+            ? 'Observed an active generation control and idle transition.'
+            : 'No generation signal observed. Runtime will require a later generation transition.'
         },
         {
           id: 'newConversation',

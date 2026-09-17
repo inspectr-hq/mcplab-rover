@@ -70,11 +70,28 @@ export class McplabClient {
 
   saveLearnedBrowserProvider(
     profile: BrowserProviderProfile,
-    agent?: { id: string; name: string; url: string }
+    agent?: { id: string; name: string; url: string },
+    learning?: { trace?: unknown; proposalDiagnostics?: unknown }
   ): Promise<{ provider: BrowserProviderProfile; revision: string }> {
     return this.request('/api/browser-providers/learned', {
       method: 'POST',
-      body: JSON.stringify({ profile, ...(agent ? { agent } : {}) })
+      body: JSON.stringify({ profile, ...(agent ? { agent } : {}), ...(learning ?? {}) })
+    });
+  }
+
+  proposeLearnedBrowserProvider(
+    profile: BrowserProviderProfile,
+    trace: unknown,
+    agentName?: string
+  ): Promise<{
+    profile: BrowserProviderProfile;
+    rationale: string[];
+    warnings: string[];
+    validated: true;
+  }> {
+    return this.request('/api/browser-providers/propose', {
+      method: 'POST',
+      body: JSON.stringify({ profile, trace, ...(agentName ? { agentName } : {}) })
     });
   }
 

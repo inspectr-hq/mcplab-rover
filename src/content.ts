@@ -3,6 +3,7 @@ import { findAdapter, findPageAdapter, setLearnedProfiles } from './providers';
 import type { BrowserProviderProfile } from './mcplab/types';
 import { ask } from './runtime/ask';
 import { startProviderDiscovery } from './providers/provider-discovery';
+import { replayProviderProfile } from './providers/discovery-replay';
 
 const runtime = globalThis as typeof globalThis & { __mcplabRoverInstalled?: boolean };
 const activeAskControllers = new Map<string, AbortController>();
@@ -135,6 +136,13 @@ if (runtime.__mcplabRoverInstalled) {
       sendResponse({ ok: true });
       return true;
     }
+    if (message.type === 'ROVER_LEARN_VALIDATE') {
+      sendResponse({
+        ok: true,
+        validation: replayProviderProfile(message.profile, message.trace)
+      });
+      return true;
+    }
     if (message.type === 'ROVER_TOGGLE_PANEL') {
       togglePanel();
       return;
@@ -223,6 +231,7 @@ if (runtime.__mcplabRoverInstalled) {
           result: { ok: true, text }
         });
       } catch (error) {
+        const details = error as { message?: unknown; code?: unknown };
         await chrome.runtime.sendMessage({
           type: 'ROVER_RESULT',
           requestId: message.requestId,
@@ -230,7 +239,11 @@ if (runtime.__mcplabRoverInstalled) {
           queueId: message.queueId,
           queueItemId: message.queueItemId,
           leaseId: message.leaseId,
-          result: { ok: false, error: error instanceof Error ? error.message : String(error) }
+          result: {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+            ...(typeof details.code === 'string' ? { code: details.code } : {})
+          }
         });
       } finally {
         activeAskControllers.delete(message.requestId);

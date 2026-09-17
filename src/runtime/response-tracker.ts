@@ -3,6 +3,25 @@ export interface ResponseState {
   isGenerating: boolean;
   isIdle: boolean;
   error?: string | null;
+  /** True when the provider has observed an explicit generation transition. */
+  generationObserved?: boolean;
+  completionSignal?: string;
+}
+
+export interface ResponseCompletionDetails {
+  generationObserved: boolean;
+  completionSignal?: string;
+  elapsedMs: number;
+  stableForMs: number;
+}
+
+export class IncompleteResponseError extends Error {
+  readonly code = 'incomplete';
+
+  constructor(message = 'Response capture incomplete: generation was never observed') {
+    super(message);
+    this.name = 'IncompleteResponseError';
+  }
 }
 
 export interface ResponseTrackerOptions {
@@ -12,6 +31,8 @@ export interface ResponseTrackerOptions {
   stabilityMs: number;
   timeoutMs: number;
   minResponseAgeMs?: number;
+  requireGenerationSignal?: boolean;
+  onComplete?: (details: ResponseCompletionDetails) => void;
   signal?: AbortSignal;
 }
 
@@ -19,6 +40,7 @@ export function waitForCompletedResponse(options: ResponseTrackerOptions): Promi
   const startedAt = Date.now();
   let lastText = '';
   let stableSince: number | null = null;
+  let generationObserved = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   return new Promise((resolve, reject) => {
@@ -40,6 +62,7 @@ export function waitForCompletedResponse(options: ResponseTrackerOptions): Promi
       }
 
       const state = options.read();
+      generationObserved ||= state.generationObserved ?? state.isGenerating;
       if (state.error && state.error !== options.initialError) {
         finish(() => reject(new Error(state.error!)));
         return;
@@ -58,6 +81,16 @@ export function waitForCompletedResponse(options: ResponseTrackerOptions): Promi
         !state.isGenerating &&
         state.isIdle
       ) {
+        if (options.requireGenerationSignal && !generationObserved) {
+          finish(() => reject(new IncompleteResponseError()));
+          return;
+        }
+        options.onComplete?.({
+          generationObserved,
+          completionSignal: state.completionSignal,
+          elapsedMs: now - startedAt,
+          stableForMs: now - stableSince
+        });
         finish(() => resolve(text));
         return;
       }
