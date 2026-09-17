@@ -1,8 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  IncompleteResponseError,
-  waitForCompletedResponse
-} from '../src/runtime/response-tracker';
+import { IncompleteResponseError, waitForCompletedResponse } from '../src/runtime/response-tracker';
 
 describe('waitForCompletedResponse', () => {
   it('waits for stable text and an idle provider before returning', async () => {

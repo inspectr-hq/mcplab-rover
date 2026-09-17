@@ -12,7 +12,9 @@ function lastSelector(locator: ShadowLocator | undefined): string | undefined {
 
 function matchesSelector(selector: string | undefined, candidate: string): boolean {
   if (!selector) return false;
-  return selector === candidate || selector.replace(/:disabled|:not\(\[disabled\]\)/g, '') === candidate;
+  return (
+    selector === candidate || selector.replace(/:disabled|:not\(\[disabled\]\)/g, '') === candidate
+  );
 }
 
 export function replayProviderProfile(
@@ -27,11 +29,22 @@ export function replayProviderProfile(
   const composer = lastSelector(profile.composer.locator);
   const assistant = lastSelector(profile.assistantMessages.locator);
   const submit = lastSelector(profile.submit.locator);
-  if (!snapshots('baseline').concat(snapshots('submitted')).some((node) => matchesSelector(composer, node.selector)))
+  if (
+    !snapshots('baseline')
+      .concat(snapshots('submitted'))
+      .some((node) => matchesSelector(composer, node.selector))
+  )
     reasons.push('Composer selector was not observed in the baseline snapshot.');
-  if (profile.submit.action === 'click' && !snapshots('submitted').some((node) => matchesSelector(submit, node.selector)))
+  if (
+    profile.submit.action === 'click' &&
+    !snapshots('submitted').some((node) => matchesSelector(submit, node.selector))
+  )
     reasons.push('Submit selector was not observed in the submitted snapshot.');
-  if (!snapshots('candidate').concat(snapshots('final')).some((node) => matchesSelector(assistant, node.selector)))
+  if (
+    !snapshots('candidate')
+      .concat(snapshots('final'))
+      .some((node) => matchesSelector(assistant, node.selector))
+  )
     reasons.push('Assistant selector was not observed in a response snapshot.');
   const generating = lastSelector(profile.completion.generatingLocator);
   if (!generating || !trace.observedGeneration)
@@ -40,7 +53,9 @@ export function replayProviderProfile(
     reasons.push('Generation selector was not observed in the generating snapshot.');
   const idle = lastSelector(profile.completion.idleLocator);
   if (!idle) reasons.push('An idle selector is required.');
-  else if (!snapshots('final').some((node) => matchesSelector(idle, node.selector) && !node.disabled))
+  else if (
+    !snapshots('final').some((node) => matchesSelector(idle, node.selector) && !node.disabled)
+  )
     reasons.push('Idle selector was not observed in an enabled final snapshot.');
   return { passed: reasons.length === 0, reasons };
 }

@@ -75,9 +75,17 @@ describe('McplabClient', () => {
   it('requests a validated browser-provider proposal with the learning trace', async () => {
     const fetcher = vi.fn(
       async () =>
-        new Response(JSON.stringify({ profile: { id: 'custom' }, rationale: [], warnings: [], validated: true }), {
-          status: 200
-        })
+        new Response(
+          JSON.stringify({
+            profile: { id: 'custom' },
+            rationale: [],
+            warnings: [],
+            validated: true
+          }),
+          {
+            status: 200
+          }
+        )
     );
     const client = new McplabClient('http://127.0.0.1:8787', fetcher as typeof fetch);
     await client.proposeLearnedBrowserProvider(

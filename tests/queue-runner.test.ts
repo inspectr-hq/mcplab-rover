@@ -143,7 +143,9 @@ describe('server assignment failure handling', () => {
 
     expect(mocks.saveQueue).toHaveBeenCalledWith(
       expect.objectContaining({
-        items: [expect.objectContaining({ status: 'incomplete', error: 'Response capture incomplete' })]
+        items: [
+          expect.objectContaining({ status: 'incomplete', error: 'Response capture incomplete' })
+        ]
       })
     );
   });

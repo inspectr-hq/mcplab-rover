@@ -118,7 +118,11 @@ export async function pauseQueue(
     error: { stage, message },
     items: queue.items.map((item) =>
       item.queueItemId === queue.activeItemId
-        ? { ...item, status: isIncompleteError(error) ? ('incomplete' as const) : ('error' as const), error: message }
+        ? {
+            ...item,
+            status: isIncompleteError(error) ? ('incomplete' as const) : ('error' as const),
+            error: message
+          }
         : item
     ),
     updatedAt: new Date().toISOString()
@@ -161,9 +165,8 @@ export async function failManagedQueue(
         type: 'progress',
         jobId: failed.queueId,
         ...(failed.leaseId ? { leaseId: failed.leaseId } : {}),
-        completed: failed.items.filter((candidate) =>
-          isCompletedQueueItemStatus(candidate.status)
-        ).length,
+        completed: failed.items.filter((candidate) => isCompletedQueueItemStatus(candidate.status))
+          .length,
         total: failed.items.length,
         currentScenarioId: failed.activeItemId
           ? failed.items.find((candidate) => candidate.queueItemId === failed.activeItemId)
@@ -179,10 +182,10 @@ export async function failManagedQueue(
       .includes('bound browser tab')
       ? 'bound_tab_unavailable'
       : 'terminal_error';
-        await finalizeManagedQueue(failed, {
-          outcome: itemOutcome === 'incomplete' ? 'incomplete' : 'error',
-          releaseReason
-        });
+    await finalizeManagedQueue(failed, {
+      outcome: itemOutcome === 'incomplete' ? 'incomplete' : 'error',
+      releaseReason
+    });
     return;
   }
   if (failed.status === 'running') {

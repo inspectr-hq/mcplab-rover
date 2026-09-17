@@ -25,11 +25,13 @@ describe('content result messages', () => {
   });
 
   it('preserves structured incomplete errors for queue handling', () => {
-    expect(roverResultMessage(request, {
-      ok: false,
-      error: 'Response capture incomplete',
-      code: 'incomplete'
-    }).result).toEqual({
+    expect(
+      roverResultMessage(request, {
+        ok: false,
+        error: 'Response capture incomplete',
+        code: 'incomplete'
+      }).result
+    ).toEqual({
       ok: false,
       error: 'Response capture incomplete',
       code: 'incomplete'

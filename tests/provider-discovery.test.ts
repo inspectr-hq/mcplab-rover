@@ -86,10 +86,12 @@ describe('provider discovery recovery', () => {
     await new Promise((resolve) => setTimeout(resolve, 550));
 
     expect(drafts).toHaveLength(1);
-    expect(drafts[0].profile.newConversation).toEqual(expect.objectContaining({
-      action: 'click',
-      locator: expect.objectContaining({ segments: expect.any(Array) })
-    }));
+    expect(drafts[0].profile.newConversation).toEqual(
+      expect.objectContaining({
+        action: 'click',
+        locator: expect.objectContaining({ segments: expect.any(Array) })
+      })
+    );
     stop();
   });
 

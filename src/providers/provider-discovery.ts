@@ -75,8 +75,11 @@ function allElements(selectorText: string): HTMLElement[] {
 }
 
 function findNewConversationControl(): HTMLElement | undefined {
-  return allElements('button,[role="button"],a,[tabindex]:not([tabindex="-1"]),[aria-label],[title],[data-test],[data-testid],[trackingtest]').find((element) => {
-    if (!visible(element) || (element instanceof HTMLButtonElement && element.disabled)) return false;
+  return allElements(
+    'button,[role="button"],a,[tabindex]:not([tabindex="-1"]),[aria-label],[title],[data-test],[data-testid],[trackingtest]'
+  ).find((element) => {
+    if (!visible(element) || (element instanceof HTMLButtonElement && element.disabled))
+      return false;
     const label =
       `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.getAttribute('data-test') ?? ''} ${element.getAttribute('data-testid') ?? ''} ${element.getAttribute('trackingtest') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
     return /new[\s_-]*(chat|conversation)|new[\s_-]*thread|start[\s_-]*(a[\s_-]*)?new/.test(label);
@@ -146,8 +149,10 @@ function controlState(): {
     visibleControls.find((element) => {
       const label =
         `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
-      return /\b(send|submit|ask|run)\b/.test(label) &&
-        !(element instanceof HTMLButtonElement && element.disabled);
+      return (
+        /\b(send|submit|ask|run)\b/.test(label) &&
+        !(element instanceof HTMLButtonElement && element.disabled)
+      );
     }) ?? null;
   return {
     visibleCount: visibleControls.length,
@@ -194,14 +199,15 @@ function controlLocator(element: HTMLElement, state: 'generating' | 'idle'): Sha
 
 function lifecycleSnapshot() {
   return allElements('*')
-    .filter((element) =>
-      element instanceof HTMLButtonElement ||
-      element.getAttribute('role') === 'button' ||
-      element.isContentEditable ||
-      element instanceof HTMLInputElement ||
-      element instanceof HTMLTextAreaElement ||
-      element.getAttribute('data-message-author-role') === 'assistant' ||
-      element.className.toString().includes('message')
+    .filter(
+      (element) =>
+        element instanceof HTMLButtonElement ||
+        element.getAttribute('role') === 'button' ||
+        element.isContentEditable ||
+        element instanceof HTMLInputElement ||
+        element instanceof HTMLTextAreaElement ||
+        element.getAttribute('data-message-author-role') === 'assistant' ||
+        element.className.toString().includes('message')
     )
     .slice(-64)
     .map((element) => ({
@@ -492,19 +498,12 @@ export function startProviderDiscovery(
     };
     trace.selectorValidation = {
       composer: validateLocator(profile.composer.locator),
-      submit:
-        profile.submit.locator
-          ? validateLocator(profile.submit.locator)
-          : { valid: true, matchCount: 0, visible: true },
+      submit: profile.submit.locator
+        ? validateLocator(profile.submit.locator)
+        : { valid: true, matchCount: 0, visible: true },
       assistant: validateLocator(profile.assistantMessages.locator)
     };
-    record(
-      'final',
-      lastCandidateCount,
-      lastChangedCandidateCount,
-      lastControls,
-      lastSelected
-    );
+    record('final', lastCandidateCount, lastChangedCandidateCount, lastControls, lastSelected);
     const replayPassed = replayProviderProfile(profile, trace).passed;
     onDraft({
       profile,

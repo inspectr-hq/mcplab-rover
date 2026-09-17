@@ -37,7 +37,9 @@ const trace = {
       changedCandidateCount: 0,
       visibleControlCount: 1,
       disabledControlCount: 0,
-      snapshot: [{ selector: 'textarea', tagName: 'TEXTAREA', visible: true, disabled: false, textLength: 0 }]
+      snapshot: [
+        { selector: 'textarea', tagName: 'TEXTAREA', visible: true, disabled: false, textLength: 0 }
+      ]
     },
     {
       phase: 'submitted' as const,
@@ -46,7 +48,15 @@ const trace = {
       changedCandidateCount: 0,
       visibleControlCount: 1,
       disabledControlCount: 1,
-      snapshot: [{ selector: 'button[aria-label="Send"]', tagName: 'BUTTON', visible: true, disabled: true, textLength: 0 }]
+      snapshot: [
+        {
+          selector: 'button[aria-label="Send"]',
+          tagName: 'BUTTON',
+          visible: true,
+          disabled: true,
+          textLength: 0
+        }
+      ]
     },
     {
       phase: 'generating' as const,
@@ -55,7 +65,15 @@ const trace = {
       changedCandidateCount: 1,
       visibleControlCount: 1,
       disabledControlCount: 1,
-      snapshot: [{ selector: 'button[aria-label="Send"]', tagName: 'BUTTON', visible: true, disabled: true, textLength: 0 }]
+      snapshot: [
+        {
+          selector: 'button[aria-label="Send"]',
+          tagName: 'BUTTON',
+          visible: true,
+          disabled: true,
+          textLength: 0
+        }
+      ]
     },
     {
       phase: 'final' as const,
@@ -65,8 +83,20 @@ const trace = {
       visibleControlCount: 1,
       disabledControlCount: 0,
       snapshot: [
-        { selector: 'button[aria-label="Send"]', tagName: 'BUTTON', visible: true, disabled: false, textLength: 0 },
-        { selector: '[data-role="assistant"]', tagName: 'DIV', visible: true, disabled: false, textLength: 20 }
+        {
+          selector: 'button[aria-label="Send"]',
+          tagName: 'BUTTON',
+          visible: true,
+          disabled: false,
+          textLength: 0
+        },
+        {
+          selector: '[data-role="assistant"]',
+          tagName: 'DIV',
+          visible: true,
+          disabled: false,
+          textLength: 20
+        }
       ]
     }
   ]
@@ -79,10 +109,15 @@ describe('provider discovery replay', () => {
 
   it('rejects a profile with an unobserved idle selector', () => {
     const result = replayProviderProfile(
-      { ...profile, completion: { ...profile.completion, idleLocator: { segments: ['button.nope'] } } },
+      {
+        ...profile,
+        completion: { ...profile.completion, idleLocator: { segments: ['button.nope'] } }
+      },
       trace
     );
     expect(result.passed).toBe(false);
-    expect(result.reasons).toContain('Idle selector was not observed in an enabled final snapshot.');
+    expect(result.reasons).toContain(
+      'Idle selector was not observed in an enabled final snapshot.'
+    );
   });
 });

@@ -252,11 +252,12 @@ learnPropose.addEventListener(
     })
 );
 learnSave.addEventListener(
-    'click',
-    () =>
-      void runButtonAction(learnSave, async () => {
+  'click',
+  () =>
+    void runButtonAction(learnSave, async () => {
       if (!discoveryDraft || discoveryDraft.readyToSave !== true) {
-        learnStatus.textContent = 'The provider must pass lifecycle validation before it can be saved.';
+        learnStatus.textContent =
+          'The provider must pass lifecycle validation before it can be saved.';
         return;
       }
       const name = learnName.value.trim();
@@ -544,9 +545,7 @@ async function refreshActiveProvider(retry = true): Promise<void> {
     const response = (await chrome.runtime.sendMessage({ type: 'ROVER_GET_ACTIVE_PROVIDER' })) as
       { provider?: string; supportsNewConversation?: boolean } | undefined;
     activeProvider = response?.provider;
-    const builtInSupport =
-      response?.provider === 'claude' ||
-      response?.provider === 'chatgpt-com';
+    const builtInSupport = response?.provider === 'claude' || response?.provider === 'chatgpt-com';
     activeProviderSupportsNewConversation =
       response?.supportsNewConversation === true || builtInSupport;
     newConversation.hidden = !activeProviderSupportsNewConversation;
@@ -987,9 +986,10 @@ void chrome.storage.local.get([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]).
   learnName.hidden = false;
   learnPropose.hidden = !draft.trace;
   learnSave.hidden = draft.readyToSave !== true;
-  learnStatus.textContent = draft.readyToSave === true
-    ? 'A saved learning draft is ready to review.'
-    : 'This learning draft did not pass lifecycle validation. Capture a new active response.';
+  learnStatus.textContent =
+    draft.readyToSave === true
+      ? 'A saved learning draft is ready to review.'
+      : 'This learning draft did not pass lifecycle validation. Capture a new active response.';
   learnCapabilities.replaceChildren(
     ...draft.capabilities.map((capability) => {
       const item = document.createElement('span');

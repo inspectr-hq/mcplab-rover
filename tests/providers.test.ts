@@ -274,9 +274,11 @@ describe('Learned provider adapter', () => {
     `;
     const adapter = createLearnedAdapter(learnedProfile);
 
-    expect(adapter.getDebugChecks()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'new-chat', label: 'New conversation', present: true })
-    ]));
+    expect(adapter.getDebugChecks()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'new-chat', label: 'New conversation', present: true })
+      ])
+    );
   });
 
   it('reports a valid learned navigation action as available', () => {
@@ -286,9 +288,11 @@ describe('Learned provider adapter', () => {
       newConversation: { action: 'navigate', url: 'https://chatgpt.com/' }
     });
 
-    expect(adapter.getDebugChecks()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'new-chat', label: 'New conversation', present: true })
-    ]));
+    expect(adapter.getDebugChecks()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'new-chat', label: 'New conversation', present: true })
+      ])
+    );
   });
 
   it('detects generation from a disabled fallback submit control', () => {

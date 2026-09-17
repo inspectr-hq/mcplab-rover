@@ -181,7 +181,5 @@ export type ExtensionMessage =
       queueId?: string;
       queueItemId?: string;
       leaseId?: string;
-      result:
-        | { ok: true; text: string }
-        | { ok: false; error: string; code?: string };
+      result: { ok: true; text: string } | { ok: false; error: string; code?: string };
     };

@@ -512,7 +512,7 @@ export async function handleResult(
                   (candidate) => candidate.queueItemId === completed.activeItemId
                 )?.testCaseId
               : undefined,
-            lastDurationMs: durationMs,
+            lastDurationMs: durationMs
           })
         );
       }

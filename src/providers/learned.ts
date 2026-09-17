@@ -57,7 +57,12 @@ function findPath(locator: ShadowLocator, all = false): Element[] {
 
 export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProviderAdapter {
   let lastCompletion:
-    | { generationObserved: boolean; completionSignal?: string; elapsedMs: number; stableForMs: number }
+    | {
+        generationObserved: boolean;
+        completionSignal?: string;
+        elapsedMs: number;
+        stableForMs: number;
+      }
     | undefined;
   const findComposer = () =>
     (findPath(profile.composer.locator)[0] as HTMLElement | undefined) ?? null;
@@ -147,7 +152,7 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
         ? Boolean(findPath(profile.completion.generatingLocator)[0])
         : Boolean(
             findStopControl() ||
-              (submitControl instanceof HTMLButtonElement && submitControl.disabled)
+            (submitControl instanceof HTMLButtonElement && submitControl.disabled)
           );
       const idle = profile.completion.idleLocator
         ? Boolean(findPath(profile.completion.idleLocator)[0])
@@ -194,16 +199,23 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
           : 'No completed response captured yet.'
       },
       ...(profile.newConversation
-        ? [{
-            id: 'new-chat',
-            label: 'New conversation',
-            present: profile.newConversation.action === 'navigate'
-              ? Boolean(profile.newConversation.url)
-              : Boolean(profile.newConversation.locator && findPath(profile.newConversation.locator)[0]),
-            detail: profile.newConversation.action === 'navigate'
-              ? 'Uses the learned navigation URL'
-              : 'Uses the learned page control'
-          }]
+        ? [
+            {
+              id: 'new-chat',
+              label: 'New conversation',
+              present:
+                profile.newConversation.action === 'navigate'
+                  ? Boolean(profile.newConversation.url)
+                  : Boolean(
+                      profile.newConversation.locator &&
+                      findPath(profile.newConversation.locator)[0]
+                    ),
+              detail:
+                profile.newConversation.action === 'navigate'
+                  ? 'Uses the learned navigation URL'
+                  : 'Uses the learned page control'
+            }
+          ]
         : [])
     ]
   };
