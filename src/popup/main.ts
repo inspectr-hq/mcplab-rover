@@ -490,8 +490,7 @@ async function refreshActiveProvider(retry = true): Promise<void> {
     activeProvider = response?.provider;
     const builtInSupport =
       response?.provider === 'claude' ||
-      response?.provider === 'chatgpt-com' ||
-      response?.provider === 'trendminer';
+      response?.provider === 'chatgpt-com';
     activeProviderSupportsNewConversation =
       response?.supportsNewConversation === true || builtInSupport;
     newConversation.hidden = !activeProviderSupportsNewConversation;

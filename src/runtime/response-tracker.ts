@@ -7,6 +7,7 @@ export interface ResponseState {
 
 export interface ResponseTrackerOptions {
   read: () => ResponseState;
+  initialError?: string | null;
   pollMs: number;
   stabilityMs: number;
   timeoutMs: number;
@@ -39,7 +40,7 @@ export function waitForCompletedResponse(options: ResponseTrackerOptions): Promi
       }
 
       const state = options.read();
-      if (state.error) {
+      if (state.error && state.error !== options.initialError) {
         finish(() => reject(new Error(state.error!)));
         return;
       }

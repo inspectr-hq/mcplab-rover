@@ -6,9 +6,6 @@ describe('debug snapshot', () => {
   it('recognizes supported page URLs independently of content-script availability', () => {
     expect(expectedProviderForUrl('https://claude.ai/new')).toBe('claude');
     expect(expectedProviderForUrl('https://claude.ai/chat/example')).toBe('claude');
-    expect(expectedProviderForUrl('https://tm-pipeline-aa01.trendminer.net/trendhub')).toBe(
-      'trendminer'
-    );
     expect(expectedProviderForUrl('https://example.com')).toBeUndefined();
   });
 

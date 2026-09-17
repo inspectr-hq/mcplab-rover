@@ -37,6 +37,48 @@ describe('waitForCompletedResponse', () => {
     ).rejects.toThrow('Something went wrong');
   });
 
+  it('ignores an unchanged alert that was already present before submission', async () => {
+    let reads = 0;
+    const pending = waitForCompletedResponse({
+      read: () => {
+        reads += 1;
+        return {
+          text: reads < 2 ? '' : 'final response',
+          isGenerating: reads < 3,
+          isIdle: reads >= 3,
+          error: 'Restore last session We recovered an unsaved view.'
+        };
+      },
+      pollMs: 1,
+      stabilityMs: 3,
+      timeoutMs: 100,
+      initialError: 'Restore last session We recovered an unsaved view.'
+    });
+
+    await expect(pending).resolves.toBe('final response');
+  });
+
+  it('still rejects when a new alert replaces the initial alert', async () => {
+    let reads = 0;
+    await expect(
+      waitForCompletedResponse({
+        read: () => {
+          reads += 1;
+          return {
+            text: '',
+            isGenerating: true,
+            isIdle: false,
+            error: reads === 1 ? 'Restore last session' : 'The provider failed'
+          };
+        },
+        pollMs: 1,
+        stabilityMs: 3,
+        timeoutMs: 100,
+        initialError: 'Restore last session'
+      })
+    ).rejects.toThrow('The provider failed');
+  });
+
   it('times out without returning stale or partial content', async () => {
     vi.useFakeTimers();
     const promise = waitForCompletedResponse({

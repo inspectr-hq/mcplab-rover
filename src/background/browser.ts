@@ -9,7 +9,6 @@ export function expectedProviderForUrl(url?: string): ProviderId | undefined {
   try {
     const hostname = new URL(url).hostname;
     if (hostname === 'claude.ai') return 'claude';
-    if (hostname === 'trendminer.net' || hostname.endsWith('.trendminer.net')) return 'trendminer';
   } catch {
     return undefined;
   }

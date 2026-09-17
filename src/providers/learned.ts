@@ -4,15 +4,33 @@ import type { ResponseCandidate } from '../runtime/candidate-selection';
 import { isVisible, setTextValue, textFrom } from './dom';
 import { pageAlertText } from './adapter-helpers';
 
-function findFallbackSubmit(): HTMLElement | null {
+function findFallbackSubmit(includeDisabled = false): HTMLElement | null {
   return (
     Array.from(document.querySelectorAll<HTMLElement>('button,[role="button"]')).find((element) => {
-      if (!isVisible(element) || (element as HTMLButtonElement).disabled) return false;
+      if (!isVisible(element)) return false;
+      if (!includeDisabled && (element as HTMLButtonElement).disabled) return false;
       const label =
         `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.getAttribute('data-testid') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
       return /\b(send|submit|ask|run)\b/.test(label) && !/stop|cancel/.test(label);
     }) ?? null
   );
+}
+
+function findStopControl(): HTMLElement | null {
+  return (
+    Array.from(document.querySelectorAll<HTMLElement>('button,[role="button"]')).find((element) => {
+      if (!isVisible(element)) return false;
+      const label =
+        `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
+      return /\b(stop|cancel)\b/.test(label);
+    }) ?? null
+  );
+}
+
+function composerValue(element: HTMLElement): string {
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)
+    return element.value;
+  return element.textContent ?? '';
 }
 
 function rootsFor(root: Document | ShadowRoot): Array<Document | ShadowRoot> {
@@ -87,6 +105,9 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
         new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true })
       );
     },
+    stopGeneration: async () => {
+      findStopControl()?.click();
+    },
     startNewConversation: profile.newConversation
       ? async () => {
           if (profile.newConversation?.action === 'navigate') {
@@ -100,16 +121,30 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
             : undefined;
           if (!button) throw new Error(`${profile.name} new conversation control was not found`);
           button.click();
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          const deadline = Date.now() + 5_000;
+          while (Date.now() < deadline) {
+            const composer = findComposer();
+            if (composer && !composerValue(composer).trim()) return;
+            await new Promise((resolve) => setTimeout(resolve, 50));
+          }
+          throw new Error(`${profile.name} new conversation did not become ready`);
         }
       : undefined,
     getAssistantCandidates: candidates,
     getResponseState: (items: ResponseCandidate[]) => {
+      const submitControl = profile.submit.locator
+        ? (findPath(profile.submit.locator)[0] as HTMLElement | undefined)
+        : findFallbackSubmit(true);
       const generating = profile.completion.generatingLocator
         ? Boolean(findPath(profile.completion.generatingLocator)[0])
-        : false;
+        : Boolean(
+            findStopControl() ||
+              (submitControl instanceof HTMLButtonElement && submitControl.disabled)
+          );
       const idle = profile.completion.idleLocator
         ? Boolean(findPath(profile.completion.idleLocator)[0])
-        : !generating;
+        : !generating && Boolean(submitControl || findComposer());
       const error = pageAlertText();
       return { text: items.at(-1)?.text ?? '', isGenerating: generating, isIdle: idle, error };
     },

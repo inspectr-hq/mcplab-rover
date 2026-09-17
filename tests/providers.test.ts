@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
-import { trendminerAdapter } from '../src/providers/trendminer';
 import { chatgptAdapter } from '../src/providers/chatgpt';
 import { claudeAdapter } from '../src/providers/claude';
 import { createLearnedAdapter } from '../src/providers/learned';
@@ -37,6 +36,35 @@ const learnedProfile = {
   }
 };
 
+const testProviderProfile = {
+  schemaVersion: 1 as const,
+  id: 'test-provider',
+  name: 'Test Provider',
+  match: { origins: [location.origin] },
+  composer: {
+    locator: { segments: ['[data-test="ai-agent_input"]'] },
+    inputMode: 'textarea' as const
+  },
+  submit: {
+    action: 'click' as const,
+    locator: { segments: ['button[aria-label="Submit"]'] }
+  },
+  assistantMessages: {
+    locator: { segments: ['[data-test="chat-messages_message"]'] }
+  },
+  completion: { stabilityMs: 1000 },
+  newConversation: {
+    action: 'click' as const,
+    locator: { segments: ['button[aria-label="New chat"]'] }
+  },
+  learned: {
+    sourceOrigin: location.origin,
+    createdAt: '2026-09-10T00:00:00.000Z',
+    updatedAt: '2026-09-10T00:01:00.000Z',
+    confidence: {}
+  }
+};
+
 describe('learned provider profile validation', () => {
   it('rejects malformed optional locators instead of treating them as absent', () => {
     expect(
@@ -53,58 +81,7 @@ describe('provider catalog helpers', () => {
   it('centralizes built-in provider identity', () => {
     expect(isBuiltInProvider('claude')).toBe(true);
     expect(isBuiltInProvider('chatgpt-com')).toBe(true);
-    expect(isBuiltInProvider('trendminer')).toBe(true);
     expect(isBuiltInProvider('custom-browser')).toBe(false);
-  });
-});
-
-describe('TrendMiner adapter', () => {
-  it('reports semantic element diagnostics', () => {
-    document.body.innerHTML = `
-      <textarea data-test="ai-agent_input"></textarea>
-      <button aria-label="Submit">Submit</button>
-      <button aria-label="New chat">New chat</button>
-    `;
-
-    expect(trendminerAdapter.getDebugChecks()).toEqual([
-      expect.objectContaining({ id: 'composer', present: true }),
-      expect.objectContaining({ id: 'submit', present: true }),
-      expect.objectContaining({ id: 'assistant-response', present: false }),
-      expect.objectContaining({ id: 'new-chat', present: true })
-    ]);
-  });
-
-  it('reads only visible assistant content and updates the native composer', async () => {
-    document.body.innerHTML = `
-      <textarea data-test="ai-agent_input"></textarea>
-      <button aria-label="Submit">Submit</button>
-      <div data-test="chat-messages_message" class="chat-messages__message chat-messages__message--assistant">
-        <div class="chat-messages__message-content"><p>Visible answer</p></div>
-      </div>
-    `;
-    const composer = trendminerAdapter.findComposer() as HTMLTextAreaElement;
-    let inputEvents = 0;
-    composer.addEventListener('input', () => inputEvents++);
-
-    await trendminerAdapter.setComposerText('Injected prompt');
-
-    expect(composer.value).toBe('Injected prompt');
-    expect(inputEvents).toBe(1);
-    expect(trendminerAdapter.getAssistantCandidates()[0]?.text).toContain('Visible answer');
-  });
-
-  it('starts a new conversation through the native New chat control', async () => {
-    document.body.innerHTML = `
-      <textarea data-test="ai-agent_input"></textarea>
-      <button aria-label="New chat">New chat</button>
-    `;
-    const button = document.querySelector('button')!;
-    let clicks = 0;
-    button.addEventListener('click', () => clicks++);
-
-    await trendminerAdapter.startNewConversation?.();
-
-    expect(clicks).toBe(1);
   });
 });
 
@@ -209,6 +186,47 @@ describe('Learned provider adapter', () => {
     expect(adapter.getAssistantCandidates()[0]?.text).toBe('Learned response');
   });
 
+  it('reads only visible assistant content and updates a textarea composer', async () => {
+    document.body.innerHTML = `
+      <textarea data-test="ai-agent_input"></textarea>
+      <button aria-label="Submit">Submit</button>
+      <div data-test="chat-messages_message" class="chat-messages__message chat-messages__message--assistant">
+        <div class="chat-messages__message-content"><p>Visible answer</p></div>
+      </div>
+    `;
+    const adapter = createLearnedAdapter(testProviderProfile);
+    const composer = adapter.findComposer() as HTMLTextAreaElement;
+    let inputEvents = 0;
+    composer.addEventListener('input', () => inputEvents++);
+
+    await adapter.setComposerText('Injected prompt');
+
+    expect(composer.value).toBe('Injected prompt');
+    expect(inputEvents).toBe(1);
+    expect(adapter.getAssistantCandidates()[0]?.text).toContain('Visible answer');
+  });
+
+  it('starts a new conversation through a learned control and waits for a textarea composer to clear', async () => {
+    document.body.innerHTML = `
+      <textarea data-test="ai-agent_input">Previous prompt</textarea>
+      <button aria-label="New chat">New chat</button>
+    `;
+    const adapter = createLearnedAdapter(testProviderProfile);
+    const composer = document.querySelector('textarea')!;
+    let clicks = 0;
+    document.querySelector('button')!.addEventListener('click', () => {
+      clicks++;
+      setTimeout(() => {
+        composer.value = '';
+      }, 10);
+    });
+
+    await adapter.startNewConversation?.();
+
+    expect(clicks).toBe(1);
+    expect(composer.value).toBe('');
+  });
+
   it('clicks a visible send control when an Enter-based profile exposes one', async () => {
     document.body.innerHTML = `
       <div contenteditable="true"></div>
@@ -230,16 +248,23 @@ describe('Learned provider adapter', () => {
 
   it('uses the learned new-conversation control', async () => {
     document.body.innerHTML = `
-      <div contenteditable="true"></div>
+      <div contenteditable="true">Previous prompt</div>
       <button data-testid="new-chat">New chat</button>
     `;
     const adapter = createLearnedAdapter(learnedProfile);
     let clicks = 0;
-    document.querySelector('button')!.addEventListener('click', () => clicks++);
+    const composer = document.querySelector('[contenteditable="true"]')!;
+    document.querySelector('button')!.addEventListener('click', () => {
+      clicks++;
+      setTimeout(() => {
+        composer.textContent = '';
+      }, 10);
+    });
 
     await adapter.startNewConversation?.();
 
     expect(clicks).toBe(1);
+    expect(composer.textContent).toBe('');
   });
 
   it('reports the learned new-conversation control in debug checks', () => {
@@ -266,6 +291,41 @@ describe('Learned provider adapter', () => {
     ]));
   });
 
+  it('detects generation from a disabled fallback submit control', () => {
+    document.body.innerHTML = `
+      <textarea></textarea>
+      <button aria-label="Submit" disabled>Submit</button>
+      <div data-message-author-role="assistant">Streaming answer</div>
+    `;
+    Object.defineProperty(document.querySelector('button'), 'getBoundingClientRect', {
+      value: () => ({ width: 10, height: 10 })
+    });
+    const adapter = createLearnedAdapter({
+      ...learnedProfile,
+      submit: { action: 'enter' }
+    });
+
+    expect(adapter.getResponseState(adapter.getAssistantCandidates())).toMatchObject({
+      isGenerating: true,
+      isIdle: false
+    });
+  });
+
+  it('stops generation through a visible stop control', async () => {
+    document.body.innerHTML = '<button aria-label="Stop generating">Stop</button>';
+    const button = document.querySelector('button')!;
+    Object.defineProperty(button, 'getBoundingClientRect', {
+      value: () => ({ width: 10, height: 10 })
+    });
+    let clicks = 0;
+    button.addEventListener('click', () => clicks++);
+    const adapter = createLearnedAdapter(learnedProfile);
+
+    await adapter.stopGeneration?.();
+
+    expect(clicks).toBe(1);
+  });
+
   it('prioritizes a matching learned profile and falls back when cleared', () => {
     document.body.innerHTML = '<div contenteditable="true"></div>';
     setLearnedProfiles([
@@ -287,7 +347,7 @@ describe('Learned provider adapter', () => {
     document.body.innerHTML = '<div aria-label="Chat with ChatGPT" contenteditable="true"></div>';
 
     expect(() => setLearnedProfiles([{ id: 'broken' } as never])).not.toThrow();
-    expect(adapters.map((adapter) => adapter.id)).toEqual(['claude', 'chatgpt-com', 'trendminer']);
+    expect(adapters.map((adapter) => adapter.id)).toEqual(['claude', 'chatgpt-com']);
 
     expect(() =>
       setLearnedProfiles([
@@ -297,6 +357,6 @@ describe('Learned provider adapter', () => {
         }
       ])
     ).not.toThrow();
-    expect(adapters.map((adapter) => adapter.id)).toEqual(['claude', 'chatgpt-com', 'trendminer']);
+    expect(adapters.map((adapter) => adapter.id)).toEqual(['claude', 'chatgpt-com']);
   });
 });

@@ -9,6 +9,7 @@ export async function ask(
 ): Promise<string> {
   if (signal?.aborted) throw new DOMException('The request was cancelled.', 'AbortError');
   const baseline = adapter.getAssistantCandidates();
+  const initialError = adapter.getResponseState(baseline).error;
   await adapter.setComposerText(prompt);
   // Give framework-controlled composers time to process the synthetic input event
   // and enable their submit control before invoking the provider adapter.
@@ -20,6 +21,7 @@ export async function ask(
     stabilityMs: adapter.id === 'claude' ? 1500 : 2500,
     minResponseAgeMs: 500,
     timeoutMs: 120_000,
+    initialError,
     signal,
     read: () => {
       const current = adapter.getAssistantCandidates();

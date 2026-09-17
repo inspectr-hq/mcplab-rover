@@ -397,16 +397,6 @@ export async function waitForProviderReady(
 
 export async function startQueueConversation(queue: RoverQueueState): Promise<void> {
   if (typeof queue.tabId !== 'number') throw new Error('Queue browser tab is unavailable.');
-  if (queue.provider === 'trendminer') {
-    const response = await chrome.tabs.sendMessage(queue.tabId, {
-      type: 'ROVER_NEW_CHAT',
-      requestId: crypto.randomUUID(),
-      queueId: queue.queueId
-    });
-    if (!response?.ok)
-      throw new Error(response?.error ?? 'Could not start a new TrendMiner conversation.');
-    return;
-  }
   if (queue.provider === 'chatgpt-com') {
     const response = await chrome.tabs.sendMessage(queue.tabId, {
       type: 'ROVER_NEW_CHAT',

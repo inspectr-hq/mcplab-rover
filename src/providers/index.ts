@@ -2,12 +2,11 @@ import type { ProviderId } from '../contracts';
 import type { ChatProviderAdapter } from './types';
 import { claudeAdapter } from './claude';
 import { chatgptAdapter } from './chatgpt';
-import { trendminerAdapter } from './trendminer';
 import { createLearnedAdapter } from './learned';
 import { isValidBrowserProviderProfile } from './profile-validation';
 export { BUILT_IN_PROVIDER_IDS, isBuiltInProvider } from './catalog';
 
-const builtInAdapters: ChatProviderAdapter[] = [claudeAdapter, chatgptAdapter, trendminerAdapter];
+const builtInAdapters: ChatProviderAdapter[] = [claudeAdapter, chatgptAdapter];
 let learnedAdapters: ChatProviderAdapter[] = [];
 
 export const adapters: ChatProviderAdapter[] = [...builtInAdapters];

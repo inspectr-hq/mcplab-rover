@@ -487,9 +487,6 @@ export async function handleResult(
                 )?.testCaseId
               : undefined,
             lastDurationMs: durationMs,
-            ...(result.outcome === 'failed' || result.outcome === 'error'
-              ? { error: result.outcome }
-              : {})
           })
         );
       }
