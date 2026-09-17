@@ -4,6 +4,7 @@ import type { BrowserProviderProfile } from './mcplab/types';
 import { ask } from './runtime/ask';
 import { startProviderDiscovery } from './providers/provider-discovery';
 import { replayProviderProfile } from './providers/discovery-replay';
+import { roverResultMessage } from './content-result';
 
 const runtime = globalThis as typeof globalThis & { __mcplabRoverInstalled?: boolean };
 const activeAskControllers = new Map<string, AbortController>();
@@ -221,30 +222,16 @@ if (runtime.__mcplabRoverInstalled) {
         const adapter = findAdapter();
         if (!adapter) throw new Error('The active page is not a supported chat provider');
         const text = await ask(adapter, message.prompt, controller.signal);
-        await chrome.runtime.sendMessage({
-          type: 'ROVER_RESULT',
-          requestId: message.requestId,
-          sessionId: message.sessionId,
-          queueId: message.queueId,
-          queueItemId: message.queueItemId,
-          leaseId: message.leaseId,
-          result: { ok: true, text }
-        });
+        await chrome.runtime.sendMessage(roverResultMessage(message, { ok: true, text }));
       } catch (error) {
         const details = error as { message?: unknown; code?: unknown };
-        await chrome.runtime.sendMessage({
-          type: 'ROVER_RESULT',
-          requestId: message.requestId,
-          sessionId: message.sessionId,
-          queueId: message.queueId,
-          queueItemId: message.queueItemId,
-          leaseId: message.leaseId,
-          result: {
+        await chrome.runtime.sendMessage(
+          roverResultMessage(message, {
             ok: false,
             error: error instanceof Error ? error.message : String(error),
             ...(typeof details.code === 'string' ? { code: details.code } : {})
-          }
-        });
+          })
+        );
       } finally {
         activeAskControllers.delete(message.requestId);
       }

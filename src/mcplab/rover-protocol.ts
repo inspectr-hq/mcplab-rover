@@ -46,13 +46,6 @@ export interface ScenarioStatusEvent {
   error?: string;
 }
 
-export interface LeaseUnknownMessage {
-  type: 'lease_unknown';
-  jobId: string;
-  leaseId: string;
-  reason: 'unknown_lease';
-}
-
 export function scenarioStatusForItem(
   item: Pick<RoverQueueItem, 'status' | 'error'> | { status: QueueItemStatus; error?: string }
 ): Omit<ScenarioStatusEvent, 'type' | 'jobId' | 'scenarioId'> {

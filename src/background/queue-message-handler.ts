@@ -11,6 +11,7 @@ import {
 import { serializeQueueOperation } from '../queue/operations';
 import { activeTab, detectProvider } from './browser';
 import { errorMessage } from './errors';
+import { respond } from './respond';
 import { cancelActiveQueueItem, runQueueItem } from './queue-runner';
 import { createQueueForMessage } from './queue-message-helpers';
 import { currentSocket, persistLeaseRelease } from './lease-transport';
@@ -21,16 +22,6 @@ type QueueMessage = Extract<ExtensionMessage, { type: `ROVER_QUEUE_${string}` }>
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled queue message: ${(value as { type: string }).type}`);
-}
-
-function respond<T>(
-  sendResponse: (response: T | { ok: false; error: string }) => void,
-  work: () => Promise<T>
-): true {
-  void work()
-    .then(sendResponse)
-    .catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
-  return true;
 }
 
 export function handleQueueMessage(

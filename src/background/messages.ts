@@ -21,6 +21,7 @@ import {
 } from './browser';
 import { createDebugSnapshot } from './debug';
 import { errorMessage } from './errors';
+import { respond } from './respond';
 import { complete, fail } from './live-test';
 import {
   failManagedQueue,
@@ -49,16 +50,6 @@ import {
   STATE_KEY
 } from './store';
 import { serializeQueueOperation } from '../queue/operations';
-
-function respond<T>(
-  sendResponse: (response: T | { ok: false; error: string }) => void,
-  work: () => Promise<T>
-): true {
-  void work()
-    .then(sendResponse)
-    .catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
-  return true;
-}
 
 let debugSubscribed = false;
 
