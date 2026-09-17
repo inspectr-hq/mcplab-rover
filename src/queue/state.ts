@@ -87,14 +87,20 @@ export interface RoverQueueState {
   pendingLeaseActions?: PendingLeaseAction[];
 }
 
-const completedStatuses = new Set<QueueItemStatus>([
+export const completedQueueItemStatuses = [
   'passed',
   'failed',
   'incomplete',
   'skipped',
   'stopped',
   'error'
-]);
+] as const;
+
+const completedStatuses = new Set<QueueItemStatus>(completedQueueItemStatuses);
+
+export function isCompletedQueueItemStatus(status: QueueItemStatus): boolean {
+  return completedStatuses.has(status);
+}
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -270,8 +276,7 @@ export function stopScenario(
       (candidate) => candidate.testCaseId === scenarioId && candidate.status === 'queued'
     );
   if (!target) return queue;
-  if (['passed', 'failed', 'incomplete', 'skipped', 'error', 'stopped'].includes(target.status))
-    return queue;
+  if (isCompletedQueueItemStatus(target.status)) return queue;
   const items = queue.items.map((candidate) =>
     candidate.queueItemId === target.queueItemId
       ? { ...candidate, status: 'stopped' as const, completedAt: now, cancelRequestedAt: now }

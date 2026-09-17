@@ -4,6 +4,7 @@ import { McplabClient } from '../mcplab/api-client';
 import {
   archiveCompletedQueueItems,
   createQueue,
+  isCompletedQueueItemStatus,
   startQueue,
   stopQueue,
   stopScenario
@@ -466,9 +467,7 @@ export async function connectToMcplab(): Promise<void> {
                 jobId: next.queueId,
                 ...(next.leaseId ? { leaseId: next.leaseId } : {}),
                 completed: next.items.filter((candidate) =>
-                  ['passed', 'failed', 'incomplete', 'skipped', 'stopped'].includes(
-                    candidate.status
-                  )
+                  isCompletedQueueItemStatus(candidate.status)
                 ).length,
                 total: next.items.length,
                 currentScenarioId: next.activeItemId

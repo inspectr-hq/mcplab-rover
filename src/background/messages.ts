@@ -7,7 +7,12 @@ import type {
 } from '../contracts';
 import { McplabClient } from '../mcplab/api-client';
 import { acceptsContentResult } from '../runtime/live-state';
-import { createQueue, recordQueueItemOutcome, type RoverQueueState } from '../queue/state';
+import {
+  createQueue,
+  isCompletedQueueItemStatus,
+  recordQueueItemOutcome,
+  type RoverQueueState
+} from '../queue/state';
 import {
   activeTab,
   detectProvider,
@@ -508,7 +513,7 @@ export async function handleResult(
             jobId: queue.queueId,
             ...(queue.leaseId ? { leaseId: queue.leaseId } : {}),
             completed: completed.items.filter((candidate) =>
-              ['passed', 'failed', 'incomplete', 'skipped', 'stopped'].includes(candidate.status)
+              isCompletedQueueItemStatus(candidate.status)
             ).length,
             total: completed.items.length,
             currentScenarioId: completed.activeItemId
