@@ -151,9 +151,11 @@ describe('provider discovery recovery', () => {
     document.body.append(composer, submit);
     composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
     submit.click();
-    submit.setAttribute('aria-label', 'Abort');
-    submit.setAttribute('title', 'Abort');
-    submit.textContent = 'Abort';
+    setTimeout(() => {
+      submit.setAttribute('aria-label', 'Abort');
+      submit.setAttribute('title', 'Abort');
+      submit.textContent = 'Abort';
+    }, 100);
     setTimeout(() => {
       const response = document.createElement('div');
       response.setAttribute('data-message-author-role', 'assistant');
@@ -163,13 +165,13 @@ describe('provider discovery recovery', () => {
         configurable: true
       });
       document.body.append(response);
-    }, 600);
+    }, 300);
     setTimeout(() => {
       submit.setAttribute('aria-label', 'Submit');
       submit.setAttribute('title', 'Submit');
       submit.textContent = 'Submit';
-    }, 1_100);
-    await new Promise((resolve) => setTimeout(resolve, 1_800));
+    }, 450);
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
 
     expect(drafts).toHaveLength(1);
     expect(drafts[0].trace.observedGeneration).toBe(true);

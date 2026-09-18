@@ -585,7 +585,13 @@ export function startProviderDiscovery(
   document.addEventListener('keydown', onKey, true);
   document.addEventListener('submit', onSubmit, true);
   for (const root of roots(document))
-    observer.observe(root, { childList: true, subtree: true, characterData: true });
+    observer.observe(root, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ['aria-label', 'title', 'disabled', 'class', 'data-is-streaming']
+    });
   const stop = () => {
     stopped = true;
     observer.disconnect();
