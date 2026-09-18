@@ -235,6 +235,7 @@ export function startProviderDiscovery(
   onProgress?: (progress: BrowserProviderDiscoveryProgress) => void
 ): ProviderDiscoverySession {
   let composer: HTMLElement | null = null;
+  let composerSnapshotRecorded = false;
   let submit: HTMLElement | null = null;
   let assistant: HTMLElement | null = null;
   let submittedAt = 0;
@@ -409,6 +410,10 @@ export function startProviderDiscovery(
         target instanceof HTMLInputElement)
     ) {
       composer = target;
+      if (!composerSnapshotRecorded) {
+        composerSnapshotRecorded = true;
+        record('baseline', 0, 0, controlState());
+      }
       reportProgress();
     }
   };
@@ -421,6 +426,10 @@ export function startProviderDiscovery(
         target instanceof HTMLInputElement)
     ) {
       composer = target;
+      if (!composerSnapshotRecorded) {
+        composerSnapshotRecorded = true;
+        record('baseline', 0, 0, controlState());
+      }
       submissionArmed = true;
       discoveryLog('composer input observed', {
         tag: target.tagName,

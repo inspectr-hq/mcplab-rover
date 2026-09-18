@@ -17,7 +17,7 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    const drafts: unknown[] = [];
+    const drafts: any[] = [];
     const session = startProviderDiscovery((draft) => drafts.push(draft));
     const send = document.createElement('button');
     send.textContent = 'Send';
@@ -39,6 +39,9 @@ describe('provider discovery recovery', () => {
     await new Promise((resolve) => setTimeout(resolve, 550));
 
     expect(drafts).toHaveLength(1);
+    expect(drafts[0].validationReasons).not.toContain(
+      'Composer selector was not observed in the baseline snapshot.'
+    );
     expect(drafts[0]).toMatchObject({
       trace: {
         observedGeneration: false,
