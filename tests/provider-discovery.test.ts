@@ -137,6 +137,40 @@ describe('provider discovery recovery', () => {
     session.stop();
   });
 
+  it('does not treat an unrelated disabled control as generation', async () => {
+    Object.defineProperty(globalThis, 'CSS', {
+      value: { escape: (value: string) => value },
+      configurable: true
+    });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
+    const drafts: any[] = [];
+    const session = startProviderDiscovery((draft) => drafts.push(draft));
+    const composer = document.createElement('textarea');
+    const save = document.createElement('button');
+    save.textContent = 'Save';
+    save.disabled = true;
+    document.body.append(composer, save);
+    composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    composer.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    const response = document.createElement('div');
+    response.setAttribute('data-message-author-role', 'assistant');
+    response.textContent = 'A completed answer';
+    Object.defineProperty(response, 'innerText', {
+      value: 'A completed answer',
+      configurable: true
+    });
+    document.body.append(response);
+    await new Promise((resolve) => setTimeout(resolve, 600));
+
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].trace.observedGeneration).toBe(false);
+    expect(drafts[0].profile.completion.generatingLocator).toBeUndefined();
+    session.stop();
+  });
+
   it('learns an abort control as generation and submit as idle', async () => {
     Object.defineProperty(globalThis, 'CSS', {
       value: { escape: (value: string) => value },

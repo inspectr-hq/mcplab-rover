@@ -143,7 +143,12 @@ function controlState(): {
     visibleControls.find((element) => {
       return isGenerationControlLabel(controlLabel(element));
     }) ??
-    visibleControls.find((element) => element instanceof HTMLButtonElement && element.disabled) ??
+    visibleControls.find(
+      (element) =>
+        element instanceof HTMLButtonElement &&
+        element.disabled &&
+        /\b(send|submit|ask|run)\b/.test(controlLabel(element))
+    ) ??
     null;
   const idleControl =
     visibleControls.find((element) => {
@@ -313,7 +318,15 @@ export function startProviderDiscovery(
         : {}),
       snapshot: lifecycleSnapshot()
     });
-    if (trace.events.length > 32) trace.events.shift();
+    if (trace.events.length > 32) {
+      const lifecycleEvents = trace.events.filter(
+        (event) => event.phase === 'baseline' || event.phase === 'submitted'
+      );
+      const recentEvents = trace.events
+        .filter((event) => event.phase !== 'baseline' && event.phase !== 'submitted')
+        .slice(-(32 - lifecycleEvents.length));
+      trace.events = [...lifecycleEvents, ...recentEvents];
+    }
   };
   record('baseline', 0, 0, controlState());
   discoveryLog('started', { origin, href: location.href, baselineTextCount: baselineTexts.size });
@@ -518,12 +531,12 @@ export function startProviderDiscovery(
         stabilityMs: 2500,
         ...(generatingLocator
           ? { generatingLocator }
-          : submit
+          : submit && submit !== composer
             ? { generatingLocator: withFinalSelector(locator(submit), ':disabled') }
             : {}),
         ...(idleControl
           ? { idleLocator: controlLocator(idleControl, 'idle') }
-          : submit
+          : submit && submit !== composer
             ? { idleLocator: withFinalSelector(locator(submit), ':not([disabled])') }
             : {})
       },
