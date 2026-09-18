@@ -294,6 +294,37 @@ describe('Learned provider adapter', () => {
     expect(composer.textContent).toBe('');
   });
 
+  it('clicks an actionable child when a learned locator targets a wrapper', async () => {
+    document.body.innerHTML = `
+      <textarea data-test="ai-agent_input">Previous prompt</textarea>
+      <tm-icon-button data-test="ai-agent_chat_new-chat"><button title="New chat">New chat</button></tm-icon-button>
+    `;
+    const adapter = createLearnedAdapter({
+      ...testProviderProfile,
+      newConversation: {
+        action: 'click',
+        locator: { segments: ['[data-test="ai-agent_chat_new-chat"]'] }
+      }
+    });
+    const composer = document.querySelector('textarea')!;
+    const button = document.querySelector('button')!;
+    let clicks = 0;
+    button.addEventListener('click', () => {
+      clicks++;
+      composer.value = '';
+      document.querySelector('[data-test="chat-messages_message"]')?.remove();
+    });
+    const message = document.createElement('div');
+    message.setAttribute('data-test', 'chat-messages_message');
+    message.textContent = 'Previous answer';
+    document.body.append(message);
+
+    await adapter.startNewConversation?.();
+
+    expect(clicks).toBe(1);
+    expect(composer.value).toBe('');
+  });
+
   it('reports the learned new-conversation control in debug checks', () => {
     document.body.innerHTML = `
       <div contenteditable="true"></div>

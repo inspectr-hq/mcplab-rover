@@ -73,10 +73,9 @@ describe('provider discovery recovery', () => {
     const composer = document.createElement('textarea');
     document.body.append(composer);
     composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
-    const newChat = document.createElement('div');
-    newChat.setAttribute('tabindex', '0');
+    const newChat = document.createElement('tm-icon-button');
     newChat.setAttribute('data-test', 'ai-agent_chat_new-chat');
-    newChat.innerHTML = '<span>add</span>';
+    newChat.innerHTML = '<button title="New chat">add</button>';
     document.body.append(newChat);
     const response = document.createElement('div');
     response.setAttribute('data-message-author-role', 'assistant');
@@ -95,6 +94,7 @@ describe('provider discovery recovery', () => {
         locator: expect.objectContaining({ segments: expect.any(Array) })
       })
     );
+    expect(drafts[0].profile.newConversation.locator.segments.at(-1)).toBe('button');
     session.stop();
   });
 

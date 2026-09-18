@@ -66,6 +66,17 @@ function newConversationLocators(profile: BrowserProviderProfile): ShadowLocator
   );
 }
 
+function clickableTarget(element: HTMLElement): HTMLElement {
+  if (
+    element instanceof HTMLButtonElement ||
+    element instanceof HTMLAnchorElement ||
+    element.getAttribute('role') === 'button'
+  )
+    return element;
+  const controls = Array.from(element.querySelectorAll<HTMLElement>('button,a,[role="button"]'));
+  return controls.find(isVisible) ?? controls[0] ?? element;
+}
+
 export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProviderAdapter {
   let lastCompletion:
     | {
@@ -142,14 +153,25 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
           }
           const button = newConversationLocators(profile)
             .map((locator) => findPath(locator)[0] as HTMLElement | undefined)
+            .filter((element): element is HTMLElement => Boolean(element))
+            .map(clickableTarget)
             .find(Boolean);
           if (!button) throw new Error(`${profile.name} new conversation control was not found`);
+          const initialComposer = findComposer();
+          const beforeComposer = initialComposer ? composerValue(initialComposer) : '';
+          const composerStartedWithText = Boolean(beforeComposer.trim());
+          const beforeMessageCount = candidates().length;
+          const beforeUrl = location.href;
           button.click();
-          await new Promise((resolve) => setTimeout(resolve, 50));
           const deadline = Date.now() + 5_000;
           while (Date.now() < deadline) {
             const composer = findComposer();
-            if (composer && !composerValue(composer).trim()) return;
+            const messageCount = candidates().length;
+            const changedConversation =
+              (composerStartedWithText && Boolean(composer && !composerValue(composer).trim())) ||
+              messageCount < beforeMessageCount ||
+              location.href !== beforeUrl;
+            if (composer && !composerValue(composer).trim() && changedConversation) return;
             await new Promise((resolve) => setTimeout(resolve, 50));
           }
           throw new Error(`${profile.name} new conversation did not become ready`);

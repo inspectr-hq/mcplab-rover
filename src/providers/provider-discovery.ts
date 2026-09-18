@@ -82,6 +82,17 @@ function findNewConversationControls(): HTMLElement[] {
   ).filter((element) => {
     if (!visible(element) || (element instanceof HTMLButtonElement && element.disabled))
       return false;
+    // Prefer the actionable descendant over a custom-element wrapper such as
+    // <tm-icon-button data-test="...">. Clicking the wrapper can be a no-op.
+    if (
+      !(
+        element instanceof HTMLButtonElement ||
+        element instanceof HTMLAnchorElement ||
+        element.getAttribute('role') === 'button'
+      ) &&
+      element.querySelector('button,a,[role="button"]')
+    )
+      return false;
     const label =
       `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.getAttribute('data-test') ?? ''} ${element.getAttribute('data-testid') ?? ''} ${element.getAttribute('trackingtest') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
     return /new[\s_-]*(chat|conversation)|new[\s_-]*thread|start[\s_-]*(a[\s_-]*)?new/.test(label);
