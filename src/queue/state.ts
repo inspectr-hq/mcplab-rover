@@ -68,6 +68,8 @@ export interface RoverQueueState {
   origin: string;
   provider: ProviderId;
   tabId?: number;
+  /** MCPLab-owned instruction, consumed before the first scenario in an assignment. */
+  newConversationBeforeStart?: boolean;
   newConversationBetweenItems: boolean;
   status: QueueStatus;
   items: RoverQueueItem[];

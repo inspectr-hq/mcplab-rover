@@ -121,6 +121,11 @@ One assignment still contains all scenarios and runs them sequentially. Preserve
 - false continues the same provider conversation;
 - true invokes the provider's new-conversation action before the next scenario.
 
+MCPLab may also set `newConversationBeforeStart` on an assignment. Rover must invoke the
+provider's new-conversation action and wait for provider readiness before starting the first
+scenario in that assignment. This assignment-level setting is separate from Rover's local
+queue setting and applies across separate MCPLab evaluation jobs.
+
 Stopping an active scenario cancels its browser request and MCPLab session, marks only that scenario stopped, preserves prior results, and advances to the next queued scenario. Stopping the whole job marks active work stopped and releases the lease.
 
 ## Error handling

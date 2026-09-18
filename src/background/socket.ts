@@ -95,6 +95,18 @@ function debugLog(event: string, details: Record<string, unknown> = {}): void {
   console.info(`[Rover debug] ${event}`, details);
 }
 
+async function prepareAssignmentStart(queue: RoverQueueState): Promise<RoverQueueState> {
+  if (!queue.newConversationBeforeStart) return queue;
+  await startQueueConversation(queue);
+  const prepared = {
+    ...queue,
+    newConversationBeforeStart: false,
+    updatedAt: new Date().toISOString()
+  };
+  await saveQueue(prepared);
+  return prepared;
+}
+
 async function reconcileQueueAfterRegistration(origin: string): Promise<void> {
   const queue = await getQueue();
   if (!queue || (queue.status !== 'running' && queue.managedPhase !== 'accepted')) return;
@@ -142,7 +154,10 @@ async function reconcileQueueAfterRegistration(origin: string): Promise<void> {
         await saveQueue(reconciled);
       }
       await startLeaseRenewal(reconciled);
-      if (queueNeedsResume(reconciled)) await runQueueItem(reconciled);
+      if (queueNeedsResume(reconciled)) {
+        const prepared = await prepareAssignmentStart(reconciled);
+        await runQueueItem(prepared);
+      }
       return;
     }
     stopLeaseRenewal();
@@ -300,6 +315,7 @@ export async function connectToMcplab(): Promise<void> {
         agent?: { provider?: ProviderId; providerRevision?: string };
         provider?: import('../mcplab/types').BrowserProviderProfile;
         scenarios?: Array<{ id: string; name?: string; prompt: string; eval?: unknown }>;
+        newConversationBeforeStart?: boolean;
         newConversationBetweenScenarios?: boolean;
       };
       if (message.type === 'lease_unknown' && message.jobId && message.leaseId) {
@@ -631,7 +647,8 @@ export async function connectToMcplab(): Promise<void> {
             prompt: scenario.prompt,
             assertionCount: 0,
             status: 'queued' as const
-          }))
+          })),
+          newConversationBeforeStart: message.newConversationBeforeStart === true
         };
         let assigned = transitionManagedLease(assignedBase, {
           type: 'offer',
@@ -659,7 +676,7 @@ export async function connectToMcplab(): Promise<void> {
         waitingEvaluations = waitingEvaluations.filter((job) => job.jobId !== message.jobId);
         for (const item of assigned.items) sendScenarioStatus(assigned, item);
         await startLeaseRenewal(started);
-        await runQueueItem(started);
+        await runQueueItem(await prepareAssignmentStart(started));
       }).catch(async (error) => {
         if (!accepted && socket.readyState === WebSocket.OPEN) {
           rejectAssignment('provider_unavailable');

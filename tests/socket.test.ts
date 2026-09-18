@@ -7,7 +7,8 @@ const mocks = vi.hoisted(() => ({
   saveQueue: vi.fn(),
   resolveOrigin: vi.fn(),
   waitForProviderReady: vi.fn(),
-  runQueueItem: vi.fn()
+  runQueueItem: vi.fn(),
+  startQueueConversation: vi.fn()
 }));
 
 vi.mock('../src/background/browser', () => ({
@@ -27,7 +28,7 @@ vi.mock('../src/background/queue-runner', () => ({
   pauseQueue: vi.fn(),
   runQueueItem: mocks.runQueueItem,
   sendScenarioStatus: vi.fn(),
-  startQueueConversation: vi.fn(),
+  startQueueConversation: mocks.startQueueConversation,
   waitForProviderReady: mocks.waitForProviderReady
 }));
 vi.mock('../src/background/messages', () => ({}));
@@ -69,7 +70,8 @@ const assignment = {
   leaseId: 'lease-1',
   leaseExpiresAt: new Date(Date.now() + 30_000).toISOString(),
   agent: { provider: 'claude' },
-  scenarios: [{ id: 'scenario-1', name: 'Scenario', prompt: 'Hello' }]
+  scenarios: [{ id: 'scenario-1', name: 'Scenario', prompt: 'Hello' }],
+  newConversationBeforeStart: true
 };
 
 describe('socket assignment lifecycle', () => {
@@ -124,6 +126,7 @@ describe('socket assignment lifecycle', () => {
     const sentBefore = socket.sent.length;
     socket.message(assignment);
     await vi.waitFor(() => expect(mocks.runQueueItem).toHaveBeenCalled());
+    expect(mocks.startQueueConversation).toHaveBeenCalled();
     const assignmentMessages = socket.sent.slice(sentBefore).map((value) => JSON.parse(value).type);
     expect(assignmentMessages).toContain('assignment_accept');
     expect(assignmentMessages).not.toContain('assignment_reject');
