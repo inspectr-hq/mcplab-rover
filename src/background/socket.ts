@@ -97,6 +97,11 @@ function debugLog(event: string, details: Record<string, unknown> = {}): void {
 
 async function prepareAssignmentStart(queue: RoverQueueState): Promise<RoverQueueState> {
   if (!queue.newConversationBeforeStart) return queue;
+  debugLog('starting new conversation before assignment', {
+    queueId: queue.queueId,
+    provider: queue.provider,
+    tabId: queue.tabId
+  });
   await startQueueConversation(queue);
   const prepared = {
     ...queue,
@@ -104,6 +109,11 @@ async function prepareAssignmentStart(queue: RoverQueueState): Promise<RoverQueu
     updatedAt: new Date().toISOString()
   };
   await saveQueue(prepared);
+  debugLog('new conversation ready before assignment', {
+    queueId: queue.queueId,
+    provider: queue.provider,
+    tabId: queue.tabId
+  });
   return prepared;
 }
 
@@ -532,7 +542,9 @@ export async function connectToMcplab(): Promise<void> {
       debugLog('assignment received', {
         jobId: message.jobId,
         provider: message.agent.provider,
-        scenarios: message.scenarios.length
+        scenarios: message.scenarios.length,
+        newConversationBeforeStart: message.newConversationBeforeStart === true,
+        newConversationBetweenScenarios: message.newConversationBetweenScenarios !== false
       });
       let accepted = false;
       const reportAssignmentError = (reason: string) => {
