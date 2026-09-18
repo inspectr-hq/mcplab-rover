@@ -3,15 +3,15 @@ import type { ChatProviderAdapter } from './types';
 import type { ResponseCandidate } from '../runtime/candidate-selection';
 import { isVisible, setTextValue, textFrom } from './dom';
 import { pageAlertText } from './adapter-helpers';
+import { controlLabel, isGenerationControlLabel } from './control-labels';
 
 function findFallbackSubmit(includeDisabled = false): HTMLElement | null {
   return (
     Array.from(document.querySelectorAll<HTMLElement>('button,[role="button"]')).find((element) => {
       if (!isVisible(element)) return false;
       if (!includeDisabled && (element as HTMLButtonElement).disabled) return false;
-      const label =
-        `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.getAttribute('data-testid') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
-      return /\b(send|submit|ask|run)\b/.test(label) && !/stop|cancel/.test(label);
+      const label = `${controlLabel(element)} ${element.getAttribute('data-testid') ?? ''}`;
+      return /\b(send|submit|ask|run)\b/.test(label) && !isGenerationControlLabel(label);
     }) ?? null
   );
 }
@@ -20,9 +20,7 @@ function findStopControl(): HTMLElement | null {
   return (
     Array.from(document.querySelectorAll<HTMLElement>('button,[role="button"]')).find((element) => {
       if (!isVisible(element)) return false;
-      const label =
-        `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
-      return /\b(stop|cancel)\b/.test(label);
+      return isGenerationControlLabel(controlLabel(element));
     }) ?? null
   );
 }

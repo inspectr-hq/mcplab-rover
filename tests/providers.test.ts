@@ -330,6 +330,25 @@ describe('Learned provider adapter', () => {
     expect(clicks).toBe(1);
   });
 
+  it('detects and cancels a visible abort control', async () => {
+    document.body.innerHTML = '<button aria-label="Abort" title="Abort">Abort</button>';
+    const button = document.querySelector('button')!;
+    Object.defineProperty(button, 'getBoundingClientRect', {
+      value: () => ({ width: 10, height: 10 })
+    });
+    let clicks = 0;
+    button.addEventListener('click', () => clicks++);
+    const adapter = createLearnedAdapter(learnedProfile);
+
+    expect(adapter.getResponseState([])).toMatchObject({
+      isGenerating: true,
+      isIdle: false
+    });
+    await adapter.stopGeneration?.();
+
+    expect(clicks).toBe(1);
+  });
+
   it('prioritizes a matching learned profile and falls back when cleared', () => {
     document.body.innerHTML = '<div contenteditable="true"></div>';
     setLearnedProfiles([

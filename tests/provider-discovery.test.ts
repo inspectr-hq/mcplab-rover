@@ -134,6 +134,54 @@ describe('provider discovery recovery', () => {
     session.stop();
   });
 
+  it('learns an abort control as generation and submit as idle', async () => {
+    Object.defineProperty(globalThis, 'CSS', {
+      value: { escape: (value: string) => value },
+      configurable: true
+    });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
+    const drafts: any[] = [];
+    const session = startProviderDiscovery((draft) => drafts.push(draft));
+    const composer = document.createElement('textarea');
+    const submit = document.createElement('button');
+    submit.setAttribute('aria-label', 'Submit');
+    document.body.append(composer, submit);
+    composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    submit.click();
+    submit.setAttribute('aria-label', 'Abort');
+    submit.setAttribute('title', 'Abort');
+    submit.textContent = 'Abort';
+    setTimeout(() => {
+      const response = document.createElement('div');
+      response.setAttribute('data-message-author-role', 'assistant');
+      response.textContent = 'A completed answer';
+      Object.defineProperty(response, 'innerText', {
+        value: 'A completed answer',
+        configurable: true
+      });
+      document.body.append(response);
+    }, 600);
+    setTimeout(() => {
+      submit.setAttribute('aria-label', 'Submit');
+      submit.setAttribute('title', 'Submit');
+      submit.textContent = 'Submit';
+    }, 1_100);
+    await new Promise((resolve) => setTimeout(resolve, 1_800));
+
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].trace.observedGeneration).toBe(true);
+    expect(drafts[0].profile.completion.generatingLocator.segments.at(-1)).toBe(
+      '[aria-label="Abort"]'
+    );
+    expect(drafts[0].profile.completion.idleLocator.segments.at(-1)).toBe(
+      '[aria-label="Submit"]:not([disabled])'
+    );
+    session.stop();
+  });
+
   it('reports live progress as the composer and response are detected', async () => {
     Object.defineProperty(globalThis, 'CSS', {
       value: { escape: (value: string) => value },

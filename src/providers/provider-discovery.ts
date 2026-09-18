@@ -7,6 +7,7 @@ import type {
 import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
 import { selectAssistantCandidate, type ChatCandidateDescriptor } from './candidate-descriptor';
 import { replayProviderProfile } from './discovery-replay';
+import { controlLabel, isGenerationControlLabel } from './control-labels';
 
 const DISCOVERY_LOG = '[MCPLab Rover][provider-discovery]';
 
@@ -140,9 +141,7 @@ function controlState(): {
   const visibleControls = controls.filter((element) => visible(element));
   const generatingControl =
     visibleControls.find((element) => {
-      const label =
-        `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
-      return /\b(stop|cancel)\b/.test(label);
+      return isGenerationControlLabel(controlLabel(element));
     }) ??
     visibleControls.find((element) => element instanceof HTMLButtonElement && element.disabled) ??
     null;
@@ -192,9 +191,7 @@ function withFinalSelector(locatorValue: ShadowLocator, suffix: string): ShadowL
 
 function controlLocator(element: HTMLElement, state: 'generating' | 'idle'): ShadowLocator {
   const base = locator(element);
-  const label =
-    `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
-  if (/\b(stop|cancel)\b/.test(label)) return base;
+  if (isGenerationControlLabel(controlLabel(element))) return base;
   return withFinalSelector(base, state === 'generating' ? ':disabled' : ':not([disabled])');
 }
 
@@ -246,7 +243,7 @@ export function startProviderDiscovery(
   let stopped = false;
   let observedGeneration = false;
   let observedIdle = false;
-  let generatingControl: HTMLElement | null = null;
+  let generatingLocator: ShadowLocator | undefined;
   let idleControl: HTMLElement | null = null;
   let lastCandidateCount = 0;
   let lastChangedCandidateCount = 0;
@@ -333,7 +330,9 @@ export function startProviderDiscovery(
     if (controls.generating) {
       observedGeneration = true;
       trace.observedGeneration = true;
-      generatingControl = controls.generatingControl;
+      generatingLocator = controls.generatingControl
+        ? controlLocator(controls.generatingControl, 'generating')
+        : undefined;
       record('generating', candidates.length, 0, controls, selected ?? undefined);
     }
     if (observedGeneration && controls.idleControl && !controls.generating) observedIdle = true;
@@ -508,8 +507,8 @@ export function startProviderDiscovery(
       assistantMessages: { locator: locator(assistant) },
       completion: {
         stabilityMs: 2500,
-        ...(generatingControl
-          ? { generatingLocator: controlLocator(generatingControl, 'generating') }
+        ...(generatingLocator
+          ? { generatingLocator }
           : submit
             ? { generatingLocator: withFinalSelector(locator(submit), ':disabled') }
             : {}),
