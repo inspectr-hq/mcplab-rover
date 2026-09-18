@@ -67,6 +67,7 @@ const learnPanel = document.querySelector<HTMLElement>('#learn-panel')!;
 const learnStatus = document.querySelector<HTMLParagraphElement>('#learn-status')!;
 const learnProgress = document.querySelector<HTMLElement>('#learn-progress')!;
 const learnCapabilities = document.querySelector<HTMLElement>('#learn-capabilities')!;
+const learnValidation = document.querySelector<HTMLElement>('#learn-validation')!;
 const learnName = document.querySelector<HTMLInputElement>('#learn-name')!;
 const learnStart = document.querySelector<HTMLButtonElement>('#learn-start')!;
 const learnCapture = document.querySelector<HTMLButtonElement>('#learn-capture')!;
@@ -197,6 +198,8 @@ learnStart.addEventListener(
       learnCapabilities.replaceChildren();
       learnProgress.replaceChildren();
       learnProgress.hidden = true;
+      learnValidation.replaceChildren();
+      learnValidation.hidden = true;
       learnName.hidden = true;
       learnPropose.hidden = true;
       learnSave.hidden = true;
@@ -254,6 +257,7 @@ learnPropose.addEventListener(
         ...draft,
         profile: response.proposal.profile,
         readyToSave: replay.passed,
+        validationReasons: replay.reasons,
         proposalDiagnostics: {
           rationale: response.proposal.rationale ?? [],
           warnings: response.proposal.warnings ?? []
@@ -261,6 +265,8 @@ learnPropose.addEventListener(
       };
       await chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: discoveryDraft });
       learnSave.hidden = discoveryDraft.readyToSave !== true;
+      renderLearnCapabilities(discoveryDraft.capabilities);
+      renderLearnValidation(discoveryDraft);
       const rationale = Array.isArray(response.proposal.rationale)
         ? response.proposal.rationale[0]
         : undefined;
@@ -987,6 +993,25 @@ function renderLearnCapabilities(
   );
 }
 
+function renderLearnValidation(draft: BrowserProviderDiscoveryDraft): void {
+  const reasons = draft.validationReasons ?? [];
+  renderIndicatorList(learnValidation, [
+    {
+      label: 'Save readiness',
+      state: draft.readyToSave ? 'pass' : 'fail',
+      detail: draft.readyToSave
+        ? 'All required lifecycle checks passed.'
+        : 'Provider cannot be saved until the failed checks are resolved.'
+    },
+    ...reasons.map((reason) => ({
+      label: 'Validation issue',
+      state: 'fail' as const,
+      detail: reason
+    }))
+  ]);
+  learnValidation.hidden = false;
+}
+
 function renderLearnProgress(progress: BrowserProviderDiscoveryProgress): void {
   learnProgress.hidden = false;
   renderIndicatorList(learnProgress, [
@@ -1040,11 +1065,12 @@ chrome.runtime.onMessage.addListener((message: { type?: string }) => {
     learnProgress.hidden = true;
     learnStatus.textContent = event.draft.readyToSave
       ? 'Sample captured. Review the capabilities, name the provider, and save it.'
-      : 'Sample captured, but the generation lifecycle was not fully validated. Start learning again and capture an active response.';
+      : `Sample captured, but save validation failed. ${event.draft.validationReasons?.[0] ?? 'Review the validation details below.'}`;
     learnName.hidden = false;
     learnPropose.hidden = !event.draft.trace;
     learnSave.hidden = event.draft.readyToSave !== true;
     renderLearnCapabilities(event.draft.capabilities);
+    renderLearnValidation(event.draft);
   }
 });
 
@@ -1077,4 +1103,5 @@ void chrome.storage.local.get([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]).
       ? 'A saved learning draft is ready to review.'
       : 'This learning draft did not pass lifecycle validation. Capture a new active response.';
   renderLearnCapabilities(draft.capabilities);
+  renderLearnValidation(draft);
 });

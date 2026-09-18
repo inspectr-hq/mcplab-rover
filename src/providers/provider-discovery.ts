@@ -538,10 +538,11 @@ export function startProviderDiscovery(
       assistant: validateLocator(profile.assistantMessages.locator)
     };
     record('final', lastCandidateCount, lastChangedCandidateCount, lastControls, lastSelected);
-    const replayPassed = replayProviderProfile(profile, trace).passed;
+    const replay = replayProviderProfile(profile, trace);
     onDraft({
       profile,
-      readyToSave: replayPassed,
+      readyToSave: replay.passed,
+      validationReasons: replay.reasons,
       trace,
       capabilities: [
         {
@@ -565,10 +566,13 @@ export function startProviderDiscovery(
         {
           id: 'completion',
           label: 'Completion',
-          confidence: observedGeneration ? 'high' : 'low',
-          detail: observedGeneration
-            ? 'Observed an active generation control and idle transition.'
-            : 'No generation signal observed. Runtime will require a later generation transition.'
+          confidence: observedGeneration && observedIdle ? 'high' : observedGeneration ? 'medium' : 'low',
+          detail:
+            observedGeneration && observedIdle
+              ? 'Observed the generation control and its idle transition.'
+              : observedGeneration
+                ? 'Observed generation, but not the idle transition yet.'
+                : 'No generation signal observed. Runtime will require a later generation transition.'
         },
         {
           id: 'newConversation',

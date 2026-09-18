@@ -4,6 +4,7 @@ export type ProviderId = string;
 export interface BrowserProviderDiscoveryDraft {
   profile: import('./mcplab/types').BrowserProviderProfile;
   readyToSave?: boolean;
+  validationReasons?: string[];
   proposalDiagnostics?: { rationale: string[]; warnings: string[] };
   capabilities: Array<{
     id: string;

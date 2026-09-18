@@ -181,6 +181,15 @@ describe('provider discovery recovery', () => {
     expect(drafts[0].profile.completion.idleLocator.segments.at(-1)).toBe(
       '[aria-label="Submit"]:not([disabled])'
     );
+    expect(drafts[0].capabilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'completion',
+          confidence: 'high',
+          detail: 'Observed the generation control and its idle transition.'
+        })
+      ])
+    );
     session.stop();
   });
 
