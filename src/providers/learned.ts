@@ -53,6 +53,19 @@ function findPath(locator: ShadowLocator, all = false): Element[] {
   return [];
 }
 
+function newConversationLocators(profile: BrowserProviderProfile): ShadowLocator[] {
+  const configured = profile.newConversation;
+  if (!configured || configured.action !== 'click') return [];
+  const locators = [configured.locator, ...(configured.locators ?? [])].filter(
+    (locator): locator is ShadowLocator => Boolean(locator)
+  );
+  return locators.filter(
+    (locator, index) =>
+      locators.findIndex((candidate) => JSON.stringify(candidate) === JSON.stringify(locator)) ===
+      index
+  );
+}
+
 export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProviderAdapter {
   let lastCompletion:
     | {
@@ -127,9 +140,9 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
             location.assign(profile.newConversation.url);
             return;
           }
-          const button = profile.newConversation?.locator
-            ? (findPath(profile.newConversation.locator)[0] as HTMLElement | undefined)
-            : undefined;
+          const button = newConversationLocators(profile)
+            .map((locator) => findPath(locator)[0] as HTMLElement | undefined)
+            .find(Boolean);
           if (!button) throw new Error(`${profile.name} new conversation control was not found`);
           button.click();
           await new Promise((resolve) => setTimeout(resolve, 50));
@@ -205,10 +218,7 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
               present:
                 profile.newConversation.action === 'navigate'
                   ? Boolean(profile.newConversation.url)
-                  : Boolean(
-                      profile.newConversation.locator &&
-                      findPath(profile.newConversation.locator)[0]
-                    ),
+                  : newConversationLocators(profile).some((locator) => Boolean(findPath(locator)[0])),
               detail:
                 profile.newConversation.action === 'navigate'
                   ? 'Uses the learned navigation URL'

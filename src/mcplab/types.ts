@@ -19,7 +19,12 @@ export interface BrowserProviderProfile {
     idleLocator?: ShadowLocator;
     stabilityMs: number;
   };
-  newConversation?: { action: 'click' | 'navigate'; locator?: ShadowLocator; url?: string };
+  newConversation?: {
+    action: 'click' | 'navigate';
+    locator?: ShadowLocator;
+    locators?: ShadowLocator[];
+    url?: string;
+  };
   learned: {
     sourceOrigin: string;
     createdAt: string;

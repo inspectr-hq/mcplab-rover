@@ -57,7 +57,9 @@ export function isValidBrowserProviderProfile(value: unknown): value is BrowserP
     if (!['click', 'navigate'].includes(profile.newConversation.action)) return false;
     if (
       profile.newConversation.action === 'click' &&
-      !validLocator(profile.newConversation.locator)
+      ![profile.newConversation.locator, ...(profile.newConversation.locators ?? [])].some(
+        (locator) => validLocator(locator)
+      )
     )
       return false;
     if (

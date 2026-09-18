@@ -267,6 +267,33 @@ describe('Learned provider adapter', () => {
     expect(composer.textContent).toBe('');
   });
 
+  it('tries learned new-conversation locators in order', async () => {
+    document.body.innerHTML = `
+      <div contenteditable="true">Previous prompt</div>
+      <button aria-label="New chat">New chat</button>
+    `;
+    const adapter = createLearnedAdapter({
+      ...learnedProfile,
+      newConversation: {
+        action: 'click',
+        locator: { segments: ['[data-testid="missing-new-chat"]'] },
+        locators: [{ segments: ['button[aria-label="New chat"]'] }]
+      }
+    });
+    const composer = document.querySelector('[contenteditable="true"]')!;
+    const button = document.querySelector('button')!;
+    let clicks = 0;
+    button.addEventListener('click', () => {
+      clicks++;
+      composer.textContent = '';
+    });
+
+    await adapter.startNewConversation?.();
+
+    expect(clicks).toBe(1);
+    expect(composer.textContent).toBe('');
+  });
+
   it('reports the learned new-conversation control in debug checks', () => {
     document.body.innerHTML = `
       <div contenteditable="true"></div>

@@ -76,10 +76,10 @@ function allElements(selectorText: string): HTMLElement[] {
   );
 }
 
-function findNewConversationControl(): HTMLElement | undefined {
+function findNewConversationControls(): HTMLElement[] {
   return allElements(
     'button,[role="button"],a,[tabindex]:not([tabindex="-1"]),[aria-label],[title],[data-test],[data-testid],[trackingtest]'
-  ).find((element) => {
+  ).filter((element) => {
     if (!visible(element) || (element instanceof HTMLButtonElement && element.disabled))
       return false;
     const label =
@@ -502,11 +502,15 @@ export function startProviderDiscovery(
     if (!composer || !assistant) return;
     emitted = true;
     const submitLocator = submit && submit !== composer ? locator(submit) : undefined;
-    const newConversation = findNewConversationControl();
-    const newConversationProfile = newConversation
-      ? newConversation instanceof HTMLAnchorElement && newConversation.href
-        ? { action: 'navigate' as const, url: newConversation.href }
-        : { action: 'click' as const, locator: locator(newConversation) }
+    const newConversation = findNewConversationControls();
+    const newConversationProfile = newConversation.length > 0
+      ? newConversation[0] instanceof HTMLAnchorElement && newConversation[0].href
+        ? { action: 'navigate' as const, url: newConversation[0].href }
+        : {
+            action: 'click' as const,
+            locator: locator(newConversation[0]),
+            locators: newConversation.map((control) => locator(control))
+          }
       : undefined;
     const profile: BrowserProviderProfile = {
       schemaVersion: 1,
@@ -599,8 +603,11 @@ export function startProviderDiscovery(
         {
           id: 'newConversation',
           label: 'New conversation',
-          confidence: newConversation ? confidence(newConversation) : 'low',
-          detail: newConversation ? 'Found a new chat control.' : 'Not available for this provider.'
+          confidence: newConversation.length > 0 ? confidence(newConversation[0]) : 'low',
+          detail:
+            newConversation.length > 0
+              ? `Found ${newConversation.length} possible new chat control${newConversation.length === 1 ? '' : 's'}.`
+              : 'Not available for this provider.'
         }
       ]
     });
