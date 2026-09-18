@@ -42,6 +42,14 @@ export interface BrowserProviderDiscoveryTrace {
   };
   events: BrowserProviderDiscoveryTraceEvent[];
 }
+export interface BrowserProviderDiscoveryProgress {
+  composerDetected: boolean;
+  submitDetected: boolean;
+  assistantDetected: boolean;
+  assistantPreview?: string;
+  generatingObserved: boolean;
+  idleObserved: boolean;
+}
 export type RoverStage =
   'prompt_sent' | 'waiting_for_response' | 'response_captured' | 'evaluating' | 'persisted';
 export type RoverStatus = 'ready' | 'running' | 'manual' | 'evaluating' | 'completed' | 'error';
@@ -144,6 +152,7 @@ export type ExtensionMessage =
   | { type: 'ROVER_DEBUG' }
   | { type: 'ROVER_LEARN_START' }
   | { type: 'ROVER_LEARN_STOP' }
+  | { type: 'ROVER_LEARN_CAPTURE' }
   | {
       type: 'ROVER_LEARN_SAVE';
       profile: import('./mcplab/types').BrowserProviderProfile;
@@ -165,6 +174,7 @@ export type ExtensionMessage =
       trace?: BrowserProviderDiscoveryTrace;
     }
   | { type: 'ROVER_LEARN_RESULT'; draft: BrowserProviderDiscoveryDraft }
+  | { type: 'ROVER_LEARN_PROGRESS'; progress: BrowserProviderDiscoveryProgress }
   | {
       type: 'ROVER_ASK';
       requestId: string;

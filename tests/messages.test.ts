@@ -30,7 +30,9 @@ vi.mock('../src/background/queue-runner', async () => {
 });
 
 vi.mock('../src/mcplab/api-client', () => ({
-  McplabClient: vi.fn().mockImplementation(() => ({ complete: mocks.complete }))
+  McplabClient: vi.fn().mockImplementation(function () {
+    return { complete: mocks.complete };
+  })
 }));
 
 vi.mock('../src/background/lease-transport', async () => {

@@ -59,6 +59,7 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
   let lastCompletion:
     | {
         generationObserved: boolean;
+        responseObserved: boolean;
         completionSignal?: string;
         elapsedMs: number;
         stableForMs: number;
@@ -195,7 +196,7 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
         label: 'Completion signal',
         present: Boolean(lastCompletion),
         detail: lastCompletion
-          ? `${lastCompletion.completionSignal ?? 'idle'}; generationObserved=${lastCompletion.generationObserved}; stable=${lastCompletion.stableForMs}ms`
+          ? `${lastCompletion.completionSignal ?? 'idle'}; generationObserved=${lastCompletion.generationObserved}; responseObserved=${lastCompletion.responseObserved}; stable=${lastCompletion.stableForMs}ms`
           : 'No completed response captured yet.'
       },
       ...(profile.newConversation

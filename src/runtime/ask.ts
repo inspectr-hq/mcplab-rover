@@ -35,7 +35,10 @@ export async function ask(
     read: () => {
       const current = adapter.getAssistantCandidates();
       const selected = selectResponseCandidate(baseline, current);
-      return adapter.getResponseState(selected ? [selected] : []);
+      return {
+        ...adapter.getResponseState(selected ? [selected] : []),
+        responseObserved: Boolean(selected)
+      };
     }
   });
 }

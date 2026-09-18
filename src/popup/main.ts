@@ -1,5 +1,6 @@
 import type {
   BrowserProviderDiscoveryDraft,
+  BrowserProviderDiscoveryProgress,
   DebugElementCheck,
   DebugSnapshot,
   RoverState
@@ -64,9 +65,11 @@ const debugMode = document.querySelector<HTMLButtonElement>('#debug-mode')!;
 const learnMode = document.querySelector<HTMLButtonElement>('#learn-mode')!;
 const learnPanel = document.querySelector<HTMLElement>('#learn-panel')!;
 const learnStatus = document.querySelector<HTMLParagraphElement>('#learn-status')!;
+const learnProgress = document.querySelector<HTMLElement>('#learn-progress')!;
 const learnCapabilities = document.querySelector<HTMLElement>('#learn-capabilities')!;
 const learnName = document.querySelector<HTMLInputElement>('#learn-name')!;
 const learnStart = document.querySelector<HTMLButtonElement>('#learn-start')!;
+const learnCapture = document.querySelector<HTMLButtonElement>('#learn-capture')!;
 const learnPropose = document.querySelector<HTMLButtonElement>('#learn-propose')!;
 const learnSave = document.querySelector<HTMLButtonElement>('#learn-save')!;
 const debugPanel = document.querySelector<HTMLElement>('#debug-panel')!;
@@ -185,14 +188,19 @@ learnStart.addEventListener(
           return;
         }
         learnStart.textContent = 'Start learning';
+        learnCapture.hidden = true;
+        learnProgress.hidden = true;
         learnStatus.textContent = 'Learning stopped. Start again when you are ready.';
         return;
       }
       discoveryDraft = null;
       learnCapabilities.replaceChildren();
+      learnProgress.replaceChildren();
+      learnProgress.hidden = true;
       learnName.hidden = true;
       learnPropose.hidden = true;
       learnSave.hidden = true;
+      learnCapture.hidden = false;
       learnStart.textContent = 'Stop learning';
       learnStatus.textContent =
         'Learning is active. Send one message in the chat, then wait for the response.';
@@ -200,6 +208,18 @@ learnStart.addEventListener(
       if (!response?.ok) {
         learnStatus.textContent = response?.error ?? 'Could not start learning.';
         learnStart.textContent = 'Start learning';
+        learnCapture.hidden = true;
+      }
+    })
+);
+learnCapture.addEventListener(
+  'click',
+  () =>
+    void runButtonAction(learnCapture, async () => {
+      const response = await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_CAPTURE' });
+      if (!response?.ok) {
+        learnStatus.textContent =
+          response?.error ?? 'Nothing to capture yet: a composer and a response are both required.';
       }
     })
 );
@@ -591,6 +611,36 @@ function updateSelection(): void {
     item?.ineligibleReason ?? (item ? `${item.assertionCount} checks` : 'Select a test case.');
 }
 
+function createIndicatorRow(entry: {
+  label: string;
+  state: 'pass' | 'fail' | 'unknown';
+  detail: string;
+}): HTMLDivElement {
+  const row = document.createElement('div');
+  row.className = 'debug-indicator';
+  row.dataset.state = entry.state;
+  const dot = document.createElement('span');
+  dot.className = 'debug-indicator-dot';
+  dot.setAttribute('aria-hidden', 'true');
+  const copy = document.createElement('div');
+  const label = document.createElement('div');
+  label.className = 'debug-indicator-label';
+  label.textContent = entry.label;
+  const detail = document.createElement('div');
+  detail.className = 'debug-indicator-detail';
+  detail.textContent = entry.detail;
+  copy.append(label, detail);
+  row.append(dot, copy);
+  return row;
+}
+
+function renderIndicatorList(
+  container: HTMLElement,
+  entries: Array<{ label: string; state: 'pass' | 'fail' | 'unknown'; detail: string }>
+): void {
+  container.replaceChildren(...entries.map(createIndicatorRow));
+}
+
 function appendDebugGroup(
   title: string,
   entries: Array<{ label: string; state: 'pass' | 'fail' | 'unknown'; detail: string }>
@@ -601,24 +651,7 @@ function appendDebugGroup(
   heading.className = 'debug-group-title';
   heading.textContent = title;
   group.append(heading);
-  for (const entry of entries) {
-    const row = document.createElement('div');
-    row.className = 'debug-indicator';
-    row.dataset.state = entry.state;
-    const dot = document.createElement('span');
-    dot.className = 'debug-indicator-dot';
-    dot.setAttribute('aria-hidden', 'true');
-    const copy = document.createElement('div');
-    const label = document.createElement('div');
-    label.className = 'debug-indicator-label';
-    label.textContent = entry.label;
-    const detail = document.createElement('div');
-    detail.className = 'debug-indicator-detail';
-    detail.textContent = entry.detail;
-    copy.append(label, detail);
-    row.append(dot, copy);
-    group.append(row);
-  }
+  for (const entry of entries) group.append(createIndicatorRow(entry));
   debugIndicators.append(group);
 }
 
@@ -937,9 +970,65 @@ chrome.storage.onChanged.addListener((changes, area) => {
     renderQueue(changes['rover.queue'].newValue as RoverQueueState | null);
 });
 
+function confidenceState(confidence: 'high' | 'medium' | 'low'): 'pass' | 'fail' | 'unknown' {
+  return confidence === 'high' ? 'pass' : confidence === 'medium' ? 'unknown' : 'fail';
+}
+
+function renderLearnCapabilities(
+  capabilities: BrowserProviderDiscoveryDraft['capabilities']
+): void {
+  renderIndicatorList(
+    learnCapabilities,
+    capabilities.map((capability) => ({
+      label: capability.label,
+      state: confidenceState(capability.confidence),
+      detail: capability.detail
+    }))
+  );
+}
+
+function renderLearnProgress(progress: BrowserProviderDiscoveryProgress): void {
+  learnProgress.hidden = false;
+  renderIndicatorList(learnProgress, [
+    {
+      label: 'Composer',
+      state: progress.composerDetected ? 'pass' : 'unknown',
+      detail: progress.composerDetected ? 'Detected the message input.' : 'Waiting to detect the message input…'
+    },
+    {
+      label: 'Submit',
+      state: progress.submitDetected ? 'pass' : 'unknown',
+      detail: progress.submitDetected ? 'Detected how prompts are sent.' : 'Waiting for you to send a message…'
+    },
+    {
+      label: 'Response',
+      state: progress.assistantDetected ? 'pass' : 'unknown',
+      detail: progress.assistantPreview
+        ? `"${progress.assistantPreview}"`
+        : 'Waiting for a response…'
+    },
+    {
+      label: 'Generating signal',
+      state: progress.generatingObserved ? 'pass' : 'unknown',
+      detail: progress.generatingObserved
+        ? 'Observed an active generation state.'
+        : 'Not yet observed — this is fine if the response already finished.'
+    },
+    {
+      label: 'Idle signal',
+      state: progress.idleObserved ? 'pass' : 'unknown',
+      detail: progress.idleObserved ? 'Observed the response finishing.' : 'Not yet observed.'
+    }
+  ]);
+}
+
 chrome.runtime.onMessage.addListener((message: { type?: string }) => {
   if (message.type === 'ROVER_ACTIVE_PROVIDER_CHANGED') void refreshActiveProvider();
   if (message.type === 'ROVER_DEBUG_CHANGED' && mode === 'debug') void refreshDebug(false);
+  if (message.type === 'ROVER_LEARN_PROGRESS') {
+    const event = message as { progress?: BrowserProviderDiscoveryProgress };
+    if (event.progress) renderLearnProgress(event.progress);
+  }
   if (message.type === 'ROVER_LEARN_RESULT') {
     const event = message as { draft?: BrowserProviderDiscoveryDraft };
     if (!event.draft) return;
@@ -947,20 +1036,15 @@ chrome.runtime.onMessage.addListener((message: { type?: string }) => {
     learnName.value = suggestedProviderName(event.draft.profile);
     void chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: event.draft });
     learnStart.textContent = 'Start learning again';
+    learnCapture.hidden = true;
+    learnProgress.hidden = true;
     learnStatus.textContent = event.draft.readyToSave
       ? 'Sample captured. Review the capabilities, name the provider, and save it.'
       : 'Sample captured, but the generation lifecycle was not fully validated. Start learning again and capture an active response.';
     learnName.hidden = false;
     learnPropose.hidden = !event.draft.trace;
     learnSave.hidden = event.draft.readyToSave !== true;
-    learnCapabilities.replaceChildren(
-      ...event.draft.capabilities.map((capability) => {
-        const item = document.createElement('span');
-        item.className = 'debug-indicator';
-        item.textContent = `${capability.label}: ${capability.confidence}`;
-        return item;
-      })
-    );
+    renderLearnCapabilities(event.draft.capabilities);
   }
 });
 
@@ -984,18 +1068,13 @@ void chrome.storage.local.get([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]).
   discoveryDraft = draft;
   learnName.value = suggestedProviderName(draft.profile);
   learnName.hidden = false;
+  learnCapture.hidden = true;
+  learnProgress.hidden = true;
   learnPropose.hidden = !draft.trace;
   learnSave.hidden = draft.readyToSave !== true;
   learnStatus.textContent =
     draft.readyToSave === true
       ? 'A saved learning draft is ready to review.'
       : 'This learning draft did not pass lifecycle validation. Capture a new active response.';
-  learnCapabilities.replaceChildren(
-    ...draft.capabilities.map((capability) => {
-      const item = document.createElement('span');
-      item.className = 'debug-indicator';
-      item.textContent = `${capability.label}: ${capability.confidence}`;
-      return item;
-    })
-  );
+  renderLearnCapabilities(draft.capabilities);
 });

@@ -37,4 +37,24 @@ describe('ask cancellation', () => {
       code: 'incomplete'
     });
   });
+
+  it('accepts a changed learned response when no generation control is exposed', async () => {
+    let response = 'Previous answer';
+    const adapter = {
+      id: 'learned-provider',
+      requiresGenerationSignal: true,
+      getAssistantCandidates: () => [{ key: 'latest', text: response, visible: true }],
+      setComposerText: vi.fn(async () => undefined),
+      submit: vi.fn(async () => {
+        response = 'A new stable answer';
+      }),
+      getResponseState: (items: Array<{ text: string }>) => ({
+        text: items.at(-1)?.text ?? '',
+        isGenerating: false,
+        isIdle: true
+      })
+    } as unknown as ChatProviderAdapter;
+
+    await expect(ask(adapter, 'hello')).resolves.toBe('A new stable answer');
+  });
 });

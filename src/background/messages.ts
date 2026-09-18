@@ -81,7 +81,11 @@ export function installMessageHandler(): void {
         void updateRoverRegistration(sender.tab.id).catch(() => undefined);
       return;
     }
-    if (message.type === 'ROVER_LEARN_START' || message.type === 'ROVER_LEARN_STOP') {
+    if (
+      message.type === 'ROVER_LEARN_START' ||
+      message.type === 'ROVER_LEARN_STOP' ||
+      message.type === 'ROVER_LEARN_CAPTURE'
+    ) {
       return respond(sendResponse, async () => {
         const response = (await sendToActiveTab(message)) as {
           ok?: boolean;

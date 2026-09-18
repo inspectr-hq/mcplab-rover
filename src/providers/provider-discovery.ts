@@ -1,5 +1,6 @@
 import type {
   BrowserProviderDiscoveryDraft,
+  BrowserProviderDiscoveryProgress,
   BrowserProviderDiscoveryTrace,
   BrowserProviderDiscoveryTraceEvent
 } from '../contracts';
@@ -226,9 +227,16 @@ function lifecycleSnapshot() {
     }));
 }
 
+export interface ProviderDiscoverySession {
+  stop: () => void;
+  /** Forces capture using whatever composer/response has been observed so far. */
+  capture: () => boolean;
+}
+
 export function startProviderDiscovery(
-  onDraft: (draft: BrowserProviderDiscoveryDraft) => void
-): () => void {
+  onDraft: (draft: BrowserProviderDiscoveryDraft) => void,
+  onProgress?: (progress: BrowserProviderDiscoveryProgress) => void
+): ProviderDiscoverySession {
   let composer: HTMLElement | null = null;
   let submit: HTMLElement | null = null;
   let assistant: HTMLElement | null = null;
@@ -237,6 +245,7 @@ export function startProviderDiscovery(
   let emitted = false;
   let stopped = false;
   let observedGeneration = false;
+  let observedIdle = false;
   let generatingControl: HTMLElement | null = null;
   let idleControl: HTMLElement | null = null;
   let lastCandidateCount = 0;
@@ -245,6 +254,24 @@ export function startProviderDiscovery(
   let lastControls = controlState();
   let selectedStableSince: number | null = null;
   let selectedSignature = '';
+  let lastProgressSignature = '';
+  const reportProgress = () => {
+    if (!onProgress) return;
+    const progress: BrowserProviderDiscoveryProgress = {
+      composerDetected: Boolean(composer),
+      submitDetected: Boolean(submit) || submissionArmed,
+      assistantDetected: Boolean(assistant),
+      ...(assistant?.innerText?.trim()
+        ? { assistantPreview: assistant.innerText.trim().slice(0, 160) }
+        : {}),
+      generatingObserved: observedGeneration,
+      idleObserved: observedIdle
+    };
+    const signature = JSON.stringify(progress);
+    if (signature === lastProgressSignature) return;
+    lastProgressSignature = signature;
+    onProgress(progress);
+  };
   const trace: BrowserProviderDiscoveryTrace = {
     observedGeneration: false,
     selectorValidation: {
@@ -309,6 +336,7 @@ export function startProviderDiscovery(
       generatingControl = controls.generatingControl;
       record('generating', candidates.length, 0, controls, selected ?? undefined);
     }
+    if (observedGeneration && controls.idleControl && !controls.generating) observedIdle = true;
     idleControl = controls.idleControl;
     const topCandidates = candidates
       .map((candidate) => ({ element: candidate.element, descriptor: candidate.descriptor }))
@@ -356,6 +384,7 @@ export function startProviderDiscovery(
     assistant = selected
       ? (candidates.find((candidate) => candidate.descriptor === selected)?.element ?? null)
       : null;
+    reportProgress();
     const responseIsReady =
       !observedGeneration ||
       (Boolean(controls.idleControl) &&
@@ -379,8 +408,10 @@ export function startProviderDiscovery(
       (target.isContentEditable ||
         target instanceof HTMLTextAreaElement ||
         target instanceof HTMLInputElement)
-    )
+    ) {
       composer = target;
+      reportProgress();
+    }
   };
   const onInput = (event: Event) => {
     const target = event.target;
@@ -397,6 +428,7 @@ export function startProviderDiscovery(
         testId: target.getAttribute('data-testid'),
         textLength: (target.innerText ?? (target as HTMLInputElement).value ?? '').length
       });
+      reportProgress();
     }
   };
   const onClick = (event: MouseEvent) => {
@@ -415,6 +447,7 @@ export function startProviderDiscovery(
           testId: control.getAttribute('data-testid'),
           ariaLabel: control.getAttribute('aria-label')
         });
+        reportProgress();
       } else if (composer && !/new\s*(chat|conversation)|new\s*thread/.test(label))
         submittedAt = Date.now();
     }
@@ -435,11 +468,13 @@ export function startProviderDiscovery(
         composerTag: composer?.tagName,
         composerTestId: composer?.getAttribute('data-testid')
       });
+      reportProgress();
     }
   };
   const onSubmit = () => {
     submittedAt = Date.now();
     record('submitted', 0, 0, controlState());
+    reportProgress();
     discoveryLog('form submission observed');
   };
   const emit = () => {
@@ -552,7 +587,7 @@ export function startProviderDiscovery(
   document.addEventListener('submit', onSubmit, true);
   for (const root of roots(document))
     observer.observe(root, { childList: true, subtree: true, characterData: true });
-  return () => {
+  const stop = () => {
     stopped = true;
     observer.disconnect();
     window.clearInterval(poller);
@@ -562,4 +597,14 @@ export function startProviderDiscovery(
     document.removeEventListener('keydown', onKey, true);
     document.removeEventListener('submit', onSubmit, true);
   };
+  const capture = (): boolean => {
+    if (stopped || emitted || !composer || !assistant) return false;
+    discoveryLog('manual capture requested', {
+      composerTag: composer.tagName,
+      assistantTag: assistant.tagName
+    });
+    emit();
+    return emitted;
+  };
+  return { stop, capture };
 }

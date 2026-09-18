@@ -18,7 +18,7 @@ describe('provider discovery recovery', () => {
       height: 10
     } as DOMRect);
     const drafts: unknown[] = [];
-    const stop = startProviderDiscovery((draft) => drafts.push(draft));
+    const session = startProviderDiscovery((draft) => drafts.push(draft));
     const send = document.createElement('button');
     send.textContent = 'Send';
     document.body.append(send);
@@ -49,7 +49,7 @@ describe('provider discovery recovery', () => {
       }
     });
     expect(JSON.stringify(drafts[0])).not.toContain('A newly discovered answer');
-    stop();
+    session.stop();
   });
 
   it('captures a new-chat control exposed as a focusable element with nested text', async () => {
@@ -62,7 +62,7 @@ describe('provider discovery recovery', () => {
       height: 10
     } as DOMRect);
     const drafts: any[] = [];
-    const stop = startProviderDiscovery((draft) => drafts.push(draft));
+    const session = startProviderDiscovery((draft) => drafts.push(draft));
     const send = document.createElement('button');
     send.textContent = 'Send';
     document.body.append(send);
@@ -92,7 +92,7 @@ describe('provider discovery recovery', () => {
         locator: expect.objectContaining({ segments: expect.any(Array) })
       })
     );
-    stop();
+    session.stop();
   });
 
   it('learns state-aware completion locators when a disabled submit signals generation', async () => {
@@ -105,7 +105,7 @@ describe('provider discovery recovery', () => {
       height: 10
     } as DOMRect);
     const drafts: any[] = [];
-    const stop = startProviderDiscovery((draft) => drafts.push(draft));
+    const session = startProviderDiscovery((draft) => drafts.push(draft));
     const composer = document.createElement('textarea');
     const submit = document.createElement('button');
     submit.setAttribute('aria-label', 'Submit');
@@ -131,6 +131,95 @@ describe('provider discovery recovery', () => {
     expect(drafts[0].trace.observedGeneration).toBe(true);
     expect(drafts[0].profile.completion.generatingLocator.segments.at(-1)).toContain(':disabled');
     expect(drafts[0].profile.completion.idleLocator.segments.at(-1)).toContain(':not([disabled])');
-    stop();
+    session.stop();
+  });
+
+  it('reports live progress as the composer and response are detected', async () => {
+    Object.defineProperty(globalThis, 'CSS', {
+      value: { escape: (value: string) => value },
+      configurable: true
+    });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
+    const drafts: any[] = [];
+    const progressUpdates: any[] = [];
+    const session = startProviderDiscovery(
+      (draft) => drafts.push(draft),
+      (progress) => progressUpdates.push(progress)
+    );
+
+    const composer = document.createElement('textarea');
+    document.body.append(composer);
+    composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(progressUpdates.at(-1)).toMatchObject({ composerDetected: true, submitDetected: false });
+
+    const send = document.createElement('button');
+    send.textContent = 'Send';
+    document.body.append(send);
+    send.click();
+    expect(progressUpdates.at(-1)).toMatchObject({ composerDetected: true, submitDetected: true });
+
+    const response = document.createElement('div');
+    response.setAttribute('data-message-author-role', 'assistant');
+    response.textContent = 'A newly discovered answer';
+    Object.defineProperty(response, 'innerText', {
+      value: 'A newly discovered answer',
+      configurable: true
+    });
+    document.body.append(response);
+    await new Promise((resolve) => setTimeout(resolve, 550));
+
+    expect(progressUpdates.at(-1)).toMatchObject({
+      assistantDetected: true,
+      assistantPreview: 'A newly discovered answer'
+    });
+    session.stop();
+  });
+
+  it('lets learning be manually captured once a composer and response are both known', async () => {
+    Object.defineProperty(globalThis, 'CSS', {
+      value: { escape: (value: string) => value },
+      configurable: true
+    });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
+    const drafts: any[] = [];
+    const session = startProviderDiscovery((draft) => drafts.push(draft));
+
+    expect(session.capture()).toBe(false);
+    expect(drafts).toHaveLength(0);
+
+    const composer = document.createElement('textarea');
+    const submit = document.createElement('button');
+    submit.setAttribute('aria-label', 'Submit');
+    document.body.append(composer, submit);
+    composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    submit.click();
+    // Leave the submit control disabled so the automatic idle/stability check never
+    // fires on its own — only the manual capture() call should be able to emit.
+    submit.disabled = true;
+
+    expect(session.capture()).toBe(false);
+    expect(drafts).toHaveLength(0);
+
+    const response = document.createElement('div');
+    response.setAttribute('data-message-author-role', 'assistant');
+    response.textContent = 'A still-generating answer';
+    Object.defineProperty(response, 'innerText', {
+      value: 'A still-generating answer',
+      configurable: true
+    });
+    document.body.append(response);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(drafts).toHaveLength(0);
+    expect(session.capture()).toBe(true);
+    expect(drafts).toHaveLength(1);
+    expect(session.capture()).toBe(false);
+    expect(drafts).toHaveLength(1);
   });
 });

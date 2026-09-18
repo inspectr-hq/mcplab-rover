@@ -124,4 +124,22 @@ describe('waitForCompletedResponse', () => {
       })
     ).resolves.toBe('final text');
   });
+
+  it('accepts a stable changed response when no generation control is available', async () => {
+    let reads = 0;
+    await expect(
+      waitForCompletedResponse({
+        read: () => ({
+          text: 'final text',
+          isGenerating: false,
+          isIdle: true,
+          responseObserved: reads++ > 0
+        }),
+        pollMs: 1,
+        stabilityMs: 3,
+        timeoutMs: 100,
+        requireGenerationSignal: true
+      })
+    ).resolves.toBe('final text');
+  });
 });

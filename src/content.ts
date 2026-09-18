@@ -2,7 +2,7 @@ import type { ExtensionMessage } from './contracts';
 import { findAdapter, findPageAdapter, setLearnedProfiles } from './providers';
 import type { BrowserProviderProfile } from './mcplab/types';
 import { ask } from './runtime/ask';
-import { startProviderDiscovery } from './providers/provider-discovery';
+import { startProviderDiscovery, type ProviderDiscoverySession } from './providers/provider-discovery';
 import { replayProviderProfile } from './providers/discovery-replay';
 import { roverResultMessage } from './content-result';
 
@@ -10,7 +10,7 @@ const runtime = globalThis as typeof globalThis & { __mcplabRoverInstalled?: boo
 const activeAskControllers = new Map<string, AbortController>();
 let debugObserver: MutationObserver | null = null;
 let debugNotifyTimer: number | undefined;
-let stopProviderDiscovery: (() => void) | null = null;
+let discoverySession: ProviderDiscoverySession | null = null;
 
 function stopDebugObserver(): void {
   debugObserver?.disconnect();
@@ -122,19 +122,34 @@ if (runtime.__mcplabRoverInstalled) {
       return true;
     }
     if (message.type === 'ROVER_LEARN_START') {
-      stopProviderDiscovery?.();
-      stopProviderDiscovery = startProviderDiscovery((draft) => {
-        void chrome.runtime.sendMessage({ type: 'ROVER_LEARN_RESULT', draft }).catch((error) => {
-          console.warn('[Rover] provider discovery result delivery failed', error);
-        });
-      });
+      discoverySession?.stop();
+      discoverySession = startProviderDiscovery(
+        (draft) => {
+          void chrome.runtime.sendMessage({ type: 'ROVER_LEARN_RESULT', draft }).catch((error) => {
+            console.warn('[Rover] provider discovery result delivery failed', error);
+          });
+        },
+        (progress) => {
+          void chrome.runtime.sendMessage({ type: 'ROVER_LEARN_PROGRESS', progress }).catch((error) => {
+            console.warn('[Rover] provider discovery progress delivery failed', error);
+          });
+        }
+      );
       sendResponse({ ok: true });
       return true;
     }
     if (message.type === 'ROVER_LEARN_STOP') {
-      stopProviderDiscovery?.();
-      stopProviderDiscovery = null;
+      discoverySession?.stop();
+      discoverySession = null;
       sendResponse({ ok: true });
+      return true;
+    }
+    if (message.type === 'ROVER_LEARN_CAPTURE') {
+      const captured = discoverySession?.capture() ?? false;
+      sendResponse({
+        ok: captured,
+        ...(captured ? {} : { error: 'Nothing to capture yet: a composer and a response are both required.' })
+      });
       return true;
     }
     if (message.type === 'ROVER_LEARN_VALIDATE') {
