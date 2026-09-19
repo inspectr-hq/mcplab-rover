@@ -4,6 +4,9 @@ import {
   enableRoverConnection,
   updateRoverRegistration
 } from './background/socket';
+import { debugLog, initializeDebugLogging } from './background/debug-logging';
+
+initializeDebugLogging();
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   void updateRoverRegistration(tabId).catch((error) =>
@@ -29,16 +32,16 @@ installMessageHandler();
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (typeof tab.id !== 'number') return;
-  console.info('[Rover debug] toolbar clicked', { tabId: tab.id, url: tab.url });
+  debugLog('toolbar clicked', { tabId: tab.id, url: tab.url });
   try {
     let response: { open?: boolean } | undefined;
     try {
       response = (await chrome.tabs.sendMessage(tab.id, {
         type: 'ROVER_TOGGLE_PANEL'
       })) as { open?: boolean } | undefined;
-      console.info('[Rover debug] panel shown in existing content script', { tabId: tab.id });
+      debugLog('panel shown in existing content script', { tabId: tab.id });
     } catch (error) {
-      console.info('[Rover debug] content script unavailable, injecting panel host', {
+      debugLog('content script unavailable, injecting panel host', {
         tabId: tab.id,
         error: error instanceof Error ? error.message : String(error)
       });
@@ -46,7 +49,7 @@ chrome.action.onClicked.addListener(async (tab) => {
       response = (await chrome.tabs.sendMessage(tab.id, {
         type: 'ROVER_TOGGLE_PANEL'
       })) as { open?: boolean } | undefined;
-      console.info('[Rover debug] panel shown after content script injection', { tabId: tab.id });
+      debugLog('panel shown after content script injection', { tabId: tab.id });
     }
     if (response?.open === true) {
       enableRoverConnection();

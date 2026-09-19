@@ -17,6 +17,7 @@ import { createQueueForMessage } from './queue-message-helpers';
 import { currentSocket, persistLeaseRelease } from './lease-transport';
 import { getQueue, getState, QUEUE_KEY, resolveOrigin, saveQueue, STATE_KEY } from './store';
 import { waitingForMatching } from './socket';
+import { debugLog } from './debug-logging';
 
 type QueueMessage = Extract<ExtensionMessage, { type: `ROVER_QUEUE_${string}` }>;
 
@@ -39,7 +40,7 @@ export function handleQueueMessage(
   if (message.type === 'ROVER_QUEUE_CLEAR') {
     return respond(sendResponse, async () => {
       const queue = await getQueue();
-      console.info('[Rover debug] queue clear requested', {
+      debugLog('queue clear requested', {
         queueId: queue?.queueId,
         activeItemId: queue?.activeItemId
       });
@@ -127,7 +128,7 @@ export function handleQueueMessage(
     void serializeQueueOperation(async () => {
       const queue = await getQueue();
       if (!queue) throw new Error('No queue is active.');
-      console.info('[Rover debug] queue control requested', {
+      debugLog('queue control requested', {
         action: message.type,
         queueId: queue.queueId,
         activeItemId: queue.activeItemId

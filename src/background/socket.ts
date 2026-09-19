@@ -29,6 +29,7 @@ import { queueNeedsResume } from '../queue/recovery';
 import { serializeQueueOperation } from '../queue/operations';
 import { configureLeaseTransport, persistLeaseRelease } from './lease-transport';
 import type { RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
+import { debugLog } from './debug-logging';
 
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
@@ -91,10 +92,6 @@ export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
       })
     );
   }, 15_000);
-}
-
-function debugLog(event: string, details: Record<string, unknown> = {}): void {
-  console.info(`[Rover debug] ${event}`, details);
 }
 
 async function prepareAssignmentStart(

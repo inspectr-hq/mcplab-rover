@@ -8,6 +8,9 @@ import {
 } from './providers/provider-discovery';
 import { replayProviderProfile } from './providers/discovery-replay';
 import { roverResultMessage } from './content-result';
+import { debugLog, initializeDebugLogging } from './content-debug-logging';
+
+initializeDebugLogging();
 
 const runtime = globalThis as typeof globalThis & { __mcplabRoverInstalled?: boolean };
 const activeAskControllers = new Map<string, AbortController>();
@@ -218,7 +221,7 @@ if (runtime.__mcplabRoverInstalled) {
     }
     if (message.type === 'ROVER_CANCEL_ASK') {
       const controller = activeAskControllers.get(message.requestId);
-      console.info('[Rover debug] cancel ask received', {
+      debugLog('cancel ask received', {
         requestId: message.requestId,
         hasController: Boolean(controller)
       });

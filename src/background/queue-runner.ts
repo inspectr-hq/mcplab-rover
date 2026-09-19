@@ -15,10 +15,7 @@ import { selectMatchingExecutionTab } from './execution-tab';
 import { enqueueLeaseActions } from '../queue/lease-outbox';
 import { isBuiltInProvider } from '../providers/catalog';
 import { sendStage } from './queue-message-helpers';
-
-function debugLog(event: string, details: Record<string, unknown> = {}): void {
-  console.info(`[Rover debug] ${event}`, details);
-}
+import { debugLog } from './debug-logging';
 
 function errorCode(error: unknown): string | undefined {
   return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'

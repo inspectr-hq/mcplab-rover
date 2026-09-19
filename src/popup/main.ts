@@ -25,6 +25,9 @@ const origin = document.querySelector<HTMLInputElement>('#origin')!;
 const connect = document.querySelector<HTMLButtonElement>('#connect')!;
 const connectionSettings = document.querySelector<HTMLButtonElement>('#connection-settings')!;
 const connectionControls = document.querySelector<HTMLDivElement>('#connection-controls')!;
+const connectionPreferences = document.querySelector<HTMLDivElement>('#connection-preferences')!;
+const debugLogging = document.querySelector<HTMLInputElement>('#debug-logging')!;
+const DEBUG_LOGGING_KEY = 'rover.debugLogging';
 const catalog = document.querySelector<HTMLElement>('#catalog')!;
 const search = document.querySelector<HTMLInputElement>('#search')!;
 const testCase = document.querySelector<HTMLSelectElement>('#test-case')!;
@@ -145,7 +148,11 @@ if (window.parent !== window && 'ResizeObserver' in window) {
 connectionSettings.addEventListener('click', () => {
   const expanded = !connectionControls.hidden;
   connectionControls.hidden = expanded;
+  connectionPreferences.hidden = expanded;
   connectionSettings.setAttribute('aria-expanded', String(!expanded));
+});
+debugLogging.addEventListener('change', () => {
+  void chrome.storage.local.set({ [DEBUG_LOGGING_KEY]: debugLogging.checked });
 });
 newConversation.addEventListener('click', async () => {
   newConversation.disabled = true;
@@ -1087,6 +1094,9 @@ void chrome.runtime
     else queueMode.click();
   });
 void refreshActiveProvider();
+void chrome.storage.local.get(DEBUG_LOGGING_KEY).then((stored) => {
+  debugLogging.checked = stored[DEBUG_LOGGING_KEY] === true;
+});
 void chrome.storage.local.get([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]).then((stored) => {
   const draft = (stored[DISCOVERY_DRAFT_KEY] ?? stored[LEGACY_LEARNING_DRAFT_KEY]) as
     BrowserProviderDiscoveryDraft | undefined;

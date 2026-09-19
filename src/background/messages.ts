@@ -50,6 +50,7 @@ import {
   STATE_KEY
 } from './store';
 import { serializeQueueOperation } from '../queue/operations';
+import { debugLog } from './debug-logging';
 
 let debugSubscribed = false;
 
@@ -414,7 +415,7 @@ export async function handleResult(
       item.sessionId !== message.sessionId ||
       (queue.leaseId && message.leaseId !== queue.leaseId)
     ) {
-      console.info('[Rover debug] ignored stale result', {
+      debugLog('ignored stale result', {
         queueId: message.queueId,
         queueItemId: message.queueItemId,
         requestId: message.requestId,
@@ -423,13 +424,13 @@ export async function handleResult(
       return;
     }
     if (item.cancelRequestedAt) {
-      console.info('[Rover debug] ignored cancelled result', {
+      debugLog('ignored cancelled result', {
         queueId: message.queueId,
         queueItemId: message.queueItemId
       });
       return;
     }
-    console.info('[Rover debug] result received', {
+    debugLog('result received', {
       queueId: message.queueId,
       queueItemId: message.queueItemId,
       ok: message.result.ok,

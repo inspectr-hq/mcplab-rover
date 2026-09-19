@@ -1,6 +1,7 @@
 import { selectResponseCandidate } from './candidate-selection';
 import { waitForCompletedResponse } from './response-tracker';
 import type { ChatProviderAdapter } from '../providers/types';
+import { debugLog } from '../content-debug-logging';
 
 export async function ask(
   adapter: ChatProviderAdapter,
@@ -24,7 +25,7 @@ export async function ask(
     onComplete: (details) =>
       (() => {
         adapter.recordCompletion?.(details);
-        console.info('[Rover debug] response capture completed', {
+        debugLog('response capture completed', {
           provider: adapter.id,
           ...details
         });
