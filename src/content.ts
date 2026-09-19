@@ -42,13 +42,13 @@ function startDebugObserver(): void {
   });
 }
 
-function togglePanel(expand = false): void {
+function togglePanel(expand = false): boolean {
   const existing = document.querySelector<HTMLElement>('[data-mcplab-rover-panel]');
   if (existing) {
     const cleanup = panelCleanup.get(existing);
     cleanup?.();
     existing.remove();
-    return;
+    return false;
   }
   const host = document.createElement('div');
   host.dataset.mcplabRoverPanel = 'true';
@@ -110,6 +110,7 @@ function togglePanel(expand = false): void {
     notch.title = 'Collapse MCPLab Rover';
     notch.setAttribute('aria-label', notch.title);
   }
+  return true;
 }
 
 function showPanel(): void {
@@ -176,8 +177,8 @@ if (runtime.__mcplabRoverInstalled) {
       return true;
     }
     if (message.type === 'ROVER_TOGGLE_PANEL') {
-      togglePanel();
-      return;
+      sendResponse({ open: togglePanel() });
+      return true;
     }
     if (message.type === 'ROVER_SHOW_PANEL') {
       showPanel();

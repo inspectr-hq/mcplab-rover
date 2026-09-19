@@ -61,7 +61,7 @@ class FakeWebSocket {
   }
 }
 
-import { connectToMcplab } from '../src/background/socket';
+import { connectToMcplab, enableRoverConnection } from '../src/background/socket';
 import { createQueue } from '../src/queue/state';
 
 const assignment = {
@@ -95,6 +95,7 @@ describe('socket assignment lifecycle', () => {
   async function connectedSocket(): Promise<FakeWebSocket> {
     const existing = FakeWebSocket.instances.at(-1);
     if (existing?.readyState === FakeWebSocket.OPEN) return existing;
+    enableRoverConnection();
     await connectToMcplab();
     const socket = FakeWebSocket.instances[0]!;
     socket.open();

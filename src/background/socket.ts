@@ -34,6 +34,8 @@ let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
 let registeredTabId: number | undefined;
 let roverReconnectAttempt = 0;
+let roverReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let roverConnectionEnabled = false;
 let roverHeartbeat: ReturnType<typeof setInterval> | null = null;
 let roverLeaseRenewal: ReturnType<typeof setInterval> | null = null;
 let negotiatedCapabilities: string[] = [];
@@ -250,6 +252,7 @@ export async function loadProfilesIntoTab(tabId: number, origin: string): Promis
 }
 
 export async function connectToMcplab(): Promise<void> {
+  if (!roverConnectionEnabled) return;
   const origin = await resolveOrigin();
   waitingEvaluations = [];
   if (
@@ -761,13 +764,36 @@ export async function connectToMcplab(): Promise<void> {
     if (roverReconnectAttempt >= 8) return;
     const delay = Math.min(30_000, 1_000 * 2 ** roverReconnectAttempt);
     roverReconnectAttempt += 1;
-    setTimeout(() => {
+    roverReconnectTimer = setTimeout(() => {
+      roverReconnectTimer = null;
       void connectToMcplab().catch(() => undefined);
     }, delay);
   };
 }
 
+export function enableRoverConnection(): void {
+  roverConnectionEnabled = true;
+  void connectToMcplab().catch(() => undefined);
+}
+
+export function disableRoverConnection(): void {
+  roverConnectionEnabled = false;
+  roverReconnectAttempt = 0;
+  if (roverReconnectTimer) clearTimeout(roverReconnectTimer);
+  roverReconnectTimer = null;
+  if (roverHeartbeat) clearInterval(roverHeartbeat);
+  roverHeartbeat = null;
+  stopLeaseRenewal();
+  waitingEvaluations = [];
+  const socket = roverSocket;
+  roverSocket = null;
+  registeredSocket = null;
+  registeredTabId = undefined;
+  if (socket && socket.readyState !== WebSocket.CLOSED) socket.close(1000, 'Rover disabled');
+}
+
 export async function updateRoverRegistration(tabId: number): Promise<void> {
+  if (!roverConnectionEnabled) return;
   const origin = await resolveOrigin();
   await detectProvider(tabId);
   await loadProfilesIntoTab(tabId, origin);
