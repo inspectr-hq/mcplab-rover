@@ -539,13 +539,6 @@ export async function connectToMcplab(): Promise<void> {
         !message.scenarios?.length
       )
         return;
-      debugLog('assignment received', {
-        jobId: message.jobId,
-        provider: message.agent.provider,
-        scenarios: message.scenarios.length,
-        newConversationBeforeStart: message.newConversationBeforeStart === true,
-        newConversationBetweenScenarios: message.newConversationBetweenScenarios !== false
-      });
       let accepted = false;
       const reportAssignmentError = (reason: string) => {
         if (socket.readyState === WebSocket.OPEN) {
@@ -625,6 +618,21 @@ export async function connectToMcplab(): Promise<void> {
           return;
         }
         const previous = await getQueue();
+        if (previous && previous.queueId === message.jobId && previous.leaseId === leaseId) {
+          debugLog('duplicate assignment ignored', {
+            jobId: message.jobId,
+            leaseId,
+            provider: message.agent!.provider
+          });
+          return;
+        }
+        debugLog('assignment received', {
+          jobId: message.jobId,
+          provider: message.agent!.provider,
+          scenarios: message.scenarios!.length,
+          newConversationBeforeStart: message.newConversationBeforeStart === true,
+          newConversationBetweenScenarios: message.newConversationBetweenScenarios !== false
+        });
         if (
           previous &&
           (['running', 'paused'].includes(previous.status) ||

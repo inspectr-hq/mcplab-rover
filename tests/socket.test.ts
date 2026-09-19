@@ -131,4 +131,29 @@ describe('socket assignment lifecycle', () => {
     expect(assignmentMessages).toContain('assignment_accept');
     expect(assignmentMessages).not.toContain('assignment_reject');
   });
+
+  it('ignores a duplicate delivery of the same leased assignment', async () => {
+    let storedQueue: any = null;
+    mocks.getQueue.mockImplementation(async () => storedQueue);
+    mocks.saveQueue.mockImplementation(async (queue) => {
+      storedQueue = queue;
+    });
+    const socket = await connectedSocket();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const sentBefore = socket.sent.length;
+    socket.message(assignment);
+    await vi.waitFor(() => expect(mocks.runQueueItem).toHaveBeenCalledTimes(1));
+    socket.message(assignment);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    const assignmentAccepts = socket.sent.slice(sentBefore).filter(
+      (value) => JSON.parse(value).type === 'assignment_accept'
+    );
+    const assignmentRejects = socket.sent.slice(sentBefore).filter(
+      (value) => JSON.parse(value).type === 'assignment_reject'
+    );
+    expect(assignmentAccepts).toHaveLength(1);
+    expect(assignmentRejects).toHaveLength(0);
+    expect(mocks.runQueueItem).toHaveBeenCalledTimes(1);
+  });
 });
