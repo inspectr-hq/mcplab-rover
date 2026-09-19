@@ -2,7 +2,10 @@ import type { ExtensionMessage } from './contracts';
 import { findAdapter, findPageAdapter, setLearnedProfiles } from './providers';
 import type { BrowserProviderProfile } from './mcplab/types';
 import { ask } from './runtime/ask';
-import { startProviderDiscovery, type ProviderDiscoverySession } from './providers/provider-discovery';
+import {
+  startProviderDiscovery,
+  type ProviderDiscoverySession
+} from './providers/provider-discovery';
 import { replayProviderProfile } from './providers/discovery-replay';
 import { roverResultMessage } from './content-result';
 
@@ -109,6 +112,15 @@ function togglePanel(expand = false): void {
   }
 }
 
+function showPanel(): void {
+  const existing = document.querySelector<HTMLElement>('[data-mcplab-rover-panel]');
+  if (existing) {
+    existing.classList.add('expanded');
+    return;
+  }
+  togglePanel(true);
+}
+
 const panelCleanup = new WeakMap<HTMLElement, () => void>();
 
 if (runtime.__mcplabRoverInstalled) {
@@ -130,9 +142,11 @@ if (runtime.__mcplabRoverInstalled) {
           });
         },
         (progress) => {
-          void chrome.runtime.sendMessage({ type: 'ROVER_LEARN_PROGRESS', progress }).catch((error) => {
-            console.warn('[Rover] provider discovery progress delivery failed', error);
-          });
+          void chrome.runtime
+            .sendMessage({ type: 'ROVER_LEARN_PROGRESS', progress })
+            .catch((error) => {
+              console.warn('[Rover] provider discovery progress delivery failed', error);
+            });
         }
       );
       sendResponse({ ok: true });
@@ -148,7 +162,9 @@ if (runtime.__mcplabRoverInstalled) {
       const captured = discoverySession?.capture() ?? false;
       sendResponse({
         ok: captured,
-        ...(captured ? {} : { error: 'Nothing to capture yet: a composer and a response are both required.' })
+        ...(captured
+          ? {}
+          : { error: 'Nothing to capture yet: a composer and a response are both required.' })
       });
       return true;
     }
@@ -164,7 +180,7 @@ if (runtime.__mcplabRoverInstalled) {
       return;
     }
     if (message.type === 'ROVER_SHOW_PANEL') {
-      if (!document.querySelector('[data-mcplab-rover-panel]')) togglePanel(true);
+      showPanel();
       return;
     }
     if (message.type === 'ROVER_DETECT') {

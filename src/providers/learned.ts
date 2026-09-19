@@ -162,17 +162,37 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
           const composerStartedWithText = Boolean(beforeComposer.trim());
           const beforeMessageCount = candidates().length;
           const beforeUrl = location.href;
+          let lastMutationAt = 0;
+          const mutationObserver = new MutationObserver(() => {
+            lastMutationAt = Date.now();
+          });
+          mutationObserver.observe(document.body, {
+            subtree: true,
+            childList: true,
+            attributes: true,
+            characterData: true
+          });
           button.click();
-          const deadline = Date.now() + 5_000;
-          while (Date.now() < deadline) {
-            const composer = findComposer();
-            const messageCount = candidates().length;
-            const changedConversation =
-              (composerStartedWithText && Boolean(composer && !composerValue(composer).trim())) ||
-              messageCount < beforeMessageCount ||
-              location.href !== beforeUrl;
-            if (composer && !composerValue(composer).trim() && changedConversation) return;
-            await new Promise((resolve) => setTimeout(resolve, 50));
+          try {
+            const deadline = Date.now() + 15_000;
+            while (Date.now() < deadline) {
+              const composer = findComposer();
+              const messageCount = candidates().length;
+              const changedConversation =
+                (composerStartedWithText && Boolean(composer && !composerValue(composer).trim())) ||
+                messageCount < beforeMessageCount ||
+                location.href !== beforeUrl;
+              const settledMutation = lastMutationAt > 0 && Date.now() - lastMutationAt >= 100;
+              if (
+                composer &&
+                !composerValue(composer).trim() &&
+                (changedConversation || settledMutation)
+              )
+                return;
+              await new Promise((resolve) => setTimeout(resolve, 50));
+            }
+          } finally {
+            mutationObserver.disconnect();
           }
           throw new Error(`${profile.name} new conversation did not become ready`);
         }
@@ -240,7 +260,9 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
               present:
                 profile.newConversation.action === 'navigate'
                   ? Boolean(profile.newConversation.url)
-                  : newConversationLocators(profile).some((locator) => Boolean(findPath(locator)[0])),
+                  : newConversationLocators(profile).some((locator) =>
+                      Boolean(findPath(locator)[0])
+                    ),
               detail:
                 profile.newConversation.action === 'navigate'
                   ? 'Uses the learned navigation URL'

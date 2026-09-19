@@ -26,15 +26,26 @@ installMessageHandler();
 
 chrome.action.onClicked.addListener(async (tab) => {
   if (typeof tab.id !== 'number') return;
+  console.info('[Rover debug] toolbar clicked', { tabId: tab.id, url: tab.url });
   try {
     await connectToMcplab().catch(() => undefined);
     try {
-      await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_TOGGLE_PANEL' });
-    } catch {
+      await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_SHOW_PANEL' });
+      console.info('[Rover debug] panel shown in existing content script', { tabId: tab.id });
+    } catch (error) {
+      console.info('[Rover debug] content script unavailable, injecting panel host', {
+        tabId: tab.id,
+        error: error instanceof Error ? error.message : String(error)
+      });
       await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-      await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_TOGGLE_PANEL' });
+      await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_SHOW_PANEL' });
+      console.info('[Rover debug] panel shown after content script injection', { tabId: tab.id });
     }
-  } catch {
-    // Chrome internal pages and restricted frames do not allow injection.
+  } catch (error) {
+    console.warn('[Rover] could not show panel in active tab', {
+      tabId: tab.id,
+      url: tab.url,
+      error: error instanceof Error ? error.message : String(error)
+    });
   }
 });

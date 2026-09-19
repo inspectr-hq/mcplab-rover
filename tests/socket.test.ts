@@ -88,6 +88,7 @@ describe('socket assignment lifecycle', () => {
     mocks.activeTab.mockResolvedValue({ id: 7, url: 'https://claude.ai/chat/1' });
     mocks.detectProvider.mockResolvedValue('claude');
     mocks.waitForProviderReady.mockResolvedValue(undefined);
+    mocks.startQueueConversation.mockResolvedValue(undefined);
     mocks.saveQueue.mockResolvedValue(undefined);
   });
 
@@ -132,6 +133,28 @@ describe('socket assignment lifecycle', () => {
     expect(assignmentMessages).not.toContain('assignment_reject');
   });
 
+  it('rejects before acceptance when the new conversation cannot become ready', async () => {
+    mocks.getQueue.mockResolvedValue(null);
+    mocks.startQueueConversation.mockRejectedValue(
+      new Error('tm-pipeline new conversation did not become ready')
+    );
+    const socket = await connectedSocket();
+    const sentBefore = socket.sent.length;
+    socket.message(assignment);
+
+    await vi.waitFor(() =>
+      expect(socket.sent.slice(sentBefore).map((value) => JSON.parse(value).type)).toContain(
+        'assignment_reject'
+      )
+    );
+    const messages = socket.sent.slice(sentBefore).map((value) => JSON.parse(value));
+    expect(messages.some((message) => message.type === 'assignment_accept')).toBe(false);
+    expect(messages.find((message) => message.type === 'assignment_reject')).toMatchObject({
+      reason: 'provider_unavailable',
+      retryable: true
+    });
+  });
+
   it('ignores a duplicate delivery of the same leased assignment', async () => {
     let storedQueue: any = null;
     mocks.getQueue.mockImplementation(async () => storedQueue);
@@ -146,12 +169,12 @@ describe('socket assignment lifecycle', () => {
     socket.message(assignment);
     await new Promise((resolve) => setTimeout(resolve, 25));
 
-    const assignmentAccepts = socket.sent.slice(sentBefore).filter(
-      (value) => JSON.parse(value).type === 'assignment_accept'
-    );
-    const assignmentRejects = socket.sent.slice(sentBefore).filter(
-      (value) => JSON.parse(value).type === 'assignment_reject'
-    );
+    const assignmentAccepts = socket.sent
+      .slice(sentBefore)
+      .filter((value) => JSON.parse(value).type === 'assignment_accept');
+    const assignmentRejects = socket.sent
+      .slice(sentBefore)
+      .filter((value) => JSON.parse(value).type === 'assignment_reject');
     expect(assignmentAccepts).toHaveLength(1);
     expect(assignmentRejects).toHaveLength(0);
     expect(mocks.runQueueItem).toHaveBeenCalledTimes(1);

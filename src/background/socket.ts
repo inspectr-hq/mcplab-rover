@@ -95,7 +95,10 @@ function debugLog(event: string, details: Record<string, unknown> = {}): void {
   console.info(`[Rover debug] ${event}`, details);
 }
 
-async function prepareAssignmentStart(queue: RoverQueueState): Promise<RoverQueueState> {
+async function prepareAssignmentStart(
+  queue: RoverQueueState,
+  persist = true
+): Promise<RoverQueueState> {
   if (!queue.newConversationBeforeStart) return queue;
   debugLog('starting new conversation before assignment', {
     queueId: queue.queueId,
@@ -108,7 +111,7 @@ async function prepareAssignmentStart(queue: RoverQueueState): Promise<RoverQueu
     newConversationBeforeStart: false,
     updatedAt: new Date().toISOString()
   };
-  await saveQueue(prepared);
+  if (persist) await saveQueue(prepared);
   debugLog('new conversation ready before assignment', {
     queueId: queue.queueId,
     provider: queue.provider,
@@ -675,6 +678,10 @@ export async function connectToMcplab(): Promise<void> {
           leaseId,
           leaseExpiresAt: message.leaseExpiresAt!
         });
+        // Starting a new conversation is part of readiness. Do it before
+        // accepting the lease so a provider transition failure can be
+        // rejected and requeued without leaving a stale running queue.
+        assigned = await prepareAssignmentStart(assigned, false);
         const acceptedQueue = transitionManagedLease(assigned, { type: 'accepted', leaseId });
         await saveQueue(acceptedQueue);
         accepted = true;
@@ -696,7 +703,7 @@ export async function connectToMcplab(): Promise<void> {
         waitingEvaluations = waitingEvaluations.filter((job) => job.jobId !== message.jobId);
         for (const item of assigned.items) sendScenarioStatus(assigned, item);
         await startLeaseRenewal(started);
-        await runQueueItem(await prepareAssignmentStart(started));
+        await runQueueItem(started);
       }).catch(async (error) => {
         if (!accepted && socket.readyState === WebSocket.OPEN) {
           rejectAssignment('provider_unavailable');
