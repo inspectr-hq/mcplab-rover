@@ -17,6 +17,16 @@ function matchesSelector(selector: string | undefined, candidate: string): boole
   );
 }
 
+function matchesGeneratingState(
+  selector: string | undefined,
+  node: { selector: string; disabled: boolean }
+): boolean {
+  if (!selector) return false;
+  if (selector.includes(':disabled') && !node.disabled) return false;
+  if (selector.includes(':not([disabled])') && node.disabled) return false;
+  return matchesSelector(selector, node.selector);
+}
+
 export function replayProviderProfile(
   profile: BrowserProviderProfile,
   trace: BrowserProviderDiscoveryTrace | undefined
@@ -52,8 +62,13 @@ export function replayProviderProfile(
   else if (!snapshots('generating').some((node) => matchesSelector(generating, node.selector)))
     reasons.push('Generation selector was not observed in the generating snapshot.');
   const idle = lastSelector(profile.completion.idleLocator);
-  if (!idle) reasons.push('An idle selector is required.');
-  else if (
+  if (!idle) {
+    const generatingStillPresent = snapshots('final').some((node) =>
+      matchesGeneratingState(generating, node)
+    );
+    if (generatingStillPresent)
+      reasons.push('The generation control was still present in the final snapshot.');
+  } else if (
     !snapshots('final').some((node) => matchesSelector(idle, node.selector) && !node.disabled)
   )
     reasons.push('Idle selector was not observed in an enabled final snapshot.');

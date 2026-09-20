@@ -5,7 +5,7 @@ import type {
   DebugSnapshot,
   RoverState
 } from '../contracts';
-import type { LiveTestCatalogItem } from '../mcplab/types';
+import type { BrowserProviderProfile, LiveTestCatalogItem } from '../mcplab/types';
 import type { RoverQueueState } from '../queue/state';
 import {
   debugFingerprint,
@@ -69,7 +69,11 @@ const learnMode = document.querySelector<HTMLButtonElement>('#learn-mode')!;
 const learnPanel = document.querySelector<HTMLElement>('#learn-panel')!;
 const learnStatus = document.querySelector<HTMLParagraphElement>('#learn-status')!;
 const learnProgress = document.querySelector<HTMLElement>('#learn-progress')!;
+const learnEvidenceSection = document.querySelector<HTMLElement>('#learn-evidence-section')!;
 const learnCapabilities = document.querySelector<HTMLElement>('#learn-capabilities')!;
+const learnProposalSection = document.querySelector<HTMLElement>('#learn-proposal-section')!;
+const learnProposal = document.querySelector<HTMLElement>('#learn-proposal')!;
+const learnValidationSection = document.querySelector<HTMLElement>('#learn-validation-section')!;
 const learnValidation = document.querySelector<HTMLElement>('#learn-validation')!;
 const learnName = document.querySelector<HTMLInputElement>('#learn-name')!;
 const learnStart = document.querySelector<HTMLButtonElement>('#learn-start')!;
@@ -198,6 +202,7 @@ learnStart.addEventListener(
         learnStart.textContent = 'Start learning';
         learnCapture.hidden = true;
         learnProgress.hidden = true;
+        learnEvidenceSection.hidden = true;
         learnStatus.textContent = 'Learning stopped. Start again when you are ready.';
         return;
       }
@@ -205,8 +210,12 @@ learnStart.addEventListener(
       learnCapabilities.replaceChildren();
       learnProgress.replaceChildren();
       learnProgress.hidden = true;
+      learnEvidenceSection.hidden = false;
+      learnProposal.replaceChildren();
+      learnProposalSection.hidden = true;
       learnValidation.replaceChildren();
       learnValidation.hidden = true;
+      learnValidationSection.hidden = true;
       learnName.hidden = true;
       learnPropose.hidden = true;
       learnSave.hidden = true;
@@ -262,6 +271,7 @@ learnPropose.addEventListener(
         : { passed: false, reasons: [replayResponse?.error ?? 'Could not replay the proposal.'] };
       discoveryDraft = {
         ...draft,
+        capturedProfile: draft.capturedProfile ?? draft.profile,
         profile: response.proposal.profile,
         readyToSave: replay.passed,
         validationReasons: replay.reasons,
@@ -273,6 +283,7 @@ learnPropose.addEventListener(
       await chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: discoveryDraft });
       learnSave.hidden = discoveryDraft.readyToSave !== true;
       renderLearnCapabilities(discoveryDraft.capabilities);
+      renderLearnProposal(discoveryDraft);
       renderLearnValidation(discoveryDraft);
       const rationale = Array.isArray(response.proposal.rationale)
         ? response.proposal.rationale[0]
@@ -990,6 +1001,7 @@ function confidenceState(confidence: 'high' | 'medium' | 'low'): 'pass' | 'fail'
 function renderLearnCapabilities(
   capabilities: BrowserProviderDiscoveryDraft['capabilities']
 ): void {
+  learnEvidenceSection.hidden = false;
   renderIndicatorList(
     learnCapabilities,
     capabilities.map((capability) => ({
@@ -998,6 +1010,72 @@ function renderLearnCapabilities(
       detail: capability.detail
     }))
   );
+}
+
+function profileLocator(locator: { segments: string[] } | undefined): string {
+  return locator?.segments.at(-1) ?? 'not configured';
+}
+
+function profileSummary(profile: BrowserProviderProfile): Array<{ label: string; value: string }> {
+  const completion = profile.completion;
+  const newConversation = profile.newConversation;
+  return [
+    { label: 'Composer', value: profileLocator(profile.composer.locator) },
+    {
+      label: 'Send',
+      value: profile.submit.locator
+        ? `${profile.submit.action}, ${profileLocator(profile.submit.locator)}`
+        : profile.submit.action
+    },
+    { label: 'Response', value: profileLocator(profile.assistantMessages.locator) },
+    {
+      label: 'Generation',
+      value: profileLocator(completion.generatingLocator)
+    },
+    { label: 'Idle', value: profileLocator(completion.idleLocator) },
+    {
+      label: 'New conversation',
+      value: newConversation
+        ? newConversation.action === 'navigate'
+          ? `navigate, ${newConversation.url}`
+          : `click, ${profileLocator(newConversation.locator ?? newConversation.locators?.[0])}`
+        : 'not configured'
+    }
+  ];
+}
+
+function renderLearnProposal(draft: BrowserProviderDiscoveryDraft): void {
+  if (!draft.capturedProfile) {
+    learnProposal.replaceChildren();
+    learnProposalSection.hidden = true;
+    return;
+  }
+  const captured = new Map(profileSummary(draft.capturedProfile).map((entry) => [entry.label, entry.value]));
+  const proposal = profileSummary(draft.profile);
+  renderIndicatorList(
+    learnProposal,
+    proposal.map((entry) => {
+      const previous = captured.get(entry.label);
+      if (previous === entry.value)
+        return {
+          label: `${entry.label}, kept`,
+          state: 'pass' as const,
+          detail: `Rover's captured configuration was retained, ${entry.value}.`
+        };
+      if (!previous || previous === 'not configured')
+        return {
+          label: `${entry.label}, added by MCPLab`,
+          state: 'unknown' as const,
+          detail: `${entry.value}. Verify this against the captured trace.`
+        };
+      return {
+        label: `${entry.label}, changed by MCPLab`,
+        state: 'unknown' as const,
+        detail: `From ${previous} to ${entry.value}. Verify this against the captured trace.`
+      };
+    })
+  );
+  learnProposalSection.hidden = false;
 }
 
 function renderLearnValidation(draft: BrowserProviderDiscoveryDraft): void {
@@ -1017,9 +1095,11 @@ function renderLearnValidation(draft: BrowserProviderDiscoveryDraft): void {
     }))
   ]);
   learnValidation.hidden = false;
+  learnValidationSection.hidden = false;
 }
 
 function renderLearnProgress(progress: BrowserProviderDiscoveryProgress): void {
+  learnEvidenceSection.hidden = false;
   learnProgress.hidden = false;
   renderIndicatorList(learnProgress, [
     {
@@ -1077,6 +1157,7 @@ chrome.runtime.onMessage.addListener((message: { type?: string }) => {
     learnPropose.hidden = !event.draft.trace;
     learnSave.hidden = event.draft.readyToSave !== true;
     renderLearnCapabilities(event.draft.capabilities);
+    renderLearnProposal(event.draft);
     renderLearnValidation(event.draft);
   }
 });
@@ -1113,5 +1194,6 @@ void chrome.storage.local.get([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]).
       ? 'A saved learning draft is ready to review.'
       : 'This learning draft did not pass lifecycle validation. Capture a new active response.';
   renderLearnCapabilities(draft.capabilities);
+  renderLearnProposal(draft);
   renderLearnValidation(draft);
 });

@@ -3,6 +3,7 @@ import type { CheckCounts, RunOutcome } from './mcplab/types';
 export type ProviderId = string;
 export interface BrowserProviderDiscoveryDraft {
   profile: import('./mcplab/types').BrowserProviderProfile;
+  capturedProfile?: import('./mcplab/types').BrowserProviderProfile;
   readyToSave?: boolean;
   validationReasons?: string[];
   proposalDiagnostics?: { rationale: string[]; warnings: string[] };

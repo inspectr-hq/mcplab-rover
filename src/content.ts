@@ -9,6 +9,7 @@ import {
 import { replayProviderProfile } from './providers/discovery-replay';
 import { roverResultMessage } from './content-result';
 import { debugLog, initializeDebugLogging } from './content-debug-logging';
+import { sendRuntimeMessage } from './content-runtime';
 
 initializeDebugLogging();
 
@@ -32,7 +33,7 @@ function startDebugObserver(): void {
     if (debugNotifyTimer !== undefined) window.clearTimeout(debugNotifyTimer);
     debugNotifyTimer = window.setTimeout(() => {
       debugNotifyTimer = undefined;
-      void chrome.runtime.sendMessage({ type: 'ROVER_DEBUG_CHANGED' }).catch((error) => {
+      void sendRuntimeMessage({ type: 'ROVER_DEBUG_CHANGED' }).catch((error) => {
         console.warn('[Rover] debug update notification failed', error);
       });
     }, 250);
@@ -141,7 +142,7 @@ if (runtime.__mcplabRoverInstalled) {
       discoverySession?.stop();
       discoverySession = startProviderDiscovery(
         (draft) => {
-          void chrome.runtime.sendMessage({ type: 'ROVER_LEARN_RESULT', draft }).catch((error) => {
+          void sendRuntimeMessage({ type: 'ROVER_LEARN_RESULT', draft }).catch((error) => {
             console.warn('[Rover] provider discovery result delivery failed', error);
           });
         },
@@ -240,7 +241,7 @@ if (runtime.__mcplabRoverInstalled) {
     if (message.type !== 'ROVER_ASK') return;
     void (async () => {
       if (activeAskControllers.size > 0) {
-        await chrome.runtime.sendMessage({
+        await sendRuntimeMessage({
           type: 'ROVER_RESULT',
           requestId: message.requestId,
           sessionId: message.sessionId,
@@ -257,10 +258,10 @@ if (runtime.__mcplabRoverInstalled) {
         const adapter = findAdapter();
         if (!adapter) throw new Error('The active page is not a supported chat provider');
         const text = await ask(adapter, message.prompt, controller.signal);
-        await chrome.runtime.sendMessage(roverResultMessage(message, { ok: true, text }));
+        await sendRuntimeMessage(roverResultMessage(message, { ok: true, text }));
       } catch (error) {
         const details = error as { message?: unknown; code?: unknown };
-        await chrome.runtime.sendMessage(
+        await sendRuntimeMessage(
           roverResultMessage(message, {
             ok: false,
             error: error instanceof Error ? error.message : String(error),
@@ -278,7 +279,7 @@ if (runtime.__mcplabRoverInstalled) {
     if (focusNotifyTimer !== undefined) window.clearTimeout(focusNotifyTimer);
     focusNotifyTimer = window.setTimeout(() => {
       focusNotifyTimer = undefined;
-      void chrome.runtime.sendMessage({ type: 'ROVER_PAGE_FOCUSED' }).catch(() => undefined);
+      void sendRuntimeMessage({ type: 'ROVER_PAGE_FOCUSED' }).catch(() => undefined);
     }, 250);
   };
   window.addEventListener('focus', notifyPageFocused);

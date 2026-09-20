@@ -48,14 +48,33 @@
       <section id="learn-panel" class="stack" aria-label="Learn browser provider" hidden>
         <strong>Teach Rover this chat</strong>
         <p id="learn-status" class="muted wrap">Start learning, then send one message yourself in the active chat.</p>
-        <div id="learn-progress" class="debug-indicators" hidden></div>
-        <div id="learn-capabilities" class="debug-indicators"></div>
-        <div id="learn-validation" class="debug-indicators" hidden></div>
+        <section id="learn-evidence-section" class="learning-section learning-evidence" aria-label="What Rover observed" hidden>
+          <div class="learning-section-heading">
+            <strong>What Rover observed</strong>
+            <span>Direct evidence from this chat</span>
+          </div>
+          <div id="learn-progress" class="debug-indicators" hidden></div>
+          <div id="learn-capabilities" class="debug-indicators"></div>
+        </section>
+        <section id="learn-proposal-section" class="learning-section learning-proposal" aria-label="MCPLab proposal" hidden>
+          <div class="learning-section-heading">
+            <strong>MCPLab proposal</strong>
+            <span>AI suggestions compared with Rover's evidence</span>
+          </div>
+          <div id="learn-proposal" class="debug-indicators"></div>
+        </section>
+        <section id="learn-validation-section" class="learning-section learning-validation" aria-label="Save readiness" hidden>
+          <div class="learning-section-heading">
+            <strong>Save readiness</strong>
+            <span>Why the provider can or cannot be saved</span>
+          </div>
+          <div id="learn-validation" class="debug-indicators"></div>
+        </section>
         <input id="learn-name" type="text" placeholder="Provider name" aria-label="Provider name" hidden />
-        <button id="learn-start" type="button">Start learning</button>
         <button id="learn-capture" type="button" hidden>The chat is done, capture it</button>
         <button id="learn-propose" type="button" hidden>Improve with MCPLab AI</button>
         <button id="learn-save" type="button" hidden>Save provider to MCPLab</button>
+        <button id="learn-start" class="learn-reset-button" type="button">Start learning</button>
       </section>
       <section id="queue-panel" class="stack" aria-label="Evaluation queue" hidden>
         <div class="inline-row queue-add-row">

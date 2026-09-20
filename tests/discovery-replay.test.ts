@@ -120,4 +120,15 @@ describe('provider discovery replay', () => {
       'Idle selector was not observed in an enabled final snapshot.'
     );
   });
+
+  it('accepts a generation-only profile when the generation control disappears', () => {
+    const result = replayProviderProfile(
+      {
+        ...profile,
+        completion: { generatingLocator: profile.completion.generatingLocator, stabilityMs: 2500 }
+      },
+      trace
+    );
+    expect(result).toEqual({ passed: true, reasons: [] });
+  });
 });
