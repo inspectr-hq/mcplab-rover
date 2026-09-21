@@ -28,3 +28,7 @@ export function findAdapter(provider?: ProviderId): ChatProviderAdapter | null {
 export function findPageAdapter(): ChatProviderAdapter | null {
   return adapters.find((adapter) => adapter.matchesPage() && adapter.canHandle()) ?? null;
 }
+
+export function findPageAdapters(): ChatProviderAdapter[] {
+  return adapters.filter((adapter) => adapter.matchesPage() && adapter.canHandle());
+}

@@ -7,6 +7,7 @@ import {
   adapters,
   findAdapter,
   findPageAdapter,
+  findPageAdapters,
   isBuiltInProvider,
   setLearnedProfiles
 } from '../src/providers';
@@ -185,6 +186,24 @@ describe('Learned provider adapter', () => {
     } as DOMRect);
   });
   afterEach(() => vi.restoreAllMocks());
+
+  it('lists all same-origin learned profiles that can handle the current DOM', () => {
+    document.body.innerHTML = '<textarea data-provider="generic"></textarea><textarea data-provider="lumen"></textarea>';
+    setLearnedProfiles([
+      {
+        ...testProviderProfile,
+        id: 'generic',
+        composer: { locator: { segments: ['textarea[data-provider="generic"]'] }, inputMode: 'textarea' }
+      },
+      {
+        ...testProviderProfile,
+        id: 'lumen',
+        composer: { locator: { segments: ['textarea[data-provider="lumen"]'] }, inputMode: 'textarea' }
+      }
+    ]);
+
+    expect(findPageAdapters().map((adapter) => adapter.id)).toEqual(['generic', 'lumen']);
+  });
 
   it('does not click an unrelated first button for a broad New Chat locator', async () => {
     document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><button aria-label="Submit">Submit</button><button title="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div>';

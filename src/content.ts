@@ -1,5 +1,5 @@
 import type { ExtensionMessage } from './contracts';
-import { findAdapter, findPageAdapter, setLearnedProfiles } from './providers';
+import { findAdapter, findPageAdapter, findPageAdapters, setLearnedProfiles } from './providers';
 import type { BrowserProviderProfile } from './mcplab/types';
 import { ask } from './runtime/ask';
 import {
@@ -138,11 +138,27 @@ if (runtime.__mcplabRoverInstalled) {
       sendResponse({ ok: true });
       return true;
     }
+    if (message.type === 'ROVER_GET_LEARN_TARGETS') {
+      sendResponse({
+        ok: true,
+        url: location.href,
+        targets: findPageAdapters().map((adapter) => ({ id: adapter.id }))
+      });
+      return true;
+    }
     if (message.type === 'ROVER_LEARN_START') {
+      const targetProviderId = message.targetProviderId;
       discoverySession?.stop();
       discoverySession = startProviderDiscovery(
         (draft) => {
-          void sendRuntimeMessage({ type: 'ROVER_LEARN_RESULT', draft }).catch((error) => {
+          void sendRuntimeMessage({
+            type: 'ROVER_LEARN_RESULT',
+            draft: {
+              ...draft,
+              ...(targetProviderId ? { targetProviderId } : {}),
+              sourceUrl: location.href
+            }
+          }).catch((error) => {
             console.warn('[Rover] provider discovery result delivery failed', error);
           });
         },

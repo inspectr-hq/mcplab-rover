@@ -10,7 +10,8 @@ import {
   profileSummary,
   projectQueueForProvider,
   splitQueueItems,
-  suggestedProviderName
+  suggestedProviderName,
+  buildLearnedProviderSave
 } from '../src/popup/view-model';
 
 const cases = [
@@ -19,6 +20,36 @@ const cases = [
 ];
 
 describe('popup view model', () => {
+  it('preserves the selected provider ID and current agent URL when saving Learning', () => {
+    const profile = {
+      schemaVersion: 1 as const,
+      id: 'origin-id',
+      name: 'Captured name',
+      match: { origins: ['https://copilot.cloud.microsoft'] },
+      composer: { locator: { segments: ['textarea'] }, inputMode: 'textarea' as const },
+      submit: { action: 'enter' as const },
+      assistantMessages: { locator: { segments: ['article'] } },
+      completion: { stabilityMs: 2500 },
+      learned: {
+        sourceOrigin: 'https://copilot.cloud.microsoft',
+        createdAt: '2026-09-21T00:00:00.000Z',
+        updatedAt: '2026-09-21T00:00:00.000Z',
+        confidence: {}
+      }
+    };
+
+    const saved = buildLearnedProviderSave(
+      profile,
+      'TrendMiner Agent Lumen',
+      'copilot-cloud-microsoft-lumen',
+      'https://copilot.cloud.microsoft/chat/agent/lumen'
+    );
+
+    expect(saved.profile.id).toBe('copilot-cloud-microsoft-lumen');
+    expect(saved.profile.name).toBe('TrendMiner Agent Lumen');
+    expect(saved.agent.url).toBe('https://copilot.cloud.microsoft/chat/agent/lumen');
+  });
+
   it('shows the working locator separately in a learned profile summary', () => {
     const entries = profileSummary({
       id: 'copilot',

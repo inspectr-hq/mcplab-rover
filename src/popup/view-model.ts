@@ -58,6 +58,37 @@ export function suggestedProviderName(
   }
 }
 
+export function buildLearnedProviderSave(
+  profile: BrowserProviderProfile,
+  name: string,
+  targetProviderId: string | undefined,
+  sourceUrl: string | undefined
+): {
+  profile: BrowserProviderProfile;
+  agent: { id: string; name: string; url: string };
+} {
+  const providerOrigin = profile.match.origins[0];
+  if (!providerOrigin) throw new Error('The learned provider has no page origin.');
+  const savedProfile = {
+    ...profile,
+    id:
+      targetProviderId ??
+      name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, ''),
+    name
+  };
+  return {
+    profile: savedProfile,
+    agent: {
+      id: `${savedProfile.id}-browser`,
+      name: `${name} browser`,
+      url: sourceUrl ?? providerOrigin
+    }
+  };
+}
+
 function profileLocator(locator: { segments: string[] } | undefined): string {
   return locator?.segments.at(-1) ?? 'not configured';
 }

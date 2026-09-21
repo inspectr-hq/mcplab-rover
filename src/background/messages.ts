@@ -147,9 +147,30 @@ export function installMessageHandler(): void {
         }
         return {
           provider,
+          profile: provider ? loadedProvider(provider) : undefined,
           tabId: tab?.id,
           url: tab?.url,
           supportsNewConversation: await supportsNewConversation(provider, origin)
+        };
+      });
+    }
+
+    if (message.type === 'ROVER_GET_LEARN_TARGETS') {
+      return respond(sendResponse, async () => {
+        const tab = await activeTab();
+        if (typeof tab?.id !== 'number') return { ok: true, targets: [], url: tab?.url };
+        const response = (await sendToActiveTab(message)) as {
+          ok?: boolean;
+          targets?: Array<{ id: string }>;
+          url?: string;
+        } | null;
+        return {
+          ok: true,
+          url: response?.url ?? tab.url,
+          targets: (response?.targets ?? []).map((target) => {
+            const profile = loadedProvider(target.id);
+            return { id: target.id, name: profile?.name ?? target.id };
+          })
         };
       });
     }

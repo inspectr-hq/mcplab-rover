@@ -5,10 +5,11 @@ import type {
   DebugSnapshot,
   RoverState
 } from '../contracts';
-import type { LiveTestCatalogItem } from '../mcplab/types';
+import type { BrowserProviderProfile, LiveTestCatalogItem } from '../mcplab/types';
 import type { RoverQueueState } from '../queue/state';
 import {
   debugFingerprint,
+  buildLearnedProviderSave,
   debugCheckedLabel,
   filterTestCases,
   formatCheckCounts,
@@ -69,6 +70,7 @@ const responseTray = document.querySelector<HTMLElement>('.response-tray')!;
 const debugMode = document.querySelector<HTMLButtonElement>('#debug-mode')!;
 const learnMode = document.querySelector<HTMLButtonElement>('#learn-mode')!;
 const learnPanel = document.querySelector<HTMLElement>('#learn-panel')!;
+const learnTarget = document.querySelector<HTMLElement>('#learn-target')!;
 const learnStatus = document.querySelector<HTMLParagraphElement>('#learn-status')!;
 const learnProgress = document.querySelector<HTMLElement>('#learn-progress')!;
 const learnEvidenceSection = document.querySelector<HTMLElement>('#learn-evidence-section')!;
@@ -91,6 +93,10 @@ let items: LiveTestCatalogItem[] = [];
 let current: RoverState | null = null;
 let currentQueue: RoverQueueState | null = null;
 let activeProvider: string | undefined;
+let activeProviderProfile: BrowserProviderProfile | undefined;
+let activeTabUrl: string | undefined;
+let learnTargets: Array<{ id: string; name: string }> = [];
+let selectedLearnTargetId: string | undefined;
 let activeProviderSupportsNewConversation = false;
 let mode: 'manual' | 'queue' | 'learn' | 'debug' = 'manual';
 let discoveryDraft: BrowserProviderDiscoveryDraft | null = null;
@@ -190,7 +196,15 @@ queueMode.addEventListener(
     })
 );
 debugMode.addEventListener('click', () => void runModeTransition(() => setMode('debug')));
-learnMode.addEventListener('click', () => void runModeTransition(() => setMode('learn')));
+learnMode.addEventListener(
+  'click',
+  () =>
+    void runModeTransition(async () => {
+      await setMode('learn');
+      await refreshActiveProvider();
+      await refreshLearnTargets();
+    })
+);
 learnStart.addEventListener(
   'click',
   () =>
@@ -225,7 +239,19 @@ learnStart.addEventListener(
       learnStart.textContent = 'Stop learning';
       learnStatus.textContent =
         'Learning is active. Send one message in the chat, then wait for the response.';
-      const response = await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_START' });
+      await refreshActiveProvider();
+      await refreshLearnTargets();
+      if (learnTargets.length > 1 && !selectedLearnTargetId) {
+        learnStart.textContent = 'Start learning';
+        learnCapture.hidden = true;
+        learnStatus.textContent = 'Choose the provider profile that this Learning session should update.';
+        return;
+      }
+      const targetProviderId = selectedLearnTargetId ?? learnTargets[0]?.id;
+      const response = await chrome.runtime.sendMessage({
+        type: 'ROVER_LEARN_START',
+        targetProviderId
+      });
       if (!response?.ok) {
         learnStatus.textContent = response?.error ?? 'Could not start learning.';
         learnStart.textContent = 'Start learning';
@@ -311,22 +337,17 @@ learnSave.addEventListener(
         learnStatus.textContent = 'Enter a provider name first.';
         return;
       }
-      const profile = {
-        ...discoveryDraft.profile,
-        id: name
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-|-$/g, ''),
-        name
-      };
       try {
-        const agentId = `${profile.id}-browser`;
-        const providerOrigin = profile.match.origins[0];
-        if (!providerOrigin) throw new Error('The learned provider has no page origin.');
+        const saved = buildLearnedProviderSave(
+          discoveryDraft.profile,
+          name,
+          discoveryDraft.targetProviderId,
+          discoveryDraft.sourceUrl ?? activeTabUrl
+        );
         const response = await chrome.runtime.sendMessage({
           type: 'ROVER_LEARN_SAVE',
-          profile,
-          agent: { id: agentId, name: `${name} browser`, url: providerOrigin },
+          profile: saved.profile,
+          agent: saved.agent,
           origin: origin.value,
           trace: discoveryDraft.trace,
           proposalDiagnostics: discoveryDraft.proposalDiagnostics
@@ -589,8 +610,16 @@ function renderQueue(queue: RoverQueueState | null): void {
 async function refreshActiveProvider(retry = true): Promise<void> {
   try {
     const response = (await chrome.runtime.sendMessage({ type: 'ROVER_GET_ACTIVE_PROVIDER' })) as
-      { provider?: string; supportsNewConversation?: boolean } | undefined;
+      {
+        provider?: string;
+        profile?: BrowserProviderProfile;
+        url?: string;
+        supportsNewConversation?: boolean;
+      } | undefined;
     activeProvider = response?.provider;
+    activeProviderProfile = response?.profile;
+    activeTabUrl = response?.url;
+    renderLearnTarget();
     const builtInSupport = response?.provider === 'claude' || response?.provider === 'chatgpt-com';
     activeProviderSupportsNewConversation =
       response?.supportsNewConversation === true || builtInSupport;
@@ -601,6 +630,58 @@ async function refreshActiveProvider(retry = true): Promise<void> {
     // Retry once after the content script has had time to initialize.
     if (retry) window.setTimeout(() => void refreshActiveProvider(false), 500);
   }
+}
+
+async function refreshLearnTargets(): Promise<void> {
+  const response = (await chrome.runtime.sendMessage({
+    type: 'ROVER_GET_LEARN_TARGETS'
+  })) as { targets?: Array<{ id: string; name: string }>; url?: string } | undefined;
+  learnTargets = response?.targets ?? [];
+  activeTabUrl = response?.url ?? activeTabUrl;
+  selectedLearnTargetId =
+    learnTargets.length === 1 ? learnTargets[0]?.id : selectedLearnTargetId;
+  renderLearnTarget();
+}
+
+function renderLearnTarget(): void {
+  if (learnTargets.length > 1) {
+    learnTarget.replaceChildren();
+    const title = document.createElement('strong');
+    title.textContent = 'Learning target';
+    const select = document.createElement('select');
+    select.setAttribute('aria-label', 'Learning provider profile');
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Choose a provider profile…';
+    placeholder.selected = !selectedLearnTargetId;
+    select.append(
+      placeholder,
+      ...learnTargets.map((target) => {
+        const option = document.createElement('option');
+        option.value = target.id;
+        option.textContent = `${target.name} (${target.id})`;
+        option.selected = target.id === selectedLearnTargetId;
+        return option;
+      })
+    );
+    select.addEventListener('change', () => {
+      selectedLearnTargetId = select.value;
+      renderLearnTarget();
+    });
+    learnTarget.append(title, document.createElement('br'), select);
+    return;
+  }
+  if (learnTargets.length === 0) {
+    learnTarget.textContent = 'Learning target: create a new provider profile.';
+    return;
+  }
+  learnTarget.replaceChildren();
+  const title = document.createElement('strong');
+  title.textContent = 'Learning target';
+  const detail = document.createElement('span');
+  const target = learnTargets[0];
+  detail.textContent = `Updating ${target?.name ?? activeProviderProfile?.name ?? activeProvider} (${target?.id ?? activeProvider}).`;
+  learnTarget.append(title, document.createElement('br'), detail);
 }
 
 function renderCatalog(): void {
@@ -1114,24 +1195,39 @@ chrome.runtime.onMessage.addListener((message: { type?: string }) => {
   if (message.type === 'ROVER_LEARN_RESULT') {
     const event = message as { draft?: BrowserProviderDiscoveryDraft };
     if (!event.draft) return;
-    discoveryDraft = event.draft;
-    learnName.value = suggestedProviderName(event.draft.profile);
-    void chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: event.draft });
+    discoveryDraft = {
+      ...event.draft,
+      targetProviderId: event.draft.targetProviderId ?? selectedLearnTargetId ?? activeProvider,
+      targetProviderName:
+        event.draft.targetProviderName ??
+        learnTargets.find(
+          (target) =>
+            target.id ===
+            (event.draft?.targetProviderId ?? selectedLearnTargetId ?? activeProvider)
+        )
+          ?.name ??
+        activeProviderProfile?.name,
+      sourceUrl: event.draft.sourceUrl ?? activeTabUrl
+    };
+    learnName.value = discoveryDraft.targetProviderId
+      ? discoveryDraft.targetProviderName ?? discoveryDraft.profile.name
+      : suggestedProviderName(discoveryDraft.profile);
+    void chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: discoveryDraft });
     learnStart.textContent = 'Stop learning';
     learnCapture.hidden = true;
     learnProgress.hidden = true;
     learnStatus.textContent = learnResultStatus({
-      readyToSave: event.draft.readyToSave === true,
-      hasNewConversation: Boolean(event.draft.profile.newConversation),
-      newConversationContextObserved: Boolean(event.draft.trace?.newConversationEvidence),
-      validationReason: event.draft.validationReasons?.[0]
+      readyToSave: discoveryDraft.readyToSave === true,
+      hasNewConversation: Boolean(discoveryDraft.profile.newConversation),
+      newConversationContextObserved: Boolean(discoveryDraft.trace?.newConversationEvidence),
+      validationReason: discoveryDraft.validationReasons?.[0]
     });
     learnName.hidden = false;
-    learnPropose.hidden = !event.draft.trace;
-    learnSave.hidden = event.draft.readyToSave !== true;
-    renderLearnCapabilities(event.draft.capabilities);
-    renderLearnProposal(event.draft);
-    renderLearnValidation(event.draft);
+    learnPropose.hidden = !discoveryDraft.trace;
+    learnSave.hidden = discoveryDraft.readyToSave !== true;
+    renderLearnCapabilities(discoveryDraft.capabilities);
+    renderLearnProposal(discoveryDraft);
+    renderLearnValidation(discoveryDraft);
   }
 });
 
@@ -1156,7 +1252,9 @@ void chrome.storage.local.get([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]).
     BrowserProviderDiscoveryDraft | undefined;
   if (!draft) return;
   discoveryDraft = draft;
-  learnName.value = suggestedProviderName(draft.profile);
+  learnName.value = draft.targetProviderId
+    ? draft.targetProviderName ?? draft.profile.name
+    : suggestedProviderName(draft.profile);
   learnName.hidden = false;
   learnCapture.hidden = true;
   learnProgress.hidden = true;

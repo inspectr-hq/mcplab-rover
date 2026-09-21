@@ -3,6 +3,9 @@ import type { CheckCounts, RunOutcome } from './mcplab/types';
 export type ProviderId = string;
 export interface BrowserProviderDiscoveryDraft {
   profile: import('./mcplab/types').BrowserProviderProfile;
+  targetProviderId?: string;
+  targetProviderName?: string;
+  sourceUrl?: string;
   capturedProfile?: import('./mcplab/types').BrowserProviderProfile;
   readyToSave?: boolean;
   validationReasons?: string[];
@@ -184,7 +187,8 @@ export type ExtensionMessage =
   | { type: 'ROVER_CANCEL' }
   | { type: 'ROVER_DETECT' }
   | { type: 'ROVER_DEBUG' }
-  | { type: 'ROVER_LEARN_START' }
+  | { type: 'ROVER_GET_LEARN_TARGETS' }
+  | { type: 'ROVER_LEARN_START'; targetProviderId?: string }
   | { type: 'ROVER_LEARN_STOP' }
   | { type: 'ROVER_LEARN_CAPTURE' }
   | {
