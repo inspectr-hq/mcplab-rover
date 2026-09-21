@@ -16,14 +16,38 @@ export interface BrowserProviderDiscoveryDraft {
   trace?: BrowserProviderDiscoveryTrace;
 }
 export interface BrowserProviderDiscoveryTraceEvent {
-  phase: 'baseline' | 'submitted' | 'generating' | 'candidate' | 'final';
+  phase: 'baseline' | 'submitted' | 'generating' | 'working' | 'candidate' | 'final';
   at: string;
   candidateCount: number;
   changedCandidateCount: number;
   visibleControlCount: number;
   disabledControlCount: number;
+  workingActive?: boolean;
   selectedCandidate?: { tagName: string; testId?: string; textLength: number };
   textHash?: string;
+  selectedElements?: Partial<
+    Record<
+      'composer' | 'submit' | 'assistant' | 'generating' | 'working' | 'idle',
+      {
+        locator: import('./mcplab/types').ShadowLocator;
+        selectors: string[];
+        selectorEvaluations?: Record<string, { matchCount: number; nonAssistantCount: number }>;
+        visible: boolean;
+        textLength: number;
+        changedFromBaseline?: boolean;
+        changedAfterSubmission?: boolean;
+        absentAtSubmission?: boolean;
+        candidateScore?: number;
+        attributes?: {
+          role?: string;
+          ariaLabel?: string;
+          testId?: string;
+          dataTest?: string;
+          authorRole?: string;
+        };
+      }
+    >
+  >;
   snapshot?: Array<{
     selector: string;
     tagName: string;
@@ -36,6 +60,14 @@ export interface BrowserProviderDiscoveryTraceEvent {
   }>;
 }
 export interface BrowserProviderDiscoveryTrace {
+  evidenceVersion?: 1;
+  newConversationEvidence?: {
+    controlLocator: import('./mcplab/types').ShadowLocator;
+    controlSelectors: string[];
+    signal: 'url-changed' | 'assistant-count-reduced';
+    beforeAssistantCount: number;
+    afterAssistantCount: number;
+  };
   observedGeneration: boolean;
   selectorValidation: {
     composer: { valid: boolean; matchCount: number; visible: boolean };

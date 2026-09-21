@@ -58,6 +58,53 @@ export function suggestedProviderName(
   }
 }
 
+function profileLocator(locator: { segments: string[] } | undefined): string {
+  return locator?.segments.at(-1) ?? 'not configured';
+}
+
+export function profileSummary(
+  profile: BrowserProviderProfile
+): Array<{ label: string; value: string }> {
+  const completion = profile.completion;
+  const newConversation = profile.newConversation;
+  return [
+    { label: 'Composer', value: profileLocator(profile.composer.locator) },
+    {
+      label: 'Send',
+      value: profile.submit.locator
+        ? `${profile.submit.action}, ${profileLocator(profile.submit.locator)}`
+        : profile.submit.action
+    },
+    { label: 'Response', value: profileLocator(profile.assistantMessages.locator) },
+    { label: 'Generation', value: profileLocator(completion.generatingLocator) },
+    { label: 'Working', value: profileLocator(completion.workingLocator) },
+    { label: 'Idle', value: profileLocator(completion.idleLocator) },
+    {
+      label: 'New conversation',
+      value: newConversation
+        ? newConversation.action === 'navigate'
+          ? `navigate, ${newConversation.url}`
+          : `click, ${profileLocator(newConversation.locator ?? newConversation.locators?.[0])}`
+        : 'not configured'
+    }
+  ];
+}
+
+export function learnResultStatus(input: {
+  readyToSave: boolean;
+  hasNewConversation: boolean;
+  newConversationContextObserved: boolean;
+  validationReason?: string;
+}): string {
+  if (!input.readyToSave)
+    return `Sample captured, but save validation failed. ${input.validationReason ?? 'Review the validation details below.'}`;
+  if (input.newConversationContextObserved)
+    return 'Response captured. New Chat context change observed. Review the capabilities, name the provider, and save it.';
+  if (input.hasNewConversation)
+    return 'Response captured. To confirm a new conversation, click New Chat on the provider page now; then review and save.';
+  return 'Sample captured. Review the capabilities, name the provider, and save it.';
+}
+
 export function debugFingerprint(snapshot: DebugSnapshot): string {
   return JSON.stringify({
     endpoint: {

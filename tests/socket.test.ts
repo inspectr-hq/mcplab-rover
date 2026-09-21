@@ -8,7 +8,8 @@ const mocks = vi.hoisted(() => ({
   resolveOrigin: vi.fn(),
   waitForProviderReady: vi.fn(),
   runQueueItem: vi.fn(),
-  startQueueConversation: vi.fn()
+  startQueueConversation: vi.fn(),
+  cancelActiveQueueItem: vi.fn()
 }));
 
 vi.mock('../src/background/browser', () => ({
@@ -22,7 +23,7 @@ vi.mock('../src/background/store', () => ({
   QUEUE_KEY: 'rover.queue'
 }));
 vi.mock('../src/background/queue-runner', () => ({
-  cancelActiveQueueItem: vi.fn(),
+  cancelActiveQueueItem: mocks.cancelActiveQueueItem,
   failManagedQueue: vi.fn(),
   finalizeManagedQueue: vi.fn(),
   pauseQueue: vi.fn(),
@@ -61,7 +62,7 @@ class FakeWebSocket {
   }
 }
 
-import { connectToMcplab, enableRoverConnection } from '../src/background/socket';
+import { connectToMcplab, disableRoverConnection, enableRoverConnection, updateRoverRegistration } from '../src/background/socket';
 import { createQueue } from '../src/queue/state';
 
 const assignment = {
@@ -75,8 +76,11 @@ const assignment = {
 };
 
 describe('socket assignment lifecycle', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+  beforeEach(async () => {
+    mocks.getQueue.mockResolvedValue(null);
+    await disableRoverConnection();
+    FakeWebSocket.instances = [];
+    vi.resetAllMocks();
     (globalThis as typeof globalThis & { WebSocket: unknown }).WebSocket =
       FakeWebSocket as unknown as typeof WebSocket;
     (globalThis as typeof globalThis & { chrome: unknown }).chrome = {
@@ -89,7 +93,90 @@ describe('socket assignment lifecycle', () => {
     mocks.detectProvider.mockResolvedValue('claude');
     mocks.waitForProviderReady.mockResolvedValue(undefined);
     mocks.startQueueConversation.mockResolvedValue(undefined);
+    mocks.cancelActiveQueueItem.mockResolvedValue(undefined);
     mocks.saveQueue.mockResolvedValue(undefined);
+  });
+
+  it('does not create a socket after the toolbar disables a pending connection', async () => {
+    let releaseTab!: (tab: { id: number; url: string }) => void;
+    mocks.activeTab.mockImplementation(() => new Promise((resolve) => {
+      releaseTab = resolve;
+    }));
+    enableRoverConnection();
+    await vi.waitFor(() => expect(mocks.activeTab).toHaveBeenCalled());
+    await disableRoverConnection();
+    releaseTab({ id: 7, url: 'https://claude.ai/chat/1' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(FakeWebSocket.instances).toHaveLength(0);
+  });
+
+  it('does not continue tab registration after the toolbar disables Rover', async () => {
+    let releaseOrigin!: (origin: string) => void;
+    mocks.resolveOrigin.mockImplementation(() => new Promise((resolve) => {
+      releaseOrigin = resolve;
+    }));
+    enableRoverConnection();
+    const pending = updateRoverRegistration(7);
+    await vi.waitFor(() => expect(mocks.resolveOrigin).toHaveBeenCalled());
+    await disableRoverConnection();
+    releaseOrigin('http://127.0.0.1:8787');
+    await pending;
+    expect(mocks.detectProvider).not.toHaveBeenCalled();
+  });
+
+  it('stops and releases an active leased queue when Rover is disabled', async () => {
+    const socket = await connectedSocket();
+    mocks.getQueue.mockResolvedValue({
+      ...createQueue('http://127.0.0.1:8787', 'claude', true, new Date().toISOString()),
+      queueId: 'job-1',
+      status: 'running',
+      leaseId: 'lease-1',
+      activeItemId: 'item-1'
+    });
+    await disableRoverConnection();
+    expect(mocks.cancelActiveQueueItem).toHaveBeenCalledOnce();
+    expect(mocks.saveQueue).toHaveBeenCalledWith(
+      expect.objectContaining({ queueId: 'job-1', status: 'stopped' })
+    );
+    expect(mocks.saveQueue.mock.calls.at(-1)?.[0]).not.toHaveProperty('leaseId');
+    expect(socket.sent.map((value) => JSON.parse(value).type)).toContain('lease_release');
+    expect(socket.readyState).toBe(3);
+  });
+
+  it('waits for active browser cancellation before releasing its lease', async () => {
+    const socket = await connectedSocket();
+    mocks.getQueue.mockResolvedValue({
+      ...createQueue('http://127.0.0.1:8787', 'claude', true, new Date().toISOString()),
+      queueId: 'job-1', status: 'running', leaseId: 'lease-1', activeItemId: 'item-1'
+    });
+    let finishCancellation!: () => void;
+    mocks.cancelActiveQueueItem.mockImplementation(() => new Promise<void>((resolve) => {
+      finishCancellation = resolve;
+    }));
+    const closing = disableRoverConnection();
+    await vi.waitFor(() => expect(mocks.cancelActiveQueueItem).toHaveBeenCalledOnce());
+    expect(mocks.saveQueue).not.toHaveBeenCalled();
+    expect(socket.sent.map((value) => JSON.parse(value).type)).not.toContain('lease_release');
+    finishCancellation();
+    await closing;
+    expect(mocks.saveQueue).toHaveBeenCalledWith(
+      expect.objectContaining({ queueId: 'job-1', status: 'stopped' })
+    );
+    expect(socket.sent.map((value) => JSON.parse(value).type)).toContain('lease_release');
+  });
+
+  it('still stops and releases the queue if cancellation fails', async () => {
+    const socket = await connectedSocket();
+    mocks.getQueue.mockResolvedValue({
+      ...createQueue('http://127.0.0.1:8787', 'claude', true, new Date().toISOString()),
+      queueId: 'job-1', status: 'running', leaseId: 'lease-1', activeItemId: 'item-1'
+    });
+    mocks.cancelActiveQueueItem.mockRejectedValue(new Error('Tab disappeared'));
+    await disableRoverConnection();
+    expect(mocks.saveQueue).toHaveBeenCalledWith(
+      expect.objectContaining({ queueId: 'job-1', status: 'stopped' })
+    );
+    expect(socket.sent.map((value) => JSON.parse(value).type)).toContain('lease_release');
   });
 
   async function connectedSocket(): Promise<FakeWebSocket> {

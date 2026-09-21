@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { chatgptAdapter } from '../src/providers/chatgpt';
 import { claudeAdapter } from '../src/providers/claude';
 import { createLearnedAdapter } from '../src/providers/learned';
@@ -66,6 +66,17 @@ const testProviderProfile = {
 };
 
 describe('learned provider profile validation', () => {
+  it('rejects an invalid New Chat alternative even when the primary locator is valid', () => {
+    expect(isValidBrowserProviderProfile({
+      ...learnedProfile,
+      newConversation: {
+        action: 'click',
+        locator: { segments: ['[data-testid="new-chat"]'] },
+        locators: [{ segments: [] }]
+      }
+    })).toBe(false);
+  });
+
   it('rejects malformed optional locators instead of treating them as absent', () => {
     expect(
       isValidBrowserProviderProfile({
@@ -167,6 +178,157 @@ describe('Claude adapter', () => {
 });
 
 describe('Learned provider adapter', () => {
+  beforeEach(() => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('does not click an unrelated first button for a broad New Chat locator', async () => {
+    document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><button aria-label="Submit">Submit</button><button title="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div>';
+    const adapter = createLearnedAdapter({
+      ...testProviderProfile,
+      newConversation: {
+        action: 'click',
+        locator: { segments: ['button'] },
+        confirmation: 'context-change'
+      }
+    });
+    for (const button of Array.from(document.querySelectorAll('button')))
+      Object.defineProperty(button, 'getBoundingClientRect', {
+        value: () => ({ width: 10, height: 10 })
+      });
+    let submitClicks = 0;
+    document.querySelector('[aria-label="Submit"]')!.addEventListener('click', () => submitClicks++);
+    document.querySelector('[title="New chat"]')!.addEventListener('click', () => {
+      document.querySelector('[data-test="chat-messages_message"]')!.remove();
+    });
+    await expect(adapter.startNewConversation?.()).resolves.toBeUndefined();
+    expect(submitClicks).toBe(0);
+  });
+
+  it('ignores a hidden generation control the same way Learning does', () => {
+    document.body.innerHTML = `
+      <textarea data-test="ai-agent_input"></textarea>
+      <button aria-label="Submit">Submit</button>
+      <button aria-label="Stop generating" style="display: none">Stop</button>
+    `;
+    Object.defineProperty(document.querySelector('[aria-label="Stop generating"]'), 'getBoundingClientRect', {
+      value: () => ({ width: 10, height: 10 })
+    });
+    const adapter = createLearnedAdapter({
+      ...testProviderProfile,
+      completion: {
+        stabilityMs: 1000,
+        generatingLocator: { segments: ['[aria-label="Stop generating"]'] }
+      }
+    });
+    expect(adapter.getResponseState([])).toMatchObject({ isGenerating: false, isIdle: true });
+  });
+
+  it('reads each assistant turn from its own text locator', () => {
+    document.body.innerHTML = `
+      <div data-test="chat-messages_message" data-message-id="one"><p class="answer">First answer</p></div>
+      <div data-test="chat-messages_message" data-message-id="two"><p class="answer">Second answer</p></div>
+    `;
+    const adapter = createLearnedAdapter({
+      ...testProviderProfile,
+      assistantMessages: {
+        ...testProviderProfile.assistantMessages,
+        textLocator: { segments: ['.answer'] }
+      }
+    });
+    expect(adapter.getAssistantCandidates().map((candidate) => candidate.text)).toEqual([
+      'First answer',
+      'Second answer'
+    ]);
+  });
+
+  it('reports a configured independent working indicator', () => {
+    document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><div data-state="tool-running">Searching</div>';
+    Object.defineProperty(document.querySelector('[data-state="tool-running"]'), 'getBoundingClientRect', {
+      value: () => ({ width: 10, height: 10 })
+    });
+    const adapter = createLearnedAdapter({
+      ...testProviderProfile,
+      completion: {
+        ...testProviderProfile.completion,
+        workingLocator: { segments: ['[data-state="tool-running"]'] }
+      }
+    });
+    expect(adapter.getResponseState([]).isWorking).toBe(true);
+  });
+
+  it('does not confirm a new conversation from an unrelated body mutation', async () => {
+    vi.useFakeTimers();
+    try {
+      document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div>';
+      const adapter = createLearnedAdapter({
+        ...testProviderProfile,
+        newConversation: {
+          action: 'click',
+          locator: { segments: ['button[aria-label="New chat"]'] },
+          confirmation: 'context-change'
+        }
+      });
+      document.querySelector('button')!.addEventListener('click', () => {
+        document.body.append(document.createElement('span'));
+      });
+      const outcome = adapter.startNewConversation!().then(
+        () => 'resolved',
+        (error: Error) => error.message
+      );
+      await vi.advanceTimersByTimeAsync(15_100);
+      expect(await outcome).toContain('new conversation did not become ready');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('confirms a learned click when the previous assistant turn disappears', async () => {
+    document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div>';
+    const adapter = createLearnedAdapter({
+      ...testProviderProfile,
+      newConversation: {
+        action: 'click',
+        locator: { segments: ['button[aria-label="New chat"]'] },
+        confirmation: 'context-change'
+      }
+    });
+    document.querySelector('button')!.addEventListener('click', () => {
+      document.querySelector('[data-test="chat-messages_message"]')!.remove();
+    });
+    await expect(adapter.startNewConversation?.()).resolves.toBeUndefined();
+  });
+
+  it('keeps one assistant turn key stable as its text streams and its DOM node rerenders', () => {
+    document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><div data-test="chat-messages_message" data-message-id="answer-1">Short</div>';
+    const adapter = createLearnedAdapter(testProviderProfile);
+    const firstKey = adapter.getAssistantCandidates()[0].key;
+    document.querySelector('[data-message-id="answer-1"]')!.textContent = 'A longer streamed answer';
+    expect(adapter.getAssistantCandidates()[0].key).toBe(firstKey);
+    document.querySelector('[data-message-id="answer-1"]')!.outerHTML =
+      '<div data-test="chat-messages_message" data-message-id="answer-1">A rerendered answer</div>';
+    expect(adapter.getAssistantCandidates()[0].key).toBe(firstKey);
+  });
+
+  it('does not transfer an assistant turn key to a different node after insertion', () => {
+    document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><div data-test="chat-messages_message">First answer</div><div data-test="chat-messages_message">Second answer</div>';
+    const adapter = createLearnedAdapter(testProviderProfile);
+    const existing = Array.from(document.querySelectorAll('[data-test="chat-messages_message"]'));
+    const before = adapter.getAssistantCandidates().map((candidate) => candidate.key);
+    const earlier = document.createElement('div');
+    earlier.setAttribute('data-test', 'chat-messages_message');
+    earlier.textContent = 'Earlier answer';
+    existing[0].before(earlier);
+    const after = adapter.getAssistantCandidates().map((candidate) => candidate.key);
+    expect(after[1]).toBe(before[0]);
+    expect(after[2]).toBe(before[1]);
+    expect(after[0]).not.toBe(before[0]);
+  });
+
   it('uses the learned composer, Enter submission, and assistant locator', async () => {
     document.body.innerHTML = `
       <div contenteditable="true"></div>

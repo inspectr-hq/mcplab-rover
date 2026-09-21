@@ -1,7 +1,11 @@
 export interface ResponseState {
   text: string;
+  /** Identity of the selected assistant turn, stable across text growth. */
+  turnKey?: string;
   isGenerating: boolean;
   isIdle: boolean;
+  /** Independent positive evidence that provider-side work is continuing. */
+  isWorking?: boolean;
   error?: string | null;
   /** True when the provider has observed an explicit generation transition. */
   generationObserved?: boolean;
@@ -42,6 +46,7 @@ export interface ResponseTrackerOptions {
 export function waitForCompletedResponse(options: ResponseTrackerOptions): Promise<string> {
   const startedAt = Date.now();
   let lastText = '';
+  let lastTurnKey: string | undefined;
   let stableSince: number | null = null;
   let generationObserved = false;
   let responseObserved = false;
@@ -74,16 +79,21 @@ export function waitForCompletedResponse(options: ResponseTrackerOptions): Promi
       }
 
       const text = state.text.trim();
-      if (text !== lastText) {
+      const turnChanged = state.turnKey !== lastTurnKey;
+      lastTurnKey = state.turnKey;
+      if (text !== lastText || turnChanged) {
         lastText = text;
         stableSince = text ? now : null;
       }
+      if (state.isGenerating || state.isWorking || !state.isIdle) stableSince = null;
+      else if (text && stableSince === null) stableSince = now;
       if (
         text &&
         stableSince !== null &&
         now - stableSince >= options.stabilityMs &&
         now - startedAt >= (options.minResponseAgeMs ?? 0) &&
         !state.isGenerating &&
+        !state.isWorking &&
         state.isIdle
       ) {
         if (options.requireGenerationSignal && !generationObserved && !responseObserved) {

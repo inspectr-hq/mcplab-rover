@@ -15,6 +15,7 @@ export interface ChatProviderAdapter {
   startNewConversation?(): Promise<void>;
   getAssistantCandidates(): ResponseCandidate[];
   getResponseState(candidates: ResponseCandidate[]): ResponseState;
+  completionStabilityMs?: number;
   /** Learned providers must prove a generation transition before capture. */
   requiresGenerationSignal?: boolean;
   recordCompletion?: (details: ResponseCompletionDetails) => void;

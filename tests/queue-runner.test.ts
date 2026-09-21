@@ -3,7 +3,14 @@ import { describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   socket: null as { readyState: number; send: ReturnType<typeof vi.fn> } | null,
   saveQueue: vi.fn(),
-  persistLeaseRelease: vi.fn()
+  persistLeaseRelease: vi.fn(),
+  getQueue: vi.fn(),
+  detectProvider: vi.fn()
+}));
+
+vi.mock('../src/background/browser', () => ({
+  activeTab: vi.fn(),
+  detectProvider: mocks.detectProvider
 }));
 
 vi.mock('../src/background/lease-transport', () => ({
@@ -19,11 +26,44 @@ vi.mock('../src/background/lease-transport', () => ({
   },
   persistLeaseRelease: mocks.persistLeaseRelease
 }));
-vi.mock('../src/background/store', () => ({ getQueue: vi.fn(), saveQueue: mocks.saveQueue }));
+vi.mock('../src/background/store', () => ({ getQueue: mocks.getQueue, saveQueue: mocks.saveQueue }));
 
-import { deferQueueItem, finalizeManagedQueue, pauseQueue } from '../src/background/queue-runner';
+import { deferQueueItem, finalizeManagedQueue, pauseQueue, runQueueItem } from '../src/background/queue-runner';
+import { stopQueue } from '../src/queue/state';
 
 describe('server assignment failure handling', () => {
+  it('ignores a delayed queue-item error after the queue was stopped', async () => {
+    vi.clearAllMocks();
+    let rejectProvider!: (error: Error) => void;
+    mocks.detectProvider.mockImplementation(() => new Promise((_, reject) => {
+      rejectProvider = reject;
+    }));
+    const queue = {
+      queueId: 'job-stopped',
+      mode: 'queue' as const,
+      origin: 'http://127.0.0.1:8787',
+      provider: 'claude',
+      tabId: 7,
+      leaseId: 'lease-1',
+      newConversationBetweenItems: true,
+      status: 'running' as const,
+      activeItemId: 'item-1',
+      items: [{
+        queueItemId: 'item-1', testCaseId: 'scenario-1', id: 'scenario-1',
+        name: 'Scenario 1', prompt: 'Hi', assertionCount: 0, status: 'running' as const
+      }],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    mocks.getQueue.mockResolvedValue(stopQueue(queue, new Date().toISOString()));
+    const pending = runQueueItem(queue);
+    await vi.waitFor(() => expect(mocks.detectProvider).toHaveBeenCalledOnce());
+    rejectProvider(new Error('Provider went away after stop'));
+    await pending;
+    expect(mocks.saveQueue).not.toHaveBeenCalled();
+    expect(mocks.persistLeaseRelease).not.toHaveBeenCalled();
+  });
+
   it('persists finalizing before sending a connected terminal completion', async () => {
     (globalThis as typeof globalThis & { WebSocket: unknown }).WebSocket = {
       OPEN: 1

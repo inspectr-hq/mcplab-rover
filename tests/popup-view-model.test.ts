@@ -5,7 +5,9 @@ import {
   filterTestCases,
   formatCheckCounts,
   managedPhaseLabel,
+  learnResultStatus,
   modeVisibility,
+  profileSummary,
   projectQueueForProvider,
   splitQueueItems,
   suggestedProviderName
@@ -17,6 +19,44 @@ const cases = [
 ];
 
 describe('popup view model', () => {
+  it('shows the working locator separately in a learned profile summary', () => {
+    const entries = profileSummary({
+      id: 'copilot',
+      schemaVersion: 1,
+      name: 'Copilot',
+      match: { origins: ['https://copilot.example'] },
+      composer: { locator: { segments: ['textarea'] }, inputMode: 'contenteditable' },
+      submit: { action: 'enter' },
+      assistantMessages: { locator: { segments: ['[data-testid="markdown-reply"]'] } },
+      completion: {
+        generatingLocator: { segments: ['[aria-label="Stop generating"]'] },
+        workingLocator: { segments: ['div[aria-busy="true"]'] },
+        stabilityMs: 2_500
+      },
+      learned: {
+        sourceOrigin: 'https://copilot.example',
+        createdAt: '2026-09-21T00:00:00.000Z',
+        updatedAt: '2026-09-21T00:00:00.000Z',
+        confidence: {}
+      }
+    });
+
+    expect(entries).toContainEqual({ label: 'Working', value: 'div[aria-busy="true"]' });
+  });
+
+  it('guides the next Learning action when New Chat has not been confirmed', () => {
+    expect(learnResultStatus({
+      readyToSave: true,
+      hasNewConversation: true,
+      newConversationContextObserved: false
+    })).toContain('click New Chat');
+    expect(learnResultStatus({
+      readyToSave: true,
+      hasNewConversation: true,
+      newConversationContextObserved: true
+    })).toContain('New Chat context change observed');
+  });
+
   it('labels diagnostic timestamps as checked time', () => {
     expect(debugCheckedLabel('2026-09-10T09:30:00.000Z')).toMatch(/^Last checked /);
   });

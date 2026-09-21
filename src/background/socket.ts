@@ -37,6 +37,8 @@ let registeredTabId: number | undefined;
 let roverReconnectAttempt = 0;
 let roverReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let roverConnectionEnabled = false;
+let roverConnectionEpoch = 0;
+let roverDisablePromise: Promise<void> | null = null;
 let roverHeartbeat: ReturnType<typeof setInterval> | null = null;
 let roverLeaseRenewal: ReturnType<typeof setInterval> | null = null;
 let negotiatedCapabilities: string[] = [];
@@ -250,7 +252,11 @@ export async function loadProfilesIntoTab(tabId: number, origin: string): Promis
 
 export async function connectToMcplab(): Promise<void> {
   if (!roverConnectionEnabled) return;
+  if (roverDisablePromise) await roverDisablePromise;
+  if (!roverConnectionEnabled) return;
+  const epoch = roverConnectionEpoch;
   const origin = await resolveOrigin();
+  if (!roverConnectionEnabled || epoch !== roverConnectionEpoch) return;
   waitingEvaluations = [];
   if (
     roverSocket &&
@@ -258,6 +264,12 @@ export async function connectToMcplab(): Promise<void> {
   )
     return;
   const initialTab = await activeTab();
+  if (!roverConnectionEnabled || epoch !== roverConnectionEpoch) return;
+  if (
+    roverSocket &&
+    (roverSocket.readyState === WebSocket.OPEN || roverSocket.readyState === WebSocket.CONNECTING)
+  )
+    return;
   if (typeof initialTab?.id !== 'number') {
     debugLog('waiting for an active tab before connecting');
     return;
@@ -269,6 +281,7 @@ export async function connectToMcplab(): Promise<void> {
   registeredSocket = null;
   registeredTabId = undefined;
   socket.onopen = async () => {
+    if (!roverConnectionEnabled || epoch !== roverConnectionEpoch || roverSocket !== socket) return;
     roverReconnectAttempt = 0;
     if (roverHeartbeat) clearInterval(roverHeartbeat);
     roverHeartbeat = null;
@@ -278,6 +291,7 @@ export async function connectToMcplab(): Promise<void> {
       await loadProfilesIntoTab(tab.id, origin);
       provider = await detectProvider(tab.id);
     }
+    if (!roverConnectionEnabled || epoch !== roverConnectionEpoch || roverSocket !== socket) return;
     debugLog('provider detection complete', {
       tabId: tab?.id,
       tabOrigin: tab?.url ? new URL(tab.url).origin : undefined,
@@ -310,6 +324,7 @@ export async function connectToMcplab(): Promise<void> {
     }, 20_000);
   };
   socket.onmessage = (event) => {
+    if (!roverConnectionEnabled || epoch !== roverConnectionEpoch || roverSocket !== socket) return;
     try {
       const message = JSON.parse(String(event.data)) as {
         type?: string;
@@ -769,11 +784,15 @@ export async function connectToMcplab(): Promise<void> {
 }
 
 export function enableRoverConnection(): void {
+  if (!roverConnectionEnabled) roverConnectionEpoch += 1;
   roverConnectionEnabled = true;
   void connectToMcplab().catch(() => undefined);
 }
 
-export function disableRoverConnection(): void {
+export function disableRoverConnection(): Promise<void> {
+  if (roverDisablePromise) return roverDisablePromise;
+  if (!roverConnectionEnabled) return Promise.resolve();
+  roverConnectionEpoch += 1;
   roverConnectionEnabled = false;
   roverReconnectAttempt = 0;
   if (roverReconnectTimer) clearTimeout(roverReconnectTimer);
@@ -782,28 +801,62 @@ export function disableRoverConnection(): void {
   roverHeartbeat = null;
   stopLeaseRenewal();
   waitingEvaluations = [];
-  const socket = roverSocket;
-  roverSocket = null;
-  registeredSocket = null;
-  registeredTabId = undefined;
-  if (socket && socket.readyState !== WebSocket.CLOSED) socket.close(1000, 'Rover disabled');
+  roverDisablePromise = (async () => {
+    try {
+      await serializeQueueOperation(async () => {
+        const queue = await getQueue();
+        if (!queue || queue.status !== 'running') return;
+        try {
+          await cancelActiveQueueItem(queue);
+        } catch (error) {
+          debugLog('queue cancellation during disable failed', {
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+        await persistLeaseRelease(stopQueue(queue, new Date().toISOString()), 'stopped');
+      });
+    } catch (error) {
+      debugLog('queue stop during disable failed', {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    } finally {
+      const socket = roverSocket;
+      roverSocket = null;
+      registeredSocket = null;
+      registeredTabId = undefined;
+      if (socket && socket.readyState !== WebSocket.CLOSED)
+        socket.close(1000, 'Rover disabled');
+    }
+  })().finally(() => {
+    roverDisablePromise = null;
+    if (roverConnectionEnabled) void connectToMcplab().catch(() => undefined);
+  });
+  return roverDisablePromise;
 }
 
 export async function updateRoverRegistration(tabId: number): Promise<void> {
   if (!roverConnectionEnabled) return;
+  if (roverDisablePromise) await roverDisablePromise;
+  if (!roverConnectionEnabled) return;
+  const epoch = roverConnectionEpoch;
   const origin = await resolveOrigin();
+  if (!roverConnectionEnabled || epoch !== roverConnectionEpoch) return;
   await detectProvider(tabId);
+  if (!roverConnectionEnabled || epoch !== roverConnectionEpoch) return;
   await loadProfilesIntoTab(tabId, origin);
+  if (!roverConnectionEnabled || epoch !== roverConnectionEpoch) return;
   if (!roverSocket || roverSocket.readyState !== WebSocket.OPEN) {
     void connectToMcplab().catch(() => undefined);
     return;
   }
   const provider = await detectProvider(tabId);
+  if (!roverConnectionEnabled || epoch !== roverConnectionEpoch) return;
   void chrome.runtime
     .sendMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED', provider })
     .catch(() => undefined);
   if (!provider) return;
   const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+  if (!roverConnectionEnabled || epoch !== roverConnectionEpoch) return;
   if (registeredSocket !== roverSocket) {
     roverSocket.send(
       JSON.stringify(

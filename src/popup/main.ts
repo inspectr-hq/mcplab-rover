@@ -5,7 +5,7 @@ import type {
   DebugSnapshot,
   RoverState
 } from '../contracts';
-import type { BrowserProviderProfile, LiveTestCatalogItem } from '../mcplab/types';
+import type { LiveTestCatalogItem } from '../mcplab/types';
 import type { RoverQueueState } from '../queue/state';
 import {
   debugFingerprint,
@@ -13,7 +13,9 @@ import {
   filterTestCases,
   formatCheckCounts,
   managedPhaseLabel,
+  learnResultStatus,
   modeVisibility,
+  profileSummary,
   projectQueueForProvider,
   suggestedProviderName
 } from './view-model';
@@ -1012,38 +1014,6 @@ function renderLearnCapabilities(
   );
 }
 
-function profileLocator(locator: { segments: string[] } | undefined): string {
-  return locator?.segments.at(-1) ?? 'not configured';
-}
-
-function profileSummary(profile: BrowserProviderProfile): Array<{ label: string; value: string }> {
-  const completion = profile.completion;
-  const newConversation = profile.newConversation;
-  return [
-    { label: 'Composer', value: profileLocator(profile.composer.locator) },
-    {
-      label: 'Send',
-      value: profile.submit.locator
-        ? `${profile.submit.action}, ${profileLocator(profile.submit.locator)}`
-        : profile.submit.action
-    },
-    { label: 'Response', value: profileLocator(profile.assistantMessages.locator) },
-    {
-      label: 'Generation',
-      value: profileLocator(completion.generatingLocator)
-    },
-    { label: 'Idle', value: profileLocator(completion.idleLocator) },
-    {
-      label: 'New conversation',
-      value: newConversation
-        ? newConversation.action === 'navigate'
-          ? `navigate, ${newConversation.url}`
-          : `click, ${profileLocator(newConversation.locator ?? newConversation.locators?.[0])}`
-        : 'not configured'
-    }
-  ];
-}
-
 function renderLearnProposal(draft: BrowserProviderDiscoveryDraft): void {
   if (!draft.capturedProfile) {
     learnProposal.replaceChildren();
@@ -1147,12 +1117,15 @@ chrome.runtime.onMessage.addListener((message: { type?: string }) => {
     discoveryDraft = event.draft;
     learnName.value = suggestedProviderName(event.draft.profile);
     void chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: event.draft });
-    learnStart.textContent = 'Start learning again';
+    learnStart.textContent = 'Stop learning';
     learnCapture.hidden = true;
     learnProgress.hidden = true;
-    learnStatus.textContent = event.draft.readyToSave
-      ? 'Sample captured. Review the capabilities, name the provider, and save it.'
-      : `Sample captured, but save validation failed. ${event.draft.validationReasons?.[0] ?? 'Review the validation details below.'}`;
+    learnStatus.textContent = learnResultStatus({
+      readyToSave: event.draft.readyToSave === true,
+      hasNewConversation: Boolean(event.draft.profile.newConversation),
+      newConversationContextObserved: Boolean(event.draft.trace?.newConversationEvidence),
+      validationReason: event.draft.validationReasons?.[0]
+    });
     learnName.hidden = false;
     learnPropose.hidden = !event.draft.trace;
     learnSave.hidden = event.draft.readyToSave !== true;

@@ -17,6 +17,7 @@ export interface BrowserProviderProfile {
   completion: {
     generatingLocator?: ShadowLocator;
     idleLocator?: ShadowLocator;
+    workingLocator?: ShadowLocator;
     stabilityMs: number;
   };
   newConversation?: {
@@ -24,6 +25,8 @@ export interface BrowserProviderProfile {
     locator?: ShadowLocator;
     locators?: ShadowLocator[];
     url?: string;
+    /** New profiles require meaningful context evidence after a click. Absent on saved legacy profiles. */
+    confirmation?: 'context-change';
   };
   learned: {
     sourceOrigin: string;

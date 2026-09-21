@@ -4,6 +4,7 @@ import type { ResponseCandidate } from '../runtime/candidate-selection';
 import { isVisible, setTextValue, textFrom } from './dom';
 import { pageAlertText } from './adapter-helpers';
 import { controlLabel, isGenerationControlLabel } from './control-labels';
+import { stableTurnIdentity } from './turn-identity';
 
 function findFallbackSubmit(includeDisabled = false): HTMLElement | null {
   return (
@@ -53,6 +54,16 @@ function findPath(locator: ShadowLocator, all = false): Element[] {
   return [];
 }
 
+function findTextWithin(candidate: Element, locator: ShadowLocator): Element | null {
+  let roots: Array<Element | ShadowRoot> = [candidate];
+  for (const [index, selector] of locator.segments.entries()) {
+    const matches = roots.flatMap((root) => Array.from(root.querySelectorAll(selector)));
+    if (index === locator.segments.length - 1) return matches[0] ?? null;
+    roots = matches.flatMap((match) => match.shadowRoot ? [match.shadowRoot] : []);
+  }
+  return null;
+}
+
 function newConversationLocators(profile: BrowserProviderProfile): ShadowLocator[] {
   const configured = profile.newConversation;
   if (!configured || configured.action !== 'click') return [];
@@ -78,6 +89,8 @@ function clickableTarget(element: HTMLElement): HTMLElement {
 }
 
 export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProviderAdapter {
+  const anonymousTurnKeys = new WeakMap<Element, string>();
+  let nextAnonymousTurnKey = 0;
   let lastCompletion:
     | {
         generationObserved: boolean;
@@ -89,18 +102,29 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
     | undefined;
   const findComposer = () =>
     (findPath(profile.composer.locator)[0] as HTMLElement | undefined) ?? null;
+  const turnIdentity = (element: Element) => {
+    const stable = stableTurnIdentity(element);
+    if (stable) return { key: `${profile.id}:${stable}`, ephemeralIdentity: false };
+    let key = anonymousTurnKeys.get(element);
+    if (!key) {
+      key = `${profile.id}:anonymous:${++nextAnonymousTurnKey}`;
+      anonymousTurnKeys.set(element, key);
+    }
+    return { key, ephemeralIdentity: true };
+  };
   const candidates = () =>
-    findPath(profile.assistantMessages.locator, true).map((element, index) => ({
-      key: `${profile.id}-${index}-${element.textContent?.length ?? 0}`,
+    findPath(profile.assistantMessages.locator, true).map((element) => ({
+      ...turnIdentity(element),
       text: textFrom(
         profile.assistantMessages.textLocator
-          ? (findPath(profile.assistantMessages.textLocator)[0] ?? element)
+          ? (findTextWithin(element, profile.assistantMessages.textLocator) ?? element)
           : element
       ),
       visible: isVisible(element as HTMLElement)
     }));
   return {
     id: profile.id,
+    completionStabilityMs: profile.completion.stabilityMs,
     requiresGenerationSignal: true,
     recordCompletion: (details) => {
       lastCompletion = details;
@@ -152,10 +176,13 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
             return;
           }
           const button = newConversationLocators(profile)
-            .map((locator) => findPath(locator)[0] as HTMLElement | undefined)
-            .filter((element): element is HTMLElement => Boolean(element))
-            .map(clickableTarget)
-            .find(Boolean);
+            .flatMap((locator) => findPath(locator, true) as HTMLElement[])
+            .filter((element) => isVisible(element))
+            .find((element) => {
+              const target = clickableTarget(element);
+              const label = `${controlLabel(element)} ${controlLabel(target)} ${element.getAttribute('data-test') ?? ''} ${element.getAttribute('data-testid') ?? ''} ${element.getAttribute('trackingtest') ?? ''}`;
+              return /new[\s_-]*(chat|conversation)|new[\s_-]*thread|start[\s_-]*(a[\s_-]*)?new/.test(label);
+            });
           if (!button) throw new Error(`${profile.name} new conversation control was not found`);
           const initialComposer = findComposer();
           const beforeComposer = initialComposer ? composerValue(initialComposer) : '';
@@ -172,7 +199,7 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
             attributes: true,
             characterData: true
           });
-          button.click();
+          clickableTarget(button).click();
           try {
             const deadline = Date.now() + 15_000;
             while (Date.now() < deadline) {
@@ -182,11 +209,15 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
                 (composerStartedWithText && Boolean(composer && !composerValue(composer).trim())) ||
                 messageCount < beforeMessageCount ||
                 location.href !== beforeUrl;
+              const meaningfulContextChange =
+                messageCount < beforeMessageCount || location.href !== beforeUrl;
               const settledMutation = lastMutationAt > 0 && Date.now() - lastMutationAt >= 100;
               if (
                 composer &&
                 !composerValue(composer).trim() &&
-                (changedConversation || settledMutation)
+                (profile.newConversation?.confirmation === 'context-change'
+                  ? meaningfulContextChange
+                  : changedConversation || settledMutation)
               )
                 return;
               await new Promise((resolve) => setTimeout(resolve, 50));
@@ -203,19 +234,27 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
         ? (findPath(profile.submit.locator)[0] as HTMLElement | undefined)
         : findFallbackSubmit(true);
       const generating = profile.completion.generatingLocator
-        ? Boolean(findPath(profile.completion.generatingLocator)[0])
+        ? findPath(profile.completion.generatingLocator, true).some((element) =>
+            isVisible(element as HTMLElement)
+          )
         : Boolean(
             findStopControl() ||
             (submitControl instanceof HTMLButtonElement && submitControl.disabled)
           );
       const idle = profile.completion.idleLocator
-        ? Boolean(findPath(profile.completion.idleLocator)[0])
+        ? findPath(profile.completion.idleLocator, true).some((element) =>
+            isVisible(element as HTMLElement)
+          )
         : !generating && Boolean(submitControl || findComposer());
+      const working = profile.completion.workingLocator
+        ? findPath(profile.completion.workingLocator).some((element) => isVisible(element as HTMLElement))
+        : false;
       const error = pageAlertText();
       return {
         text: items.at(-1)?.text ?? '',
         isGenerating: generating,
         isIdle: idle,
+        isWorking: working,
         generationObserved: generating,
         completionSignal: profile.completion.idleLocator
           ? idle

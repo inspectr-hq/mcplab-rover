@@ -365,6 +365,19 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
     });
     sendStage(queue, item.testCaseId, 'waiting_for_response');
   } catch (error) {
+    const latest = await getQueue();
+    if (
+      !latest ||
+      latest.queueId !== queue.queueId ||
+      latest.status !== 'running' ||
+      latest.activeItemId !== item.queueItemId
+    ) {
+      debugLog('ignored stale queue item error', {
+        queueId: queue.queueId,
+        scenarioId: item.testCaseId
+      });
+      return;
+    }
     if (queue.evaluationRunId && isProviderReadinessError(error)) {
       await deferQueueItem(queue, error);
       return;

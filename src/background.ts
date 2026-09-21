@@ -57,7 +57,7 @@ chrome.action.onClicked.addListener(async (tab) => {
         console.warn('[Rover] toolbar tab registration failed', error)
       );
     } else if (response?.open === false) {
-      disableRoverConnection();
+      await disableRoverConnection();
     }
   } catch (error) {
     console.warn('[Rover] could not show panel in active tab', {

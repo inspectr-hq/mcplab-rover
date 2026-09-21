@@ -103,6 +103,160 @@ const trace = {
 };
 
 describe('provider discovery replay', () => {
+  it('does not validate a learned click New Chat action before context change is observed', () => {
+    const result = replayProviderProfile({
+      ...profile,
+      newConversation: {
+        action: 'click',
+        locator: { segments: ['button[title="New chat"]'] },
+        confirmation: 'context-change'
+      }
+    }, trace);
+    expect(result.reasons).toContain('New Chat context change was not observed during Learning.');
+  });
+
+  it('rejects a New Chat proposal that does not identify the confirmed control', () => {
+    const result = replayProviderProfile(
+      {
+        ...profile,
+        newConversation: { action: 'click', locator: { segments: ['button.unrelated'] } }
+      },
+      {
+        ...trace,
+        newConversationEvidence: {
+          controlLocator: { segments: ['[aria-label="New chat"]'] },
+          controlSelectors: ['[aria-label="New chat"]', 'button'],
+          signal: 'assistant-count-reduced',
+          beforeAssistantCount: 1,
+          afterAssistantCount: 0
+        }
+      }
+    );
+    expect(result.reasons).toContain('New Chat selector does not identify the confirmed control.');
+  });
+
+  it('rejects generation evidence that predates the submitted request', () => {
+    const reordered = [trace.events[0], trace.events[2], trace.events[1], trace.events[3]];
+    const result = replayProviderProfile(profile, {
+      ...trace,
+      evidenceVersion: 1,
+      events: reordered.map((event) =>
+        event.phase === 'generating'
+          ? {
+              ...event,
+              selectedElements: {
+                generating: {
+                  locator: { segments: ['button[aria-label="Send"]'] },
+                  selectors: ['button[aria-label="Send"]'],
+                  visible: true,
+                  textLength: 0
+                }
+              }
+            }
+          : event
+      )
+    });
+    expect(result.reasons).toContain('Generation signal was not observed after submission and before final.');
+  });
+
+  it('does not combine a matching response with a different changed response', () => {
+    const result = replayProviderProfile(profile, {
+      ...trace,
+      evidenceVersion: 1,
+      events: trace.events.map((event) => {
+        if (event.phase === 'final')
+          return {
+            ...event,
+            selectedElements: {
+              assistant: {
+                locator: { segments: ['[data-role="assistant"]'] },
+                selectors: ['[data-role="assistant"]'],
+                visible: true,
+                changedFromBaseline: false,
+                textLength: 20
+              }
+            }
+          };
+        if (event.phase === 'generating')
+          return {
+            ...event,
+            phase: 'candidate' as const,
+            selectedElements: {
+              assistant: {
+                locator: { segments: ['[data-testid="other-answer"]'] },
+                selectors: ['[data-testid="other-answer"]'],
+                visible: true,
+                changedFromBaseline: true,
+                textLength: 20
+              }
+            }
+          };
+        return event;
+      })
+    });
+    expect(result.reasons).toContain('Selected assistant response was not observed changing after submission.');
+  });
+
+  it('does not fall back to snapshot presence when a new trace lacks selected evidence', () => {
+    const result = replayProviderProfile(profile, { ...trace, evidenceVersion: 1 });
+    expect(result.reasons).toContain('Selected assistant evidence is missing from the Learning trace.');
+  });
+
+  it('rejects a broad assistant selector that also matched non-assistant elements', () => {
+    const result = replayProviderProfile(
+      { ...profile, assistantMessages: { locator: { segments: ['div'] } } },
+      {
+        ...trace,
+        events: trace.events.map((event) =>
+          event.phase === 'final'
+            ? {
+                ...event,
+                selectedElements: {
+                  assistant: {
+                    locator: { segments: ['[data-role="assistant"]'] },
+                    selectors: ['[data-role="assistant"]', 'div'],
+                    selectorEvaluations: {
+                      '[data-role="assistant"]': { matchCount: 1, nonAssistantCount: 0 },
+                      div: { matchCount: 4, nonAssistantCount: 3 }
+                    },
+                    visible: true,
+                    changedFromBaseline: true,
+                    textLength: 20
+                  }
+                }
+              }
+            : event
+        )
+      }
+    );
+    expect(result.reasons).toContain('Assistant selector also matched non-assistant elements.');
+  });
+
+  it('validates the selected assistant rather than an unrelated snapshot match', () => {
+    const withSelections = {
+      ...trace,
+      events: trace.events.map((event) =>
+        event.phase === 'final'
+          ? {
+              ...event,
+              selectedElements: {
+                assistant: {
+                  locator: { segments: ['[data-testid="actual-answer"]'] },
+                  selectors: ['[data-testid="actual-answer"]', 'div'],
+                  visible: true,
+                  changedFromBaseline: true,
+                  textLength: 20
+                }
+              }
+            }
+          : event
+      )
+    };
+    const result = replayProviderProfile(profile, withSelections);
+    expect(result.passed).toBe(false);
+    expect(result.reasons).toContain('Assistant selector does not identify the selected response.');
+  });
+
   it('passes a profile whose selectors match the observed lifecycle', () => {
     expect(replayProviderProfile(profile, trace).passed).toBe(true);
   });

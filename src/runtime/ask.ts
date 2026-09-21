@@ -19,7 +19,7 @@ export async function ask(
   await adapter.submit();
   return waitForCompletedResponse({
     pollMs: 100,
-    stabilityMs: adapter.id === 'claude' ? 1500 : 2500,
+    stabilityMs: adapter.completionStabilityMs ?? (adapter.id === 'claude' ? 1500 : 2500),
     minResponseAgeMs: 500,
     requireGenerationSignal: adapter.requiresGenerationSignal === true,
     onComplete: (details) =>
@@ -38,6 +38,7 @@ export async function ask(
       const selected = selectResponseCandidate(baseline, current);
       return {
         ...adapter.getResponseState(selected ? [selected] : []),
+        turnKey: selected?.key,
         responseObserved: Boolean(selected)
       };
     }

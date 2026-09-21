@@ -53,8 +53,21 @@ export function isValidBrowserProviderProfile(value: unknown): value is BrowserP
   if (profile.completion.generatingLocator && !validLocator(profile.completion.generatingLocator))
     return false;
   if (profile.completion.idleLocator && !validLocator(profile.completion.idleLocator)) return false;
+  if (profile.completion.workingLocator && !validLocator(profile.completion.workingLocator))
+    return false;
   if (profile.newConversation) {
     if (!['click', 'navigate'].includes(profile.newConversation.action)) return false;
+    if (
+      profile.newConversation.locators !== undefined &&
+      (!Array.isArray(profile.newConversation.locators) ||
+        !profile.newConversation.locators.every((locator) => validLocator(locator)))
+    )
+      return false;
+    if (
+      profile.newConversation.confirmation !== undefined &&
+      profile.newConversation.confirmation !== 'context-change'
+    )
+      return false;
     if (
       profile.newConversation.action === 'click' &&
       ![profile.newConversation.locator, ...(profile.newConversation.locators ?? [])].some(

@@ -54,7 +54,7 @@ export function selectAssistantCandidate<T extends ChatCandidateDescriptor>(
   );
 }
 
-function hasAssistantMarker(candidate: ChatCandidateDescriptor): boolean {
+export function hasAssistantMarker(candidate: ChatCandidateDescriptor): boolean {
   const identity =
     `${candidate.testId ?? ''} ${candidate.dataTest ?? ''} ${candidate.authorRole ?? ''} ${candidate.ariaLabel ?? ''} ${candidate.className ?? ''}`.toLowerCase();
   return (

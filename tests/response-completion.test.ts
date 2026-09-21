@@ -2,6 +2,83 @@ import { describe, expect, it, vi } from 'vitest';
 import { IncompleteResponseError, waitForCompletedResponse } from '../src/runtime/response-tracker';
 
 describe('waitForCompletedResponse', () => {
+  it('starts a fresh stability window after generation resumes', async () => {
+    vi.useFakeTimers();
+    try {
+      const startedAt = Date.now();
+      let completed = false;
+      const pending = waitForCompletedResponse({
+        read: () => ({
+          text: 'unchanged answer',
+          isGenerating: Date.now() - startedAt >= 20 && Date.now() - startedAt < 40,
+          isIdle: !(Date.now() - startedAt >= 20 && Date.now() - startedAt < 40)
+        }),
+        pollMs: 10,
+        stabilityMs: 30,
+        timeoutMs: 200
+      }).then(() => { completed = true; });
+      await vi.advanceTimersByTimeAsync(60);
+      expect(completed).toBe(false);
+      await vi.advanceTimersByTimeAsync(20);
+      await pending;
+      expect(completed).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not count a tool-working interval as response stability', async () => {
+    vi.useFakeTimers();
+    try {
+      const startedAt = Date.now();
+      let completed = false;
+      const pending = waitForCompletedResponse({
+        read: () => ({
+          text: 'unchanged answer',
+          isGenerating: false,
+          isIdle: true,
+          isWorking: Date.now() - startedAt >= 20 && Date.now() - startedAt < 40
+        }),
+        pollMs: 10,
+        stabilityMs: 30,
+        timeoutMs: 200
+      }).then(() => { completed = true; });
+      await vi.advanceTimersByTimeAsync(60);
+      expect(completed).toBe(false);
+      await vi.advanceTimersByTimeAsync(20);
+      await pending;
+      expect(completed).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('resets stability when the selected assistant turn changes without text changing', async () => {
+    vi.useFakeTimers();
+    try {
+      const startedAt = Date.now();
+      let completed = false;
+      const pending = waitForCompletedResponse({
+        read: () => ({
+          text: 'same answer',
+          turnKey: Date.now() - startedAt < 20 ? 'turn-a' : 'turn-b',
+          isGenerating: false,
+          isIdle: true
+        }),
+        pollMs: 10,
+        stabilityMs: 30,
+        timeoutMs: 200
+      }).then(() => { completed = true; });
+      await vi.advanceTimersByTimeAsync(30);
+      expect(completed).toBe(false);
+      await vi.advanceTimersByTimeAsync(30);
+      await pending;
+      expect(completed).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('waits for stable text and an idle provider before returning', async () => {
     let reads = 0;
     const result = await waitForCompletedResponse({

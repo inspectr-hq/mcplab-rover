@@ -5,9 +5,10 @@ import type {
   BrowserProviderDiscoveryTraceEvent
 } from '../contracts';
 import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
-import { selectAssistantCandidate, type ChatCandidateDescriptor } from './candidate-descriptor';
+import { hasAssistantMarker, scoreAssistantCandidate, selectAssistantCandidate, type ChatCandidateDescriptor } from './candidate-descriptor';
 import { replayProviderProfile } from './discovery-replay';
 import { controlLabel, isGenerationControlLabel } from './control-labels';
+import { stableTurnIdentity } from './turn-identity';
 
 const DISCOVERY_LOG = '[MCPLab Rover][provider-discovery]';
 
@@ -27,24 +28,67 @@ function visible(element: Element): boolean {
   );
 }
 
+function assistantClassSelector(element: Element): string | undefined {
+  const className = Array.from(element.classList).find((value) =>
+    /(?:^|[-_])assistant(?:$|[-_])/i.test(value)
+  );
+  return className ? `.${CSS.escape(className)}` : undefined;
+}
+
+function selectorAttributeValue(element: Element, attribute: string): string | undefined {
+  const value = element.getAttribute(attribute)?.trim();
+  if (!value || /^\[object\s+[^\]]+\]$/i.test(value)) return undefined;
+  return value;
+}
+
 function selector(element: Element): string {
   const html = element as HTMLElement;
+  const authorRole = selectorAttributeValue(html, 'data-message-author-role');
+  if (authorRole)
+    return `[data-message-author-role="${CSS.escape(authorRole)}"]`;
+  const assistantClass = assistantClassSelector(element);
+  if (assistantClass) return assistantClass;
+  for (const attribute of [
+    'data-testid',
+    'data-test',
+    'aria-label',
+    'title',
+    'name'
+  ]) {
+    const value = selectorAttributeValue(html, attribute);
+    if (value) return `[${attribute}="${CSS.escape(value)}"]`;
+  }
+  if (element.getAttribute('role') === 'article') return '[role="article"]';
+  const id = selectorAttributeValue(html, 'id');
+  if (id) return `[id="${CSS.escape(id)}"]`;
+  if (element.tagName === 'TEXTAREA') return 'textarea';
+  if (element.tagName === 'INPUT') return 'input';
+  if (html.isContentEditable) return '[contenteditable="true"]';
+  return element.tagName.toLowerCase();
+}
+
+function selectorCandidates(element: Element): string[] {
+  const result = [selector(element)];
+  const assistantClass = assistantClassSelector(element);
+  if (assistantClass) result.push(assistantClass);
   for (const attribute of [
     'data-message-author-role',
     'data-testid',
     'data-test',
     'aria-label',
+    'title',
     'name',
     'id'
   ]) {
-    const value = html.getAttribute(attribute);
-    if (value?.trim()) return `[${attribute}="${CSS.escape(value)}"]`;
+    const value = selectorAttributeValue(element, attribute);
+    if (value) result.push(`[${attribute}="${CSS.escape(value)}"]`);
   }
-  if (element.getAttribute('role') === 'article') return '[role="article"]';
-  if (element.tagName === 'TEXTAREA') return 'textarea';
-  if (element.tagName === 'INPUT') return 'input';
-  if (html.isContentEditable) return '[contenteditable="true"]';
-  return element.tagName.toLowerCase();
+  if (element.getAttribute('role'))
+    result.push(`[role="${CSS.escape(element.getAttribute('role')!)}"]`);
+  if (element.getAttribute('aria-busy') === 'true')
+    result.push(`${element.tagName.toLowerCase()}[aria-busy="true"]`);
+  result.push(element.tagName.toLowerCase());
+  return [...new Set(result)];
 }
 
 function locator(element: Element): ShadowLocator {
@@ -253,14 +297,25 @@ export function startProviderDiscovery(
   let composer: HTMLElement | null = null;
   let composerSnapshotRecorded = false;
   let submit: HTMLElement | null = null;
+  let submissionTexts: Set<string> | null = null;
+  let submissionElements: WeakSet<Element> | null = null;
+  let submissionTurnIds: Set<string> | null = null;
+  let submissionAssistantCount = 0;
   let assistant: HTMLElement | null = null;
   let submittedAt = 0;
-  let submissionArmed = false;
   let emitted = false;
+  let lastDraftReady = false;
+  let lastDraftSignature = '';
+  let lastDraft: BrowserProviderDiscoveryDraft | null = null;
+  let pendingNewConversation:
+    | { control: HTMLElement; beforeUrl: string; beforeAssistantCount: number }
+    | null = null;
   let stopped = false;
   let observedGeneration = false;
   let observedIdle = false;
   let generatingLocator: ShadowLocator | undefined;
+  let workingLocator: ShadowLocator | undefined;
+  let lastWorkingElement: HTMLElement | null = null;
   let idleControl: HTMLElement | null = null;
   let lastCandidateCount = 0;
   let lastChangedCandidateCount = 0;
@@ -273,7 +328,7 @@ export function startProviderDiscovery(
     if (!onProgress) return;
     const progress: BrowserProviderDiscoveryProgress = {
       composerDetected: Boolean(composer),
-      submitDetected: Boolean(submit) || submissionArmed,
+      submitDetected: Boolean(submit),
       assistantDetected: Boolean(assistant),
       ...(assistant?.innerText?.trim()
         ? { assistantPreview: assistant.innerText.trim().slice(0, 160) }
@@ -287,6 +342,7 @@ export function startProviderDiscovery(
     onProgress(progress);
   };
   const trace: BrowserProviderDiscoveryTrace = {
+    evidenceVersion: 1,
     observedGeneration: false,
     selectorValidation: {
       composer: { valid: false, matchCount: 0, visible: false },
@@ -308,8 +364,82 @@ export function startProviderDiscovery(
     candidateCount: number,
     changedCandidateCount: number,
     controls: ReturnType<typeof controlState>,
-    selected?: ChatCandidateDescriptor
+    selected?: ChatCandidateDescriptor,
+    selectedElement?: HTMLElement | null
   ) => {
+    const evidenceFor = (element: HTMLElement, candidate?: ChatCandidateDescriptor) => {
+      const currentAssistantCount = candidate
+        ? allElements('*').filter((item) => {
+            const value = descriptor(item, baselineTexts);
+            return value.visible && Boolean(value.text.trim()) && hasAssistantMarker(value) &&
+              scoreAssistantCandidate(value) !== Number.NEGATIVE_INFINITY;
+          }).length
+        : 0;
+      const identity = stableTurnIdentity(element);
+      const attributes = {
+        ...(element.getAttribute('role') ? { role: element.getAttribute('role')!.slice(0, 128) } : {}),
+        ...(element.getAttribute('aria-label') ? { ariaLabel: element.getAttribute('aria-label')!.slice(0, 128) } : {}),
+        ...(element.getAttribute('data-testid') ? { testId: element.getAttribute('data-testid')!.slice(0, 128) } : {}),
+        ...(element.getAttribute('data-test') ? { dataTest: element.getAttribute('data-test')!.slice(0, 128) } : {}),
+        ...(element.getAttribute('data-message-author-role') ? { authorRole: element.getAttribute('data-message-author-role')!.slice(0, 128) } : {})
+      };
+      const selectors = selectorCandidates(element);
+      const selectorEvaluations = candidate
+        ? Object.fromEntries(
+            selectors.map((candidateSelector) => {
+              const matches = allElements(candidateSelector);
+              return [
+                candidateSelector,
+                {
+                  matchCount: matches.length,
+                  nonAssistantCount: matches.filter((match) => {
+                    const matchDescriptor = descriptor(match, baselineTexts);
+                    return (
+                      !hasAssistantMarker(matchDescriptor) ||
+                      scoreAssistantCandidate(matchDescriptor) === Number.NEGATIVE_INFINITY
+                    );
+                  }).length
+                }
+              ];
+            })
+          )
+        : undefined;
+      return {
+        locator: locator(element),
+        selectors,
+        ...(selectorEvaluations ? { selectorEvaluations } : {}),
+        visible: visible(element),
+        textLength: (element.innerText ?? element.textContent ?? '').trim().length,
+        ...(Object.keys(attributes).length ? { attributes } : {}),
+        ...(candidate
+          ? {
+              changedFromBaseline: candidate.changed,
+              changedAfterSubmission:
+                submissionTexts !== null && !submissionTexts.has(candidate.text.trim()),
+              absentAtSubmission:
+                submissionElements !== null &&
+                !submissionElements.has(element) &&
+                (identity
+                  ? !submissionTurnIds?.has(identity)
+                  : currentAssistantCount > submissionAssistantCount),
+              candidateScore: scoreAssistantCandidate(candidate)
+            }
+          : {})
+      };
+    };
+    const selectedElements: NonNullable<BrowserProviderDiscoveryTraceEvent['selectedElements']> = {};
+    if ((phase === 'baseline' || phase === 'submitted') && composer)
+      selectedElements.composer = evidenceFor(composer);
+    if (phase === 'submitted' && submit && submit !== composer)
+      selectedElements.submit = evidenceFor(submit);
+    if ((phase === 'candidate' || phase === 'final') && selectedElement)
+      selectedElements.assistant = evidenceFor(selectedElement, selected);
+    if (phase === 'generating' && controls.generatingControl)
+      selectedElements.generating = evidenceFor(controls.generatingControl);
+    if (phase === 'working' && lastWorkingElement)
+      selectedElements.working = evidenceFor(lastWorkingElement);
+    if (phase === 'final' && controls.idleControl)
+      selectedElements.idle = evidenceFor(controls.idleControl);
     trace.events.push({
       phase,
       at: new Date().toISOString(),
@@ -317,6 +447,9 @@ export function startProviderDiscovery(
       changedCandidateCount,
       visibleControlCount: controls.visibleCount,
       disabledControlCount: controls.disabledCount,
+      workingActive:
+        Boolean(lastWorkingElement?.isConnected) &&
+        lastWorkingElement?.getAttribute('aria-busy') === 'true',
       ...(selected
         ? {
             selectedCandidate: {
@@ -327,14 +460,18 @@ export function startProviderDiscovery(
             textHash: shortHash(selected.text)
           }
         : {}),
+      ...(Object.keys(selectedElements).length ? { selectedElements } : {}),
       snapshot: lifecycleSnapshot()
     });
     if (trace.events.length > 32) {
-      const lifecycleEvents = trace.events.filter(
-        (event) => event.phase === 'baseline' || event.phase === 'submitted'
+      const pinnedIndices = new Set(
+        ['baseline', 'submitted', 'generating', 'working']
+          .map((phase) => trace.events.findIndex((event) => event.phase === phase))
+          .filter((index) => index >= 0)
       );
+      const lifecycleEvents = trace.events.filter((_, index) => pinnedIndices.has(index));
       const recentEvents = trace.events
-        .filter((event) => event.phase !== 'baseline' && event.phase !== 'submitted')
+        .filter((_, index) => !pinnedIndices.has(index))
         .slice(-(32 - lifecycleEvents.length));
       trace.events = [...lifecycleEvents, ...recentEvents];
     }
@@ -342,7 +479,52 @@ export function startProviderDiscovery(
   record('baseline', 0, 0, controlState());
   discoveryLog('started', { origin, href: location.href, baselineTextCount: baselineTexts.size });
   const scan = () => {
-    if (stopped || emitted || (!submittedAt && !submissionArmed)) return;
+    if (pendingNewConversation && lastDraft) {
+      const pending = pendingNewConversation;
+      const assistantSelector = lastDraft.profile.assistantMessages.locator.segments.at(-1);
+      const assistantCount = assistantSelector ? allElements(assistantSelector).length : 0;
+      const signal =
+        location.href !== pending.beforeUrl
+          ? 'url-changed'
+          : assistantCount < pending.beforeAssistantCount
+            ? 'assistant-count-reduced'
+            : null;
+      const readyComposer = composer && !(composer instanceof HTMLInputElement || composer instanceof HTMLTextAreaElement
+        ? composer.value.trim()
+        : composer.textContent?.trim());
+      if (signal && readyComposer) {
+        const updatedTrace: BrowserProviderDiscoveryTrace = {
+          ...trace,
+          newConversationEvidence: {
+            controlLocator: locator(pending.control),
+            controlSelectors: selectorCandidates(pending.control),
+            signal,
+            beforeAssistantCount: pending.beforeAssistantCount,
+            afterAssistantCount: assistantCount
+          }
+        };
+        const replay = replayProviderProfile(lastDraft.profile, updatedTrace);
+        lastDraftReady = replay.passed;
+        lastDraft = {
+          ...lastDraft,
+          trace: updatedTrace,
+          readyToSave: replay.passed,
+          validationReasons: replay.reasons,
+          capabilities: lastDraft.capabilities.map((capability) =>
+            capability.id === 'newConversation'
+              ? {
+                  ...capability,
+                  confidence: 'medium',
+                  detail: `New Chat was followed by ${signal === 'url-changed' ? 'a URL change' : 'the previous response disappearing'}. The UI did not expose a conversation identity.`
+                }
+              : capability
+          )
+        };
+        pendingNewConversation = null;
+        onDraft(lastDraft);
+      }
+    }
+    if (stopped || lastDraftReady || !submittedAt) return;
     const candidates = allElements('*')
       .filter(
         (element) =>
@@ -351,7 +533,16 @@ export function startProviderDiscovery(
       .filter((element) => element.children.length === 0 || (element.innerText?.length ?? 0) > 20)
       .map((element) => ({ element, descriptor: descriptor(element, baselineTexts) }));
     const selected = selectAssistantCandidate(candidates.map((candidate) => candidate.descriptor));
+    const selectedElement = selected
+      ? (candidates.find((candidate) => candidate.descriptor === selected)?.element ?? null)
+      : null;
     const controls = controlState();
+    const workingElement = selectedElement?.closest<HTMLElement>('[aria-busy="true"]') ?? null;
+    if (workingElement) {
+      lastWorkingElement = workingElement;
+      workingLocator = withFinalSelector(locator(workingElement), '[aria-busy="true"]');
+      record('working', candidates.length, 0, controls, selected ?? undefined);
+    }
     if (controls.generating) {
       observedGeneration = true;
       trace.observedGeneration = true;
@@ -376,7 +567,7 @@ export function startProviderDiscovery(
     lastChangedCandidateCount = topCandidates.length;
     lastSelected = selected ?? undefined;
     lastControls = controls;
-    const scanSignature = `${candidates.length}:${selected?.testId ?? selected?.tagName ?? 'none'}:${topCandidates.map((candidate) => `${candidate.testId ?? candidate.tag}:${candidate.text}`).join('|')}`;
+    const scanSignature = `${candidates.length}:${selected?.testId ?? selected?.tagName ?? 'none'}:${Boolean(workingElement)}:${topCandidates.map((candidate) => `${candidate.testId ?? candidate.tag}:${candidate.text}`).join('|')}`;
     if (scanSignature !== selectedSignature) {
       selectedSignature = scanSignature;
       selectedStableSince = selected ? Date.now() : null;
@@ -388,11 +579,11 @@ export function startProviderDiscovery(
         candidates.length,
         topCandidates.length,
         controls,
-        selected ?? undefined
+        selected ?? undefined,
+        selectedElement
       );
       discoveryLog('scan', {
         submittedAt: Boolean(submittedAt),
-        submissionArmed,
         candidateCount: candidates.length,
         selected: selected
           ? {
@@ -405,26 +596,46 @@ export function startProviderDiscovery(
         changedCandidates: topCandidates
       });
     }
-    assistant = selected
-      ? (candidates.find((candidate) => candidate.descriptor === selected)?.element ?? null)
-      : null;
+    assistant = selectedElement;
     reportProgress();
     const responseIsReady =
-      !observedGeneration ||
-      (Boolean(controls.idleControl) &&
-        !controls.generating &&
-        selectedStableSince !== null &&
-        Date.now() - selectedStableSince >= 500);
+      !workingElement &&
+      (!observedGeneration && !workingLocator
+        ? true
+        : !observedGeneration && workingLocator
+          ? selectedStableSince !== null && Date.now() - selectedStableSince >= 500
+          :
+        (Boolean(controls.idleControl) &&
+          !controls.generating &&
+          selectedStableSince !== null &&
+          Date.now() - selectedStableSince >= 500));
     if (composer && assistant && responseIsReady) {
-      discoveryLog('response selected, emitting draft', {
-        responseTestId: assistant.getAttribute('data-testid'),
-        responseText: assistant.innerText?.slice(0, 120)
-      });
-      emit();
+      const draftSignature = `${selectedSignature}:${observedGeneration}:${observedIdle}:${generatingLocator?.segments.join('/') ?? ''}:${idleControl ? locator(idleControl).segments.join('/') : ''}`;
+      if (draftSignature !== lastDraftSignature) {
+        lastDraftSignature = draftSignature;
+        discoveryLog('response selected, emitting draft', {
+          responseTestId: assistant.getAttribute('data-testid'),
+          responseText: assistant.innerText?.slice(0, 120)
+        });
+        emit();
+      }
     }
   };
   const observer = new MutationObserver(scan);
   const poller = window.setInterval(scan, 500);
+  const captureSubmissionBaseline = () => {
+    const elements = allElements('*');
+    submissionTexts = new Set(elements.map((element) => element.innerText?.trim() ?? ''));
+    submissionElements = new WeakSet(elements);
+    submissionTurnIds = new Set(
+      elements.map(stableTurnIdentity).filter((identity): identity is string => Boolean(identity))
+    );
+    submissionAssistantCount = elements.filter((element) => {
+      const value = descriptor(element, baselineTexts);
+      return value.visible && Boolean(value.text.trim()) && hasAssistantMarker(value) &&
+        scoreAssistantCandidate(value) !== Number.NEGATIVE_INFINITY;
+    }).length;
+  };
   const onFocus = (event: FocusEvent) => {
     const target = event.target;
     if (
@@ -454,7 +665,6 @@ export function startProviderDiscovery(
         composerSnapshotRecorded = true;
         record('baseline', 0, 0, controlState());
       }
-      submissionArmed = true;
       discoveryLog('composer input observed', {
         tag: target.tagName,
         testId: target.getAttribute('data-testid'),
@@ -468,11 +678,21 @@ export function startProviderDiscovery(
     if (!(target instanceof HTMLElement)) return;
     const control = target.closest('button,[role="button"]') as HTMLElement | null;
     if (control) {
+      if (lastDraft && findNewConversationControls().includes(control)) {
+        const assistantSelector = lastDraft.profile.assistantMessages.locator.segments.at(-1);
+        pendingNewConversation = {
+          control,
+          beforeUrl: location.href,
+          beforeAssistantCount: assistantSelector ? allElements(assistantSelector).length : 0
+        };
+        return;
+      }
       const label =
         `${control.getAttribute('aria-label') ?? ''} ${control.textContent ?? ''} ${control.getAttribute('data-testid') ?? ''}`.toLowerCase();
       if (/send|submit|enter|ask|run/.test(label)) {
         submit = control;
         submittedAt = Date.now();
+        captureSubmissionBaseline();
         record('submitted', 0, 0, controlState());
         discoveryLog('send control observed', {
           tag: control.tagName,
@@ -480,8 +700,7 @@ export function startProviderDiscovery(
           ariaLabel: control.getAttribute('aria-label')
         });
         reportProgress();
-      } else if (composer && !/new\s*(chat|conversation)|new\s*thread/.test(label))
-        submittedAt = Date.now();
+      }
     }
   };
   const onKey = (event: KeyboardEvent) => {
@@ -495,6 +714,7 @@ export function startProviderDiscovery(
         composer = event.target;
       submit = submit ?? composer;
       submittedAt = Date.now();
+      captureSubmissionBaseline();
       record('submitted', 0, 0, controlState());
       discoveryLog('Enter submission observed', {
         composerTag: composer?.tagName,
@@ -505,6 +725,7 @@ export function startProviderDiscovery(
   };
   const onSubmit = () => {
     submittedAt = Date.now();
+    captureSubmissionBaseline();
     record('submitted', 0, 0, controlState());
     reportProgress();
     discoveryLog('form submission observed');
@@ -520,7 +741,8 @@ export function startProviderDiscovery(
         : {
             action: 'click' as const,
             locator: locator(newConversation[0]),
-            locators: newConversation.map((control) => locator(control))
+            locators: newConversation.map((control) => locator(control)),
+            confirmation: 'context-change' as const
           }
       : undefined;
     const profile: BrowserProviderProfile = {
@@ -546,14 +768,13 @@ export function startProviderDiscovery(
         stabilityMs: 2500,
         ...(generatingLocator
           ? { generatingLocator }
-          : submit && submit !== composer
-            ? { generatingLocator: withFinalSelector(locator(submit), ':disabled') }
-            : {}),
+          : {}),
         ...(idleControl
           ? { idleLocator: controlLocator(idleControl, 'idle') }
           : submit && submit !== composer
             ? { idleLocator: withFinalSelector(locator(submit), ':not([disabled])') }
-            : {})
+            : {}),
+        ...(workingLocator ? { workingLocator } : {})
       },
       ...(newConversationProfile ? { newConversation: newConversationProfile } : {}),
       learned: {
@@ -574,9 +795,10 @@ export function startProviderDiscovery(
         : { valid: true, matchCount: 0, visible: true },
       assistant: validateLocator(profile.assistantMessages.locator)
     };
-    record('final', lastCandidateCount, lastChangedCandidateCount, lastControls, lastSelected);
+    record('final', lastCandidateCount, lastChangedCandidateCount, lastControls, lastSelected, assistant);
     const replay = replayProviderProfile(profile, trace);
-    onDraft({
+    lastDraftReady = replay.passed;
+    const draft: BrowserProviderDiscoveryDraft = {
       profile,
       readyToSave: replay.passed,
       validationReasons: replay.reasons,
@@ -607,21 +829,25 @@ export function startProviderDiscovery(
           detail:
             observedGeneration && observedIdle
               ? 'Observed the generation control and its idle transition.'
+              : workingLocator
+                ? 'Observed assistant-scoped activity ending; completion remains inferred from response stability.'
               : observedGeneration
                 ? 'Observed generation, but not the idle transition yet.'
-                : 'No generation signal observed. Runtime will require a later generation transition.'
+                : 'No generation or working transition observed; completion cannot be validated.'
         },
         {
           id: 'newConversation',
           label: 'New conversation',
-          confidence: newConversation.length > 0 ? confidence(newConversation[0]) : 'low',
+          confidence: 'low',
           detail:
             newConversation.length > 0
-              ? `Found ${newConversation.length} possible new chat control${newConversation.length === 1 ? '' : 's'}.`
+              ? `Found ${newConversation.length} possible new chat control${newConversation.length === 1 ? '' : 's'}; opening a new conversation was not yet confirmed.`
               : 'Not available for this provider.'
         }
       ]
-    });
+    };
+    lastDraft = draft;
+    onDraft(draft);
   };
   document.addEventListener('focusin', onFocus, true);
   document.addEventListener('input', onInput, true);
@@ -634,7 +860,7 @@ export function startProviderDiscovery(
       subtree: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ['aria-label', 'title', 'disabled', 'class', 'data-is-streaming']
+      attributeFilter: ['aria-label', 'aria-busy', 'title', 'disabled', 'class', 'data-is-streaming']
     });
   const stop = () => {
     stopped = true;
