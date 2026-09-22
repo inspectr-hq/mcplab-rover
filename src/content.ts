@@ -90,6 +90,7 @@ function togglePanel(expand = false): boolean {
       host.style.transform = '';
     }
     host.classList.toggle('expanded');
+    reportPanelState(host.classList.contains('expanded'));
     notch.title = host.classList.contains('expanded')
       ? 'Collapse MCPLab Rover'
       : 'Open MCPLab Rover';
@@ -114,6 +115,7 @@ function togglePanel(expand = false): boolean {
     notch.title = 'Collapse MCPLab Rover';
     notch.setAttribute('aria-label', notch.title);
   }
+  reportPanelState(expand);
   return true;
 }
 
@@ -121,9 +123,14 @@ function showPanel(): void {
   const existing = document.querySelector<HTMLElement>('[data-mcplab-rover-panel]');
   if (existing) {
     existing.classList.add('expanded');
+    reportPanelState(true);
     return;
   }
   togglePanel(true);
+}
+
+function reportPanelState(expanded: boolean): void {
+  void sendRuntimeMessage({ type: 'ROVER_PANEL_STATE', expanded }).catch(() => undefined);
 }
 
 const panelCleanup = new WeakMap<HTMLElement, () => void>();
@@ -198,6 +205,21 @@ if (runtime.__mcplabRoverInstalled) {
     }
     if (message.type === 'ROVER_TOGGLE_PANEL') {
       sendResponse({ open: togglePanel() });
+      return true;
+    }
+    if (message.type === 'ROVER_ENSURE_PANEL') {
+      if (!document.querySelector<HTMLElement>('[data-mcplab-rover-panel]'))
+        togglePanel(message.expanded === true);
+      sendResponse({ ok: true });
+      return true;
+    }
+    if (message.type === 'ROVER_HIDE_PANEL') {
+      const panel = document.querySelector<HTMLElement>('[data-mcplab-rover-panel]');
+      if (panel) {
+        panelCleanup.get(panel)?.();
+        panel.remove();
+      }
+      sendResponse({ ok: true });
       return true;
     }
     if (message.type === 'ROVER_SHOW_PANEL') {

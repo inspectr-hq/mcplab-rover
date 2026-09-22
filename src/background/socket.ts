@@ -37,6 +37,10 @@ let registeredTabId: number | undefined;
 let roverReconnectAttempt = 0;
 let roverReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let roverConnectionEnabled = false;
+
+export function isRoverConnectionEnabled(): boolean {
+  return roverConnectionEnabled;
+}
 let roverConnectionEpoch = 0;
 let roverDisablePromise: Promise<void> | null = null;
 let roverHeartbeat: ReturnType<typeof setInterval> | null = null;

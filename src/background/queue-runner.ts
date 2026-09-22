@@ -453,12 +453,10 @@ export async function startQueueConversation(queue: RoverQueueState): Promise<vo
     if (profile.newConversation.action === 'navigate') {
       await waitForTabComplete(queue.tabId);
       await waitForProviderReady(queue.tabId);
-      await chrome.tabs.sendMessage(queue.tabId, { type: 'ROVER_SHOW_PANEL' });
     }
     return;
   }
   await chrome.tabs.update(queue.tabId, { url: 'https://claude.ai/new' });
   await waitForTabComplete(queue.tabId);
   await waitForProviderReady(queue.tabId);
-  await chrome.tabs.sendMessage(queue.tabId, { type: 'ROVER_SHOW_PANEL' });
 }

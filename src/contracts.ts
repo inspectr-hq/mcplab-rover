@@ -188,6 +188,9 @@ export type ExtensionMessage =
   | { type: 'ROVER_DETECT' }
   | { type: 'ROVER_DEBUG' }
   | { type: 'ROVER_GET_LEARN_TARGETS' }
+  | { type: 'ROVER_ENSURE_PANEL'; expanded?: boolean }
+  | { type: 'ROVER_HIDE_PANEL' }
+  | { type: 'ROVER_PANEL_STATE'; expanded: boolean }
   | { type: 'ROVER_LEARN_START'; targetProviderId?: string }
   | { type: 'ROVER_LEARN_STOP' }
   | { type: 'ROVER_LEARN_CAPTURE' }

@@ -2,13 +2,54 @@ import { installMessageHandler, syncDebugSubscription } from './background/messa
 import {
   disableRoverConnection,
   enableRoverConnection,
+  isRoverConnectionEnabled,
   updateRoverRegistration
 } from './background/socket';
+import {
+  shouldHidePanelOnTabActivation,
+  shouldRestorePanelExpanded,
+  shouldRestorePanelAfterNavigation
+} from './background/panel-visibility';
 import { debugLog, initializeDebugLogging } from './background/debug-logging';
 
 initializeDebugLogging();
 
+let panelTabId: number | undefined;
+const panelExpandedByTab = new Map<number, boolean>();
+
+async function restorePanelAfterNavigation(tabId: number): Promise<void> {
+  const activeTab = (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
+  if (
+    !shouldRestorePanelAfterNavigation({
+      connectionEnabled: isRoverConnectionEnabled(),
+      panelTabId,
+      activeTabId: activeTab?.id,
+      provider: undefined
+    })
+  )
+    return;
+  const message = {
+    type: 'ROVER_ENSURE_PANEL',
+    expanded: shouldRestorePanelExpanded(panelExpandedByTab.get(tabId))
+  } as const;
+  try {
+    await chrome.tabs.sendMessage(tabId, message);
+  } catch {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+    await chrome.tabs.sendMessage(tabId, message);
+  }
+  debugLog('panel restored after navigation', { tabId, expanded: message.expanded });
+}
+
 chrome.tabs.onActivated.addListener(({ tabId }) => {
+  if (shouldHidePanelOnTabActivation({ panelTabId, activeTabId: tabId })) {
+    const previousPanelTabId = panelTabId;
+    void chrome.tabs
+      .sendMessage(previousPanelTabId!, { type: 'ROVER_HIDE_PANEL' })
+      .catch(() => undefined);
+    panelTabId = undefined;
+    panelExpandedByTab.delete(previousPanelTabId!);
+  }
   void updateRoverRegistration(tabId).catch((error) =>
     console.warn('[Rover] tab activation registration failed', error)
   );
@@ -19,9 +60,17 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'complete') {
-    void updateRoverRegistration(tabId).catch((error) =>
-      console.warn('[Rover] tab update registration failed', error)
-    );
+    void (async () => {
+      try {
+        await updateRoverRegistration(tabId);
+        await restorePanelAfterNavigation(tabId);
+      } catch (error) {
+        debugLog('panel restore skipped after navigation', {
+          tabId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    })();
     void syncDebugSubscription(tabId).catch((error) =>
       console.warn('[Rover] debug subscription sync failed', error)
     );
@@ -30,10 +79,22 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 installMessageHandler();
 
+chrome.runtime.onMessage.addListener((message: { type?: string; expanded?: boolean }, sender) => {
+  if (message.type !== 'ROVER_PANEL_STATE' || typeof sender.tab?.id !== 'number') return;
+  if (panelTabId === sender.tab.id) panelExpandedByTab.set(sender.tab.id, message.expanded === true);
+});
+
 chrome.action.onClicked.addListener(async (tab) => {
   if (typeof tab.id !== 'number') return;
   debugLog('toolbar clicked', { tabId: tab.id, url: tab.url });
   try {
+    if (panelTabId !== undefined && panelTabId !== tab.id) {
+      const previousPanelTabId = panelTabId;
+      await chrome.tabs
+        .sendMessage(previousPanelTabId, { type: 'ROVER_HIDE_PANEL' })
+        .catch(() => undefined);
+      panelTabId = undefined;
+    }
     let response: { open?: boolean } | undefined;
     try {
       response = (await chrome.tabs.sendMessage(tab.id, {
@@ -52,11 +113,15 @@ chrome.action.onClicked.addListener(async (tab) => {
       debugLog('panel shown after content script injection', { tabId: tab.id });
     }
     if (response?.open === true) {
+      panelTabId = tab.id;
+      panelExpandedByTab.set(tab.id, false);
       enableRoverConnection();
       await updateRoverRegistration(tab.id).catch((error) =>
         console.warn('[Rover] toolbar tab registration failed', error)
       );
     } else if (response?.open === false) {
+      if (panelTabId === tab.id) panelTabId = undefined;
+      panelExpandedByTab.delete(tab.id);
       await disableRoverConnection();
     }
   } catch (error) {
