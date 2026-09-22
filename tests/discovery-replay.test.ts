@@ -102,6 +102,50 @@ const trace = {
   ]
 };
 
+const copilotWorkingTrace = {
+  ...trace,
+  events: [
+    ...trace.events.slice(0, 3),
+    {
+      phase: 'working' as const,
+      at: '',
+      candidateCount: 2,
+      changedCandidateCount: 1,
+      visibleControlCount: 1,
+      disabledControlCount: 0,
+      workingActive: true,
+      selectedElements: {
+        working: {
+          locator: { segments: ['[role="article"]'] },
+          selectors: ['[role="article"]', 'div[aria-busy="true"]', 'div'],
+          visible: true,
+          textLength: 20
+        }
+      },
+      snapshot: [
+        {
+          selector: '[role="article"]',
+          tagName: 'DIV',
+          visible: true,
+          disabled: false,
+          textLength: 20
+        }
+      ]
+    },
+    {
+      ...trace.events[3],
+      selectedElements: {
+        working: {
+          locator: { segments: ['[role="article"]'] },
+          selectors: ['[role="article"]', 'div[aria-busy="false"]', 'div'],
+          visible: true,
+          textLength: 20
+        }
+      }
+    }
+  ]
+};
+
 describe('provider discovery replay', () => {
   it('does not validate a learned click New Chat action before context change is observed', () => {
     const result = replayProviderProfile({
@@ -284,5 +328,35 @@ describe('provider discovery replay', () => {
       trace
     );
     expect(result).toEqual({ passed: true, reasons: [] });
+  });
+
+  it('accepts a transient compound working selector observed in the trace', () => {
+    const result = replayProviderProfile(
+      {
+        ...profile,
+        completion: {
+          ...profile.completion,
+          workingLocator: { segments: ['[role="article"][aria-busy="true"]'] }
+        }
+      },
+      copilotWorkingTrace
+    );
+    expect(result).toEqual({ passed: true, reasons: [] });
+  });
+
+  it('rejects a persistent response container as the working selector', () => {
+    const result = replayProviderProfile(
+      {
+        ...profile,
+        completion: {
+          ...profile.completion,
+          workingLocator: { segments: ['[role="article"]'] }
+        }
+      },
+      copilotWorkingTrace
+    );
+    expect(result.reasons).toContain(
+      'Working selector remains active in the final state.'
+    );
   });
 });

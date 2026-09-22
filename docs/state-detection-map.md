@@ -113,4 +113,4 @@ The generated profile contains selectors and completion/New Chat strategies, not
 
 MCPLab sanitizes the richer trace for Judge AI, retaining selected elements, selector evaluations, activity flags, and New Chat context evidence while excluding raw response text. MCPLab also preserves `workingLocator`, alternate New Chat locators, and click confirmation through validation and YAML persistence. Existing schema-version-1 profiles without these optional fields remain readable. The Judge sees evidence and may propose changes; Rover's browser replay remains the final pre-save check.
 
-Source: `src/providers/provider-discovery.ts`, `src/providers/candidate-descriptor.ts`, `src/providers/discovery-replay.ts`, `src/providers/learned.ts`, `src/providers/turn-identity.ts`, `src/runtime/candidate-selection.ts`, `src/runtime/response-tracker.ts`, and `src/runtime/ask.ts`.
+Source: `src/providers/provider-discovery.ts`, `src/providers/candidate-descriptor.ts`, `src/providers/discovery-replay.ts`, `src/providers/mcplab.ts`, `src/providers/turn-identity.ts`, `src/runtime/candidate-selection.ts`, `src/runtime/response-tracker.ts`, and `src/runtime/ask.ts`.

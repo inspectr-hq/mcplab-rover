@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startProviderDiscovery } from '../src/providers/provider-discovery';
-import { createLearnedAdapter } from '../src/providers/learned';
+import { createLearnedAdapter } from '../src/providers/mcplab';
 import { ask } from '../src/runtime/ask';
 
 describe('provider discovery recovery', () => {

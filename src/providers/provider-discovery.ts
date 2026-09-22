@@ -379,6 +379,7 @@ export function startProviderDiscovery(
       const attributes = {
         ...(element.getAttribute('role') ? { role: element.getAttribute('role')!.slice(0, 128) } : {}),
         ...(element.getAttribute('aria-label') ? { ariaLabel: element.getAttribute('aria-label')!.slice(0, 128) } : {}),
+        ...(element.getAttribute('aria-busy') ? { ariaBusy: element.getAttribute('aria-busy')!.slice(0, 128) } : {}),
         ...(element.getAttribute('data-testid') ? { testId: element.getAttribute('data-testid')!.slice(0, 128) } : {}),
         ...(element.getAttribute('data-test') ? { dataTest: element.getAttribute('data-test')!.slice(0, 128) } : {}),
         ...(element.getAttribute('data-message-author-role') ? { authorRole: element.getAttribute('data-message-author-role')!.slice(0, 128) } : {})
@@ -436,7 +437,7 @@ export function startProviderDiscovery(
       selectedElements.assistant = evidenceFor(selectedElement, selected);
     if (phase === 'generating' && controls.generatingControl)
       selectedElements.generating = evidenceFor(controls.generatingControl);
-    if (phase === 'working' && lastWorkingElement)
+    if ((phase === 'working' || phase === 'final') && lastWorkingElement?.isConnected)
       selectedElements.working = evidenceFor(lastWorkingElement);
     if (phase === 'final' && controls.idleControl)
       selectedElements.idle = evidenceFor(controls.idleControl);

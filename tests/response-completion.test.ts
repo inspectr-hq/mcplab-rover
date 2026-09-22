@@ -184,6 +184,7 @@ describe('waitForCompletedResponse', () => {
 
   it('accepts stable text after a generation transition', async () => {
     let reads = 0;
+    let completion: { state?: string; history?: unknown[] } | undefined;
     await expect(
       waitForCompletedResponse({
         read: () => {
@@ -197,9 +198,14 @@ describe('waitForCompletedResponse', () => {
         pollMs: 1,
         stabilityMs: 3,
         timeoutMs: 100,
-        requireGenerationSignal: true
+        requireGenerationSignal: true,
+        onComplete: (details) => {
+          completion = details;
+        }
       })
     ).resolves.toBe('final text');
+    expect(completion?.state).toBe('finished');
+    expect(completion?.history).toEqual(expect.any(Array));
   });
 
   it('accepts a stable changed response when no generation control is available', async () => {
@@ -218,5 +224,28 @@ describe('waitForCompletedResponse', () => {
         requireGenerationSignal: true
       })
     ).resolves.toBe('final text');
+  });
+
+  it('honors named blocking evidence even when legacy booleans are idle', async () => {
+    vi.useFakeTimers();
+    try {
+      const promise = waitForCompletedResponse({
+        read: () => ({
+          text: 'tool result',
+          isGenerating: false,
+          isWorking: false,
+          isIdle: true,
+          signals: { working_visible: true }
+        }),
+        pollMs: 10,
+        stabilityMs: 20,
+        timeoutMs: 50
+      });
+      const rejection = expect(promise).rejects.toThrow('Timed out');
+      await vi.advanceTimersByTimeAsync(51);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

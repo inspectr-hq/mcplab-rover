@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { chatgptAdapter } from '../src/providers/chatgpt';
 import { claudeAdapter } from '../src/providers/claude';
-import { createLearnedAdapter } from '../src/providers/learned';
+import { createLearnedAdapter } from '../src/providers/mcplab';
 import {
   adapters,
   findAdapter,
@@ -109,7 +109,12 @@ describe('ChatGPT adapter', () => {
     expect(chatgptAdapter.getAssistantCandidates()[0]?.text).toContain('ChatGPT answer');
     expect(chatgptAdapter.getResponseState(chatgptAdapter.getAssistantCandidates())).toMatchObject({
       isGenerating: false,
-      isIdle: true
+      isIdle: true,
+      signals: {
+        idle_visible: true,
+        input_enabled: true,
+        response_present: true
+      }
     });
   });
 
@@ -175,6 +180,10 @@ describe('Claude adapter', () => {
     expect(state.isGenerating).toBe(false);
     expect(state.isIdle).toBe(true);
     expect(state.text).toContain('Claude answer');
+    expect(state.signals).toMatchObject({
+      idle_visible: true,
+      response_present: true
+    });
   });
 });
 
@@ -247,6 +256,22 @@ describe('Learned provider adapter', () => {
     expect(adapter.getResponseState([])).toMatchObject({ isGenerating: false, isIdle: true });
   });
 
+  it('does not let an enabled composer override a configured idle locator', () => {
+    document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea>';
+    const adapter = createLearnedAdapter({
+      ...testProviderProfile,
+      completion: {
+        ...testProviderProfile.completion,
+        idleLocator: { segments: ['[data-state="ready"]'] }
+      }
+    });
+
+    expect(adapter.getResponseState([])).toMatchObject({
+      isGenerating: false,
+      isIdle: false
+    });
+  });
+
   it('reads each assistant turn from its own text locator', () => {
     document.body.innerHTML = `
       <div data-test="chat-messages_message" data-message-id="one"><p class="answer">First answer</p></div>
@@ -277,7 +302,10 @@ describe('Learned provider adapter', () => {
         workingLocator: { segments: ['[data-state="tool-running"]'] }
       }
     });
-    expect(adapter.getResponseState([]).isWorking).toBe(true);
+    expect(adapter.getResponseState([])).toMatchObject({
+      isWorking: true,
+      signals: { working_visible: true }
+    });
   });
 
   it('does not confirm a new conversation from an unrelated body mutation', async () => {

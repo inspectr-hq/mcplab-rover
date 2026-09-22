@@ -2,6 +2,7 @@ import type { ProviderId } from '../contracts';
 import type { DebugElementCheck } from '../contracts';
 import type { ResponseCandidate } from '../runtime/candidate-selection';
 import type { ResponseCompletionDetails, ResponseState } from '../runtime/response-tracker';
+import type { ProviderSignalEvaluator } from '../runtime/provider-state-engine';
 
 export interface ChatProviderAdapter {
   id: ProviderId;
@@ -15,6 +16,7 @@ export interface ChatProviderAdapter {
   startNewConversation?(): Promise<void>;
   getAssistantCandidates(): ResponseCandidate[];
   getResponseState(candidates: ResponseCandidate[]): ResponseState;
+  signalEvaluator?: ProviderSignalEvaluator;
   completionStabilityMs?: number;
   /** Learned providers must prove a generation transition before capture. */
   requiresGenerationSignal?: boolean;

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createLearnedAdapter } from '../src/providers/learned';
+import { createLearnedAdapter } from '../src/providers/mcplab';
 import { ask } from '../src/runtime/ask';
 
 describe('learned provider execution', () => {

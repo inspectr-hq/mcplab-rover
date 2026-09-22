@@ -1,6 +1,8 @@
 import type { ChatProviderAdapter } from './types';
 import { isVisible, setTextValue, textFrom } from './dom';
 import { debugCheck, first, pageAlertText } from './adapter-helpers';
+import { observationFromCandidates, responseStateFromObservation } from '../runtime/provider-signals';
+import type { ProviderSignalEvaluator } from '../runtime/provider-state-engine';
 
 const composerSelectors = ['[aria-label="Chat with ChatGPT"]', '[contenteditable="true"]'];
 const assistantSelector =
@@ -11,10 +13,34 @@ const newConversationSelectors = [
   'button[aria-label*="New conversation"]'
 ];
 
+const chatgptSignalEvaluator: ProviderSignalEvaluator = {
+  evaluate: (candidates, observedAt) => {
+    const stopVisible = Boolean(
+      document.querySelector('button[aria-label*="Stop"], [data-testid="stop-button"]')
+    );
+    const inputEnabled = Boolean(first<HTMLElement>(composerSelectors));
+    const error = pageAlertText();
+    return observationFromCandidates(
+      candidates,
+      {
+        generation_active: stopVisible,
+        stop_visible: stopVisible,
+        idle_visible: !stopVisible,
+        input_enabled: inputEnabled,
+        error_visible: Boolean(error)
+      },
+      error,
+      stopVisible ? 'stop-control' : 'idle-control',
+      observedAt
+    );
+  }
+};
+
 export const chatgptAdapter: ChatProviderAdapter = {
   id: 'chatgpt-com',
   matchesPage: () => location.hostname === 'chatgpt.com' || location.hostname === 'chat.openai.com',
   canHandle: () => Boolean(first<HTMLElement>(composerSelectors)),
+  signalEvaluator: chatgptSignalEvaluator,
   getDebugChecks: () => [
     debugCheck('composer', 'Composer', composerSelectors),
     {
@@ -63,11 +89,6 @@ export const chatgptAdapter: ChatProviderAdapter = {
       text: textFrom(element),
       visible: isVisible(element)
     })),
-  getResponseState: (candidates) => {
-    const isGenerating = Boolean(
-      document.querySelector('button[aria-label*="Stop"], [data-testid="stop-button"]')
-    );
-    const error = pageAlertText();
-    return { text: candidates.at(-1)?.text ?? '', isGenerating, isIdle: !isGenerating, error };
-  }
+  getResponseState: (candidates) =>
+    responseStateFromObservation(chatgptSignalEvaluator.evaluate(candidates, Date.now()))
 };

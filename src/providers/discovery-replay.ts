@@ -17,6 +17,20 @@ function matchesSelector(selector: string | undefined, candidate: string): boole
   );
 }
 
+function matchesObservedSelector(
+  profileSelector: string,
+  selected: NonNullable<SelectionRole[keyof SelectionRole]>
+): boolean {
+  if (selected.selectors.some((candidate) => matchesSelector(profileSelector, candidate))) return true;
+  const attributes = profileSelector.match(/\[[^\]]+\]/g) ?? [];
+  if (attributes.length < 2) return false;
+  return attributes.every((attribute) =>
+    selected.selectors.some((candidate) =>
+      matchesSelector(attribute, candidate) || candidate.includes(attribute)
+    )
+  );
+}
+
 function matchesGeneratingState(
   selector: string | undefined,
   node: { selector: string; disabled: boolean }
@@ -52,7 +66,7 @@ function matchesSelectedLocator(
   if (segments.slice(0, -1).some((segment, index) => segment !== selectedSegments[index]))
     return false;
   const last = segments.at(-1)!;
-  return selected.selectors.some((candidate) => matchesSelector(last, candidate));
+  return matchesObservedSelector(last, selected);
 }
 
 export function replayProviderProfile(
@@ -130,6 +144,7 @@ export function replayProviderProfile(
   const generating = lastSelector(profile.completion.generatingLocator);
   const submittedIndex = events.findIndex((event) => event.phase === 'submitted');
   const workingSelections = selectedEvidence(events, 'working', ['working']);
+  const finalWorkingSelections = selectedEvidence(events, 'working', ['final']);
   const finalIndex = events.map((event) => event.phase).lastIndexOf('final');
   const observedWorkingEnd =
     finalIndex >= 0 &&
@@ -165,6 +180,12 @@ export function replayProviderProfile(
       )
     )
       reasons.push('Working selector does not identify an observed working indicator.');
+    if (
+      finalWorkingSelections.some(({ element }) =>
+        matchesSelectedLocator(profile.completion.workingLocator, element)
+      )
+    )
+      reasons.push('Working selector remains active in the final state.');
   }
   if (!idle) {
     const generatingStillPresent = snapshots('final').some((node) =>

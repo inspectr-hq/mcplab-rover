@@ -5,6 +5,8 @@ import { isVisible, setTextValue, textFrom } from './dom';
 import { pageAlertText } from './adapter-helpers';
 import { controlLabel, isGenerationControlLabel } from './control-labels';
 import { stableTurnIdentity } from './turn-identity';
+import { observationFromCandidates, responseStateFromObservation } from '../runtime/provider-signals';
+import type { ProviderSignalEvaluator } from '../runtime/provider-state-engine';
 
 function findFallbackSubmit(includeDisabled = false): HTMLElement | null {
   return (
@@ -122,10 +124,63 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
       ),
       visible: isVisible(element as HTMLElement)
     }));
+  const signalEvaluator: ProviderSignalEvaluator = {
+    evaluate: (items, observedAt) => {
+      const submitControl = profile.submit.locator
+        ? (findPath(profile.submit.locator)[0] as HTMLElement | undefined)
+        : findFallbackSubmit(true);
+      const stopControl = findStopControl();
+      const generating = profile.completion.generatingLocator
+        ? findPath(profile.completion.generatingLocator, true).some((element) =>
+            isVisible(element as HTMLElement)
+          )
+        : Boolean(
+            stopControl ||
+            (submitControl instanceof HTMLButtonElement && submitControl.disabled)
+          );
+      const idle = profile.completion.idleLocator
+        ? findPath(profile.completion.idleLocator, true).some((element) =>
+            isVisible(element as HTMLElement)
+          )
+        : !generating && Boolean(submitControl || findComposer());
+      const working = profile.completion.workingLocator
+        ? findPath(profile.completion.workingLocator).some((element) =>
+            isVisible(element as HTMLElement)
+          )
+        : false;
+      const error = pageAlertText();
+      return observationFromCandidates(
+        items,
+        {
+          generation_active: generating,
+          stop_visible: Boolean(stopControl),
+          working_visible: working,
+          assistant_busy: working,
+          idle_visible: idle,
+          input_enabled: Boolean(findComposer()),
+          error_visible: Boolean(error)
+        },
+        error,
+        profile.completion.idleLocator
+          ? idle
+            ? 'idle-locator'
+            : generating
+              ? 'generating-locator'
+              : undefined
+          : generating
+            ? 'generation-control'
+            : idle
+              ? 'fallback-idle'
+              : undefined,
+        observedAt
+      );
+    }
+  };
   return {
     id: profile.id,
     completionStabilityMs: profile.completion.stabilityMs,
     requiresGenerationSignal: true,
+    signalEvaluator,
     recordCompletion: (details) => {
       lastCompletion = details;
     },
@@ -229,47 +284,8 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
         }
       : undefined,
     getAssistantCandidates: candidates,
-    getResponseState: (items: ResponseCandidate[]) => {
-      const submitControl = profile.submit.locator
-        ? (findPath(profile.submit.locator)[0] as HTMLElement | undefined)
-        : findFallbackSubmit(true);
-      const generating = profile.completion.generatingLocator
-        ? findPath(profile.completion.generatingLocator, true).some((element) =>
-            isVisible(element as HTMLElement)
-          )
-        : Boolean(
-            findStopControl() ||
-            (submitControl instanceof HTMLButtonElement && submitControl.disabled)
-          );
-      const idle = profile.completion.idleLocator
-        ? findPath(profile.completion.idleLocator, true).some((element) =>
-            isVisible(element as HTMLElement)
-          )
-        : !generating && Boolean(submitControl || findComposer());
-      const working = profile.completion.workingLocator
-        ? findPath(profile.completion.workingLocator).some((element) => isVisible(element as HTMLElement))
-        : false;
-      const error = pageAlertText();
-      return {
-        text: items.at(-1)?.text ?? '',
-        isGenerating: generating,
-        isIdle: idle,
-        isWorking: working,
-        generationObserved: generating,
-        completionSignal: profile.completion.idleLocator
-          ? idle
-            ? 'idle-locator'
-            : generating
-              ? 'generating-locator'
-              : undefined
-          : generating
-            ? 'generation-control'
-            : idle
-              ? 'fallback-idle'
-              : undefined,
-        error
-      };
-    },
+    getResponseState: (items: ResponseCandidate[]) =>
+      responseStateFromObservation(signalEvaluator.evaluate(items, Date.now())),
     getDebugChecks: () => [
       {
         id: 'composer',

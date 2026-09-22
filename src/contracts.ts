@@ -44,6 +44,7 @@ export interface BrowserProviderDiscoveryTraceEvent {
         attributes?: {
           role?: string;
           ariaLabel?: string;
+          ariaBusy?: string;
           testId?: string;
           dataTest?: string;
           authorRole?: string;

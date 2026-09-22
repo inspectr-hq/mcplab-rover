@@ -2,7 +2,7 @@ import type { ProviderId } from '../contracts';
 import type { ChatProviderAdapter } from './types';
 import { claudeAdapter } from './claude';
 import { chatgptAdapter } from './chatgpt';
-import { createLearnedAdapter } from './learned';
+import { createLearnedAdapter } from './mcplab';
 import { isValidBrowserProviderProfile } from './profile-validation';
 export { BUILT_IN_PROVIDER_IDS, isBuiltInProvider } from './catalog';
 
