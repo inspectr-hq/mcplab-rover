@@ -45,6 +45,7 @@ let roverConnectionEpoch = 0;
 let roverDisablePromise: Promise<void> | null = null;
 let roverHeartbeat: ReturnType<typeof setInterval> | null = null;
 let roverLeaseRenewal: ReturnType<typeof setInterval> | null = null;
+let leaseRenewalGeneration = 0;
 let negotiatedCapabilities: string[] = [];
 let lastLeaseRenewalAt: string | undefined;
 let lastAssignmentDecision: { decision: string; reason?: string; at: string } | undefined;
@@ -52,6 +53,7 @@ let waitingEvaluations: WaitingEvaluation[] = [];
 const loadedProviders = new Map<string, import('../mcplab/types').BrowserProviderProfile>();
 
 function stopLeaseRenewal(): void {
+  leaseRenewalGeneration += 1;
   if (roverLeaseRenewal) clearInterval(roverLeaseRenewal);
   roverLeaseRenewal = null;
 }
@@ -67,11 +69,16 @@ configureLeaseTransport({
 export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
   stopLeaseRenewal();
   if (!queue.leaseId) return;
+  const generation = leaseRenewalGeneration;
+  const leaseId = queue.leaseId;
+  const jobId = queue.queueId;
   roverLeaseRenewal = setInterval(() => {
-    void serializeQueueOperation(async () => {
+    void (async () => {
       const latest = await getQueue();
+      if (generation !== leaseRenewalGeneration) return;
       if (
-        !latest?.leaseId ||
+        latest?.leaseId !== leaseId ||
+        latest.queueId !== jobId ||
         latest.status !== 'running' ||
         !roverSocket ||
         roverSocket.readyState !== WebSocket.OPEN
@@ -83,16 +90,18 @@ export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
       roverSocket.send(
         JSON.stringify({
           type: 'lease_renew',
-          jobId: latest.queueId,
-          leaseId: latest.leaseId,
+          jobId,
+          leaseId,
           leaseExpiresAt
         })
       );
       lastLeaseRenewalAt = new Date().toISOString();
-      await saveQueue(
-        transitionManagedLease(latest, { type: 'renewed', leaseId: latest.leaseId, leaseExpiresAt })
-      );
-    }).catch((error) =>
+      await serializeQueueOperation(async () => {
+        const current = await getQueue();
+        if (current?.queueId !== jobId || current.leaseId !== leaseId) return;
+        await saveQueue(transitionManagedLease(current, { type: 'renewed', leaseId, leaseExpiresAt }));
+      });
+    })().catch((error) =>
       debugLog('lease renewal failed', {
         error: error instanceof Error ? error.message : String(error)
       })

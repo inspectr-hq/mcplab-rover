@@ -1,8 +1,9 @@
 import type { ChatProviderAdapter } from './types';
 import { isVisible, textFrom } from './dom';
 import { debugCheck, first, pageAlertText } from './adapter-helpers';
-import { observationFromCandidates, responseStateFromObservation } from '../runtime/provider-signals';
+import { observationFromCandidates } from '../runtime/provider-signals';
 import type { ProviderSignalEvaluator } from '../runtime/provider-state-engine';
+import { stableTurnIdentity } from './turn-identity';
 
 const composerSelectors = ['div[contenteditable="true"].ProseMirror', '[contenteditable="true"]'];
 const submitSelectors = [
@@ -17,6 +18,19 @@ const assistantSelectors = [
   '[data-testid="assistant-message"]',
   '[data-testid="message-content"]'
 ];
+const anonymousTurnKeys = new WeakMap<Element, string>();
+let nextAnonymousTurnKey = 0;
+
+function turnIdentity(element: Element): { key: string; ephemeralIdentity: boolean } {
+  const stable = stableTurnIdentity(element);
+  if (stable) return { key: `claude:${stable}`, ephemeralIdentity: false };
+  let key = anonymousTurnKeys.get(element);
+  if (!key) {
+    key = `claude:anonymous:${++nextAnonymousTurnKey}`;
+    anonymousTurnKeys.set(element, key);
+  }
+  return { key, ephemeralIdentity: true };
+}
 
 async function waitForEnabledButton(timeoutMs = 3000): Promise<HTMLButtonElement> {
   const startedAt = Date.now();
@@ -97,12 +111,10 @@ export const claudeAdapter: ChatProviderAdapter = {
     const elements = Array.from(
       document.querySelectorAll<HTMLElement>(assistantSelectors.join(','))
     );
-    return elements.map((element, index) => ({
-      key: element.dataset.messageId || element.dataset.testid || `claude-${index}`,
+    return elements.map((element) => ({
+      ...turnIdentity(element),
       text: textFrom(element),
       visible: isVisible(element)
     }));
   },
-  getResponseState: (candidates) =>
-    responseStateFromObservation(claudeSignalEvaluator.evaluate(candidates, Date.now()))
 };

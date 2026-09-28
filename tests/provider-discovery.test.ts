@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startProviderDiscovery } from '../src/providers/provider-discovery';
-import { createLearnedAdapter } from '../src/providers/mcplab';
+import { createMcplabAdapter } from '../src/providers/mcplab';
 import { ask } from '../src/runtime/ask';
 
 describe('provider discovery recovery', () => {
@@ -390,7 +390,7 @@ describe('provider discovery recovery', () => {
     expect(drafts).toHaveLength(1);
     expect(drafts[0].readyToSave).toBe(true);
 
-    const adapter = createLearnedAdapter(drafts[0].profile);
+    const adapter = createMcplabAdapter(drafts[0].profile);
     const result = await ask(adapter, 'Second request');
     expect(requestCount).toBe(2);
     expect(result).toBe('Final answer 2');
@@ -435,7 +435,7 @@ describe('provider discovery recovery', () => {
     send.click();
     await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
     session.stop();
-    const adapter = createLearnedAdapter(drafts.at(-1).profile);
+    const adapter = createMcplabAdapter(drafts.at(-1).profile);
     expect(await ask(adapter, 'Second request')).toBe('Final custom response 2');
   });
 
@@ -472,7 +472,7 @@ describe('provider discovery recovery', () => {
     await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
     session.stop();
     expect(drafts.at(-1).profile.assistantMessages.locator.segments.at(-1)).toBe('[role="article"]');
-    expect(await ask(createLearnedAdapter(drafts.at(-1).profile), 'Second request')).toBe(
+    expect(await ask(createMcplabAdapter(drafts.at(-1).profile), 'Second request')).toBe(
       'Assistant answer for request 2'
     );
   });

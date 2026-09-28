@@ -72,6 +72,24 @@ describe('ProviderStateEngine', () => {
     ).toBe('finished');
   });
 
+  it('records historical latch evidence once instead of once per poll', () => {
+    const engine = new ProviderStateEngine({
+      quietPeriodMs: 20,
+      minResponseAgeMs: 0,
+      timeoutMs: 1_000,
+      requireGenerationSignal: false
+    }, 0);
+    engine.markSubmitted(0);
+
+    engine.update(observation(10, { signals: { generation_active: true } }));
+    engine.update(observation(20, { signals: { generation_active: true } }));
+    engine.update(observation(30, { signals: { generation_active: true } }));
+
+    expect(
+      engine.snapshot(30).historicalEvidence.filter(({ signal }) => signal === 'generation_active')
+    ).toHaveLength(1);
+  });
+
   it('uses unknown only when a response exists without safe readiness evidence', () => {
     const engine = new ProviderStateEngine({
       quietPeriodMs: 0,

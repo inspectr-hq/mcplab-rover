@@ -1,12 +1,11 @@
 import type { ChatProviderAdapter } from './types';
 import { isVisible, setTextValue, textFrom } from './dom';
 import { debugCheck, first, pageAlertText } from './adapter-helpers';
-import { observationFromCandidates, responseStateFromObservation } from '../runtime/provider-signals';
+import { observationFromCandidates } from '../runtime/provider-signals';
 import type { ProviderSignalEvaluator } from '../runtime/provider-state-engine';
 
 const composerSelectors = ['[aria-label="Chat with ChatGPT"]', '[contenteditable="true"]'];
-const assistantSelector =
-  '[data-message-author-role="assistant"], [data-testid^="conversation-turn-"]';
+const assistantSelector = '[data-message-author-role="assistant"]';
 const newConversationSelectors = [
   'a[href="/"], a[href="/new"]',
   'button[aria-label*="New chat"]',
@@ -89,6 +88,4 @@ export const chatgptAdapter: ChatProviderAdapter = {
       text: textFrom(element),
       visible: isVisible(element)
     })),
-  getResponseState: (candidates) =>
-    responseStateFromObservation(chatgptSignalEvaluator.evaluate(candidates, Date.now()))
 };

@@ -62,8 +62,9 @@ class FakeWebSocket {
   }
 }
 
-import { connectToMcplab, disableRoverConnection, enableRoverConnection, updateRoverRegistration } from '../src/background/socket';
+import { connectToMcplab, disableRoverConnection, enableRoverConnection, startLeaseRenewal, updateRoverRegistration } from '../src/background/socket';
 import { createQueue } from '../src/queue/state';
+import { serializeQueueOperation } from '../src/queue/operations';
 
 const assignment = {
   type: 'assignment',
@@ -163,6 +164,34 @@ describe('socket assignment lifecycle', () => {
       expect.objectContaining({ queueId: 'job-1', status: 'stopped' })
     );
     expect(socket.sent.map((value) => JSON.parse(value).type)).toContain('lease_release');
+  });
+
+  it('renews a lease while a serialized evaluation operation is blocked', async () => {
+    const socket = await connectedSocket();
+    const queue = {
+      ...createQueue('http://127.0.0.1:8787', 'claude', true, new Date().toISOString()),
+      queueId: 'job-1',
+      status: 'running' as const,
+      leaseId: 'lease-1',
+      leaseState: 'running' as const
+    };
+    mocks.getQueue.mockResolvedValue(queue);
+    let release!: () => void;
+    const blocked = serializeQueueOperation(() => new Promise<void>((resolve) => {
+      release = resolve;
+    }));
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    vi.useFakeTimers();
+    try {
+      await startLeaseRenewal(queue);
+      await vi.advanceTimersByTimeAsync(31_000);
+      expect(socket.sent.filter((value) => JSON.parse(value).type === 'lease_renew')).toHaveLength(2);
+    } finally {
+      release();
+      await blocked;
+      vi.useRealTimers();
+      await disableRoverConnection();
+    }
   });
 
   it('still stops and releases the queue if cancellation fails', async () => {

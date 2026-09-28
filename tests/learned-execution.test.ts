@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createLearnedAdapter } from '../src/providers/mcplab';
+import { createMcplabAdapter } from '../src/providers/mcplab';
 import { ask } from '../src/runtime/ask';
 
 describe('learned provider execution', () => {
@@ -36,7 +36,7 @@ describe('learned provider execution', () => {
         confidence: {}
       }
     };
-    const adapter = createLearnedAdapter(profile);
+    const adapter = createMcplabAdapter(profile);
     const send = document.querySelector('button')!;
     send.addEventListener('click', () => {
       const container = document.createElement('section');

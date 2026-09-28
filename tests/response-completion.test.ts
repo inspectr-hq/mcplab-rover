@@ -1,5 +1,37 @@
 import { describe, expect, it, vi } from 'vitest';
 import { IncompleteResponseError, waitForCompletedResponse } from '../src/runtime/response-tracker';
+import type { ProviderObservation, ProviderRawSignalName } from '../src/runtime/provider-state-engine';
+
+function observation(options: {
+  text?: string;
+  identity?: string;
+  generating?: boolean;
+  idle?: boolean;
+  working?: boolean;
+  responseObserved?: boolean;
+  error?: string;
+  signals?: Partial<Record<ProviderRawSignalName, boolean>>;
+} = {}): ProviderObservation {
+  const text = options.text ?? '';
+  return {
+    observedAt: Date.now(),
+    response: text
+      ? {
+          identity: options.identity ?? 'test-response',
+          text,
+          belongsToRequest: true
+        }
+      : null,
+    responseObserved: options.responseObserved ?? Boolean(text),
+    signals: {
+      ...(options.generating !== undefined ? { generation_active: options.generating } : {}),
+      ...(options.idle !== undefined ? { idle_visible: options.idle } : {}),
+      ...(options.working !== undefined ? { working_visible: options.working } : {}),
+      ...options.signals
+    },
+    ...(options.error ? { error: options.error } : {})
+  };
+}
 
 describe('waitForCompletedResponse', () => {
   it('starts a fresh stability window after generation resumes', async () => {
@@ -8,10 +40,10 @@ describe('waitForCompletedResponse', () => {
       const startedAt = Date.now();
       let completed = false;
       const pending = waitForCompletedResponse({
-        read: () => ({
+        readObservation: () => observation({
           text: 'unchanged answer',
-          isGenerating: Date.now() - startedAt >= 20 && Date.now() - startedAt < 40,
-          isIdle: !(Date.now() - startedAt >= 20 && Date.now() - startedAt < 40)
+          generating: Date.now() - startedAt >= 20 && Date.now() - startedAt < 40,
+          idle: !(Date.now() - startedAt >= 20 && Date.now() - startedAt < 40)
         }),
         pollMs: 10,
         stabilityMs: 30,
@@ -33,11 +65,11 @@ describe('waitForCompletedResponse', () => {
       const startedAt = Date.now();
       let completed = false;
       const pending = waitForCompletedResponse({
-        read: () => ({
+        readObservation: () => observation({
           text: 'unchanged answer',
-          isGenerating: false,
-          isIdle: true,
-          isWorking: Date.now() - startedAt >= 20 && Date.now() - startedAt < 40
+          generating: false,
+          idle: true,
+          working: Date.now() - startedAt >= 20 && Date.now() - startedAt < 40
         }),
         pollMs: 10,
         stabilityMs: 30,
@@ -59,11 +91,11 @@ describe('waitForCompletedResponse', () => {
       const startedAt = Date.now();
       let completed = false;
       const pending = waitForCompletedResponse({
-        read: () => ({
+        readObservation: () => observation({
           text: 'same answer',
-          turnKey: Date.now() - startedAt < 20 ? 'turn-a' : 'turn-b',
-          isGenerating: false,
-          isIdle: true
+          identity: Date.now() - startedAt < 20 ? 'turn-a' : 'turn-b',
+          generating: false,
+          idle: true
         }),
         pollMs: 10,
         stabilityMs: 30,
@@ -82,13 +114,13 @@ describe('waitForCompletedResponse', () => {
   it('waits for stable text and an idle provider before returning', async () => {
     let reads = 0;
     const result = await waitForCompletedResponse({
-      read: () => {
+      readObservation: () => {
         reads += 1;
-        return {
+        return observation({
           text: reads < 3 ? 'partial' : 'final',
-          isGenerating: reads < 4,
-          isIdle: reads >= 4
-        };
+          generating: reads < 4,
+          idle: reads >= 4
+        });
       },
       pollMs: 1,
       stabilityMs: 3,
@@ -101,10 +133,10 @@ describe('waitForCompletedResponse', () => {
   it('rejects when the provider reports an error', async () => {
     await expect(
       waitForCompletedResponse({
-        read: () => ({
+        readObservation: () => observation({
           text: 'partial',
-          isGenerating: true,
-          isIdle: false,
+          generating: true,
+          idle: false,
           error: 'Something went wrong'
         }),
         pollMs: 1,
@@ -117,14 +149,14 @@ describe('waitForCompletedResponse', () => {
   it('ignores an unchanged alert that was already present before submission', async () => {
     let reads = 0;
     const pending = waitForCompletedResponse({
-      read: () => {
+      readObservation: () => {
         reads += 1;
-        return {
+        return observation({
           text: reads < 2 ? '' : 'final response',
-          isGenerating: reads < 3,
-          isIdle: reads >= 3,
+          generating: reads < 3,
+          idle: reads >= 3,
           error: 'Restore last session We recovered an unsaved view.'
-        };
+        });
       },
       pollMs: 1,
       stabilityMs: 3,
@@ -139,14 +171,14 @@ describe('waitForCompletedResponse', () => {
     let reads = 0;
     await expect(
       waitForCompletedResponse({
-        read: () => {
+        readObservation: () => {
           reads += 1;
-          return {
+          return observation({
             text: '',
-            isGenerating: true,
-            isIdle: false,
+            generating: true,
+            idle: false,
             error: reads === 1 ? 'Restore last session' : 'The provider failed'
-          };
+          });
         },
         pollMs: 1,
         stabilityMs: 3,
@@ -158,8 +190,12 @@ describe('waitForCompletedResponse', () => {
 
   it('times out without returning stale or partial content', async () => {
     vi.useFakeTimers();
+    let reads = 0;
     const promise = waitForCompletedResponse({
-      read: () => ({ text: 'partial', isGenerating: true, isIdle: false }),
+      readObservation: () => {
+        reads += 1;
+        return observation({ text: 'partial', generating: true, idle: false });
+      },
       pollMs: 10,
       stabilityMs: 20,
       timeoutMs: 30
@@ -167,13 +203,19 @@ describe('waitForCompletedResponse', () => {
     const rejection = expect(promise).rejects.toThrow('Timed out');
     await vi.advanceTimersByTimeAsync(31);
     await rejection;
+    expect(reads).toBeGreaterThanOrEqual(4);
     vi.useRealTimers();
   });
 
   it('rejects stable text when a required generation signal was never observed', async () => {
     await expect(
       waitForCompletedResponse({
-        read: () => ({ text: 'stable text', isGenerating: false, isIdle: true }),
+        readObservation: () => observation({
+          text: 'stable text',
+          responseObserved: false,
+          generating: false,
+          idle: true
+        }),
         pollMs: 1,
         stabilityMs: 3,
         timeoutMs: 100,
@@ -187,13 +229,13 @@ describe('waitForCompletedResponse', () => {
     let completion: { state?: string; history?: unknown[] } | undefined;
     await expect(
       waitForCompletedResponse({
-        read: () => {
+        readObservation: () => {
           reads += 1;
-          return {
+          return observation({
             text: 'final text',
-            isGenerating: reads === 1,
-            isIdle: reads > 1
-          };
+            generating: reads === 1,
+            idle: reads > 1
+          });
         },
         pollMs: 1,
         stabilityMs: 3,
@@ -212,10 +254,10 @@ describe('waitForCompletedResponse', () => {
     let reads = 0;
     await expect(
       waitForCompletedResponse({
-        read: () => ({
+        readObservation: () => observation({
           text: 'final text',
-          isGenerating: false,
-          isIdle: true,
+          generating: false,
+          idle: true,
           responseObserved: reads++ > 0
         }),
         pollMs: 1,
@@ -230,11 +272,11 @@ describe('waitForCompletedResponse', () => {
     vi.useFakeTimers();
     try {
       const promise = waitForCompletedResponse({
-        read: () => ({
+        readObservation: () => observation({
           text: 'tool result',
-          isGenerating: false,
-          isWorking: false,
-          isIdle: true,
+          generating: false,
+          working: false,
+          idle: true,
           signals: { working_visible: true }
         }),
         pollMs: 10,

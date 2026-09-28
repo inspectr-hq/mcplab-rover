@@ -1,11 +1,10 @@
 import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
 import type { ChatProviderAdapter } from './types';
-import type { ResponseCandidate } from '../runtime/candidate-selection';
 import { isVisible, setTextValue, textFrom } from './dom';
 import { pageAlertText } from './adapter-helpers';
 import { controlLabel, isGenerationControlLabel } from './control-labels';
 import { stableTurnIdentity } from './turn-identity';
-import { observationFromCandidates, responseStateFromObservation } from '../runtime/provider-signals';
+import { observationFromCandidates } from '../runtime/provider-signals';
 import type { ProviderSignalEvaluator } from '../runtime/provider-state-engine';
 
 function findFallbackSubmit(includeDisabled = false): HTMLElement | null {
@@ -90,7 +89,7 @@ function clickableTarget(element: HTMLElement): HTMLElement {
   return controls.find(isVisible) ?? controls[0] ?? element;
 }
 
-export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProviderAdapter {
+export function createMcplabAdapter(profile: BrowserProviderProfile): ChatProviderAdapter {
   const anonymousTurnKeys = new WeakMap<Element, string>();
   let nextAnonymousTurnKey = 0;
   let lastCompletion:
@@ -130,14 +129,15 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
         ? (findPath(profile.submit.locator)[0] as HTMLElement | undefined)
         : findFallbackSubmit(true);
       const stopControl = findStopControl();
-      const generating = profile.completion.generatingLocator
+      const configuredGenerating = profile.completion.generatingLocator
         ? findPath(profile.completion.generatingLocator, true).some((element) =>
             isVisible(element as HTMLElement)
           )
-        : Boolean(
-            stopControl ||
-            (submitControl instanceof HTMLButtonElement && submitControl.disabled)
-          );
+        : undefined;
+      const generating =
+        configuredGenerating ??
+        Boolean(stopControl || (submitControl instanceof HTMLButtonElement && submitControl.disabled));
+      const stopVisible = configuredGenerating ?? Boolean(stopControl);
       const idle = profile.completion.idleLocator
         ? findPath(profile.completion.idleLocator, true).some((element) =>
             isVisible(element as HTMLElement)
@@ -153,7 +153,7 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
         items,
         {
           generation_active: generating,
-          stop_visible: Boolean(stopControl),
+          stop_visible: stopVisible,
           working_visible: working,
           assistant_busy: working,
           idle_visible: idle,
@@ -244,48 +244,31 @@ export function createLearnedAdapter(profile: BrowserProviderProfile): ChatProvi
           const composerStartedWithText = Boolean(beforeComposer.trim());
           const beforeMessageCount = candidates().length;
           const beforeUrl = location.href;
-          let lastMutationAt = 0;
-          const mutationObserver = new MutationObserver(() => {
-            lastMutationAt = Date.now();
-          });
-          mutationObserver.observe(document.body, {
-            subtree: true,
-            childList: true,
-            attributes: true,
-            characterData: true
-          });
           clickableTarget(button).click();
-          try {
-            const deadline = Date.now() + 15_000;
-            while (Date.now() < deadline) {
-              const composer = findComposer();
-              const messageCount = candidates().length;
-              const changedConversation =
-                (composerStartedWithText && Boolean(composer && !composerValue(composer).trim())) ||
-                messageCount < beforeMessageCount ||
-                location.href !== beforeUrl;
-              const meaningfulContextChange =
-                messageCount < beforeMessageCount || location.href !== beforeUrl;
-              const settledMutation = lastMutationAt > 0 && Date.now() - lastMutationAt >= 100;
-              if (
-                composer &&
-                !composerValue(composer).trim() &&
-                (profile.newConversation?.confirmation === 'context-change'
-                  ? meaningfulContextChange
-                  : changedConversation || settledMutation)
-              )
-                return;
-              await new Promise((resolve) => setTimeout(resolve, 50));
-            }
-          } finally {
-            mutationObserver.disconnect();
+          const deadline = Date.now() + 15_000;
+          while (Date.now() < deadline) {
+            const composer = findComposer();
+            const messageCount = candidates().length;
+            const changedConversation =
+              (composerStartedWithText && Boolean(composer && !composerValue(composer).trim())) ||
+              messageCount < beforeMessageCount ||
+              location.href !== beforeUrl;
+            const meaningfulContextChange =
+              messageCount < beforeMessageCount || location.href !== beforeUrl;
+            if (
+              composer &&
+              !composerValue(composer).trim() &&
+              (profile.newConversation?.confirmation === 'context-change'
+                ? meaningfulContextChange
+                : changedConversation)
+            )
+              return;
+            await new Promise((resolve) => setTimeout(resolve, 50));
           }
           throw new Error(`${profile.name} new conversation did not become ready`);
         }
       : undefined,
     getAssistantCandidates: candidates,
-    getResponseState: (items: ResponseCandidate[]) =>
-      responseStateFromObservation(signalEvaluator.evaluate(items, Date.now())),
     getDebugChecks: () => [
       {
         id: 'composer',

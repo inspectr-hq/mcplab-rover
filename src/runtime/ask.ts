@@ -10,7 +10,13 @@ export async function ask(
 ): Promise<string> {
   if (signal?.aborted) throw new DOMException('The request was cancelled.', 'AbortError');
   const baseline = adapter.getAssistantCandidates();
-  const initialError = adapter.getResponseState(baseline).error;
+  const observe = (
+    candidates: ReturnType<ChatProviderAdapter['getAssistantCandidates']>,
+    at: number
+  ) => {
+    return adapter.signalEvaluator.evaluate(candidates, at);
+  };
+  const initialError = observe(baseline, Date.now()).error;
   await adapter.setComposerText(prompt);
   // Give framework-controlled composers time to process the synthetic input event
   // and enable their submit control before invoking the provider adapter.
@@ -33,14 +39,10 @@ export async function ask(
     timeoutMs: 120_000,
     initialError,
     signal,
-    read: () => {
+    readObservation: () => {
       const current = adapter.getAssistantCandidates();
       const selected = selectResponseCandidate(baseline, current);
-      return {
-        ...adapter.getResponseState(selected ? [selected] : []),
-        turnKey: selected?.key,
-        responseObserved: Boolean(selected)
-      };
+      return observe(selected ? [selected] : [], Date.now());
     }
   });
 }

@@ -1,30 +1,11 @@
 import {
   ProviderStateEngine,
+  type EvidenceRecord,
+  type ProviderExecutionState,
+  type ProviderObservation,
+  type StateTransition,
   type ProviderStateEngineOptions
 } from './provider-state-engine';
-import { observationFromResponseState } from './provider-signals';
-
-export interface ResponseState {
-  text: string;
-  /** Identity of the selected assistant turn, stable across text growth. */
-  turnKey?: string;
-  isGenerating: boolean;
-  isIdle: boolean;
-  /** Independent positive evidence that provider-side work is continuing. */
-  isWorking?: boolean;
-  error?: string | null;
-  /** True when the provider has observed an explicit generation transition. */
-  generationObserved?: boolean;
-  /** True when a response candidate changed after the request was submitted. */
-  responseObserved?: boolean;
-  completionSignal?: string;
-  signals?: Partial<
-    Record<
-      import('./provider-state-engine').ProviderSignalName,
-      boolean
-    >
-  >;
-}
 
 export interface ResponseCompletionDetails {
   generationObserved: boolean;
@@ -32,10 +13,11 @@ export interface ResponseCompletionDetails {
   completionSignal?: string;
   elapsedMs: number;
   stableForMs: number;
-  state?: import('./provider-state-engine').ProviderExecutionState;
-  positiveEvidence?: import('./provider-state-engine').EvidenceRecord[];
-  blockingEvidence?: import('./provider-state-engine').EvidenceRecord[];
-  history?: import('./provider-state-engine').StateTransition[];
+  state?: ProviderExecutionState;
+  positiveEvidence?: EvidenceRecord[];
+  blockingEvidence?: EvidenceRecord[];
+  historicalEvidence?: EvidenceRecord[];
+  history?: StateTransition[];
 }
 
 export class IncompleteResponseError extends Error {
@@ -48,12 +30,13 @@ export class IncompleteResponseError extends Error {
 }
 
 export interface ResponseTrackerOptions {
-  read: () => ResponseState;
+  readObservation: () => ProviderObservation;
   initialError?: string | null;
   pollMs: number;
   stabilityMs: number;
   timeoutMs: number;
   minResponseAgeMs?: number;
+  minimumStateDurationMs?: ProviderStateEngineOptions['minimumStateDurationMs'];
   requireGenerationSignal?: boolean;
   onComplete?: (details: ResponseCompletionDetails) => void;
   signal?: AbortSignal;
@@ -65,6 +48,7 @@ export function waitForCompletedResponse(options: ResponseTrackerOptions): Promi
     quietPeriodMs: options.stabilityMs,
     minResponseAgeMs: options.minResponseAgeMs ?? 0,
     timeoutMs: options.timeoutMs,
+    minimumStateDurationMs: options.minimumStateDurationMs,
     requireGenerationSignal: options.requireGenerationSignal === true
   };
   const engine = new ProviderStateEngine(engineOptions, startedAt);
@@ -84,33 +68,29 @@ export function waitForCompletedResponse(options: ResponseTrackerOptions): Promi
         return;
       }
       const now = Date.now();
-      if (now - startedAt >= options.timeoutMs) {
-        finish(() => reject(new Error('Timed out waiting for completed response')));
-        return;
-      }
-
-      const rawState = options.read();
-      const state =
-        rawState.error && rawState.error === options.initialError
+      const rawObservation = options.readObservation();
+      const observation =
+        rawObservation.error && rawObservation.error === options.initialError
           ? {
-              ...rawState,
+              ...rawObservation,
               error: null,
-              signals: { ...rawState.signals, error_visible: false }
+              signals: { ...rawObservation.signals, error_visible: false }
             }
-          : rawState;
-      const snapshot = engine.update(observationFromResponseState(state, now));
+          : rawObservation;
+      const snapshot = engine.update(observation);
       if (snapshot.terminal) {
         if (snapshot.state === 'finished') {
-          const text = state.text.trim();
+          const text = observation.response?.text.trim() ?? '';
           options.onComplete?.({
             generationObserved: snapshot.generationObserved,
             responseObserved: snapshot.responseObserved,
-            completionSignal: state.completionSignal,
+            completionSignal: observation.completionSignal,
             elapsedMs: now - startedAt,
             stableForMs: Math.max(0, now - snapshot.stateSince),
             state: snapshot.state,
             positiveEvidence: snapshot.positiveEvidence,
             blockingEvidence: snapshot.blockingEvidence,
+            historicalEvidence: snapshot.historicalEvidence,
             history: snapshot.history
           });
           finish(() => resolve(text));

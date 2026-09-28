@@ -29,7 +29,6 @@ export interface SelectedResponseObservation {
   identity: string;
   text: string;
   belongsToRequest: boolean;
-  activityVersion?: number;
 }
 
 export interface ProviderObservation {
@@ -121,7 +120,6 @@ export class ProviderStateEngine {
   private stateSince: number;
   private lastResponseIdentity: string | undefined;
   private lastResponseText: string | undefined;
-  private lastActivityVersion: number | undefined;
   private lastResponsePresent = false;
   private lastResponseActivityAt: number | null = null;
   private providerReadySince: number | null = null;
@@ -190,24 +188,17 @@ export class ProviderStateEngine {
       responsePresent &&
       this.lastResponseText !== undefined &&
       normalize(selectedResponse!.text) !== this.lastResponseText;
-    const responseActivityVersionChanged =
-      responsePresent &&
-      selectedResponse!.activityVersion !== undefined &&
-      this.lastActivityVersion !== undefined &&
-      selectedResponse!.activityVersion !== this.lastActivityVersion;
     const responsePresenceChanged = responsePresent !== this.lastResponsePresent;
     const responseActivity =
       responsePresent &&
       (responsePresenceChanged ||
         responseIdentityChanged ||
-        responseTextChanged ||
-        responseActivityVersionChanged);
+        responseTextChanged);
 
     if (responseActivity) this.lastResponseActivityAt = at;
     if (responsePresent) {
       this.lastResponseIdentity = selectedResponse!.identity;
       this.lastResponseText = normalize(selectedResponse!.text);
-      this.lastActivityVersion = selectedResponse!.activityVersion;
     }
     this.lastResponsePresent = responsePresent;
 
@@ -228,6 +219,8 @@ export class ProviderStateEngine {
       this.providerReadySince = null;
     else if (this.providerReadySince === null) this.providerReadySince = at;
 
+    const generationWasObserved = this.generationObserved;
+    const responseWasObserved = this.responseObserved;
     this.generationObserved ||=
       generationActive || observation.historicalGenerationObserved === true;
     this.responseObserved ||= observation.responseObserved === true;
@@ -257,9 +250,9 @@ export class ProviderStateEngine {
       'response_mutating',
       'error_visible'
     ]);
-    if (this.generationObserved)
+    if (!generationWasObserved && this.generationObserved)
       this.historicalEvidence.push({ signal: 'generation_active', at, value: true });
-    if (this.responseObserved)
+    if (!responseWasObserved && this.responseObserved)
       this.historicalEvidence.push({ signal: 'response_present', at, value: true });
     this.historicalEvidence = this.historicalEvidence.slice(-HISTORY_LIMIT);
 

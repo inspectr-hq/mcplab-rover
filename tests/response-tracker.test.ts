@@ -9,7 +9,11 @@ describe('response tracker cancellation', () => {
       stabilityMs: 1000,
       timeoutMs: 10_000,
       signal: controller.signal,
-      read: () => ({ text: '', isGenerating: true, isIdle: false })
+      readObservation: () => ({
+        observedAt: Date.now(),
+        response: null,
+        signals: { generation_active: true, idle_visible: false }
+      })
     });
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
