@@ -392,6 +392,25 @@ describe('Learned provider adapter', () => {
     }
   });
 
+  it('uses an already blank learned conversation without clicking New chat', async () => {
+    vi.useFakeTimers();
+    try {
+      document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button>';
+      const adapter = createMcplabAdapter(testProviderProfile);
+      let clicks = 0;
+      document.querySelector('button')!.addEventListener('click', () => clicks++);
+      const outcome = adapter.startNewConversation!().then(
+        () => 'resolved',
+        (error: Error) => error.message
+      );
+      await vi.advanceTimersByTimeAsync(15_100);
+      expect(await outcome).toBe('resolved');
+      expect(clicks).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('confirms a learned click when the previous assistant turn disappears', async () => {
     document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div>';
     const adapter = createMcplabAdapter({

@@ -230,6 +230,10 @@ export function createMcplabAdapter(profile: BrowserProviderProfile): ChatProvid
             location.assign(profile.newConversation.url);
             return;
           }
+          const initialComposer = findComposer();
+          const beforeComposer = initialComposer ? composerValue(initialComposer) : '';
+          const beforeMessageCount = candidates().length;
+          if (initialComposer && !beforeComposer.trim() && beforeMessageCount === 0) return;
           const button = newConversationLocators(profile)
             .flatMap((locator) => findPath(locator, true) as HTMLElement[])
             .filter((element) => isVisible(element))
@@ -239,10 +243,7 @@ export function createMcplabAdapter(profile: BrowserProviderProfile): ChatProvid
               return /new[\s_-]*(chat|conversation)|new[\s_-]*thread|start[\s_-]*(a[\s_-]*)?new/.test(label);
             });
           if (!button) throw new Error(`${profile.name} new conversation control was not found`);
-          const initialComposer = findComposer();
-          const beforeComposer = initialComposer ? composerValue(initialComposer) : '';
           const composerStartedWithText = Boolean(beforeComposer.trim());
-          const beforeMessageCount = candidates().length;
           const beforeUrl = location.href;
           clickableTarget(button).click();
           const deadline = Date.now() + 15_000;
