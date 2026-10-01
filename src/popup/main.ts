@@ -530,13 +530,15 @@ function renderQueue(queue: RoverQueueState | null): void {
       const itemStatus = document.createElement('span');
       itemStatus.className = 'queue-item-status';
       itemStatus.dataset.status = item.status;
-      itemStatus.textContent = item.status === 'passed' ? '✓' : item.status;
-      if (item.status === 'passed') {
+      itemStatus.textContent =
+        item.status === 'passed' ? '✓' : item.status === 'failed' ? '✕' : item.status;
+      if (item.status === 'passed' || item.status === 'failed') {
+        const label = item.status === 'passed' ? 'Passed' : 'Failed';
         itemStatus.setAttribute('role', 'img');
-        itemStatus.setAttribute('aria-label', 'Passed');
-        itemStatus.title = 'Passed';
+        itemStatus.setAttribute('aria-label', label);
+        itemStatus.title = label;
       }
-      row.append(name, itemStatus);
+      row.append(itemStatus, name);
       if (editable) {
         for (const [action, label] of [
           ['up', '↑'],
@@ -574,7 +576,8 @@ function renderQueue(queue: RoverQueueState | null): void {
       if (history) {
         const button = document.createElement('button');
         button.type = 'button';
-        button.textContent = '×';
+        button.className = 'queue-history-remove';
+        button.innerHTML = `<svg width="14" height="14" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h12M6 6V3h6v3M4 6l1 9h8l1-9M7 8v5M11 8v5"/></svg>`;
         button.title = `Remove ${item.name} from Rover history`;
         button.setAttribute('aria-label', button.title);
         button.addEventListener('click', async () => {
@@ -618,9 +621,15 @@ function renderQueue(queue: RoverQueueState | null): void {
   queueItems.replaceChildren(...groups);
   queueItems.parentElement?.classList.toggle('queue-managed', managed);
   queueStart.hidden = !editable;
-  const phaseLabel = managedPhaseLabel(queue.managedPhase);
+  const readyForNextEvaluation =
+    (queue.status === 'completed' || queue.status === 'stopped') &&
+    !queue.leaseId &&
+    !queue.pendingLeaseActions?.length;
+  const phaseLabel = managedPhaseLabel(readyForNextEvaluation ? 'terminal' : queue.managedPhase);
   queueStatus.textContent =
-    !matchesCurrentAssignment && managed
+    readyForNextEvaluation
+      ? `${phaseLabel}.`
+      : !matchesCurrentAssignment && managed
       ? `Assignment received for ${queue.provider}. Switch to a matching page to run it (${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} processed).`
       : !matchesCurrentAssignment
         ? `Switch to ${queue.provider} to edit or run this queue.`

@@ -15,7 +15,7 @@ export const managedPhaseLabels: Record<string, string> = {
   running: 'Running in agent',
   finalizing: 'Finalizing in MCPLab',
   waiting_ack: 'Waiting for MCPLab acknowledgement',
-  terminal: 'Stopped'
+  terminal: 'Ready for next evaluation'
 };
 
 export function managedPhaseLabel(phase: string | undefined): string | undefined {

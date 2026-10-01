@@ -137,6 +137,7 @@ describe('popup view model', () => {
   it('labels managed lease phases for the popup', () => {
     expect(managedPhaseLabel('running')).toBe('Running in agent');
     expect(managedPhaseLabel('waiting_ack')).toBe('Waiting for MCPLab acknowledgement');
+    expect(managedPhaseLabel('terminal')).toBe('Ready for next evaluation');
     expect(managedPhaseLabel('idle')).toBeUndefined();
   });
 
