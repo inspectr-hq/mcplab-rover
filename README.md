@@ -48,6 +48,8 @@ Rover does not replace MCPLab or act as an MCP proxy. It is the browser worker t
 5. Click **Load unpacked** and select the unzipped folder.
 6. Pin **MCPLab Rover** to the browser toolbar.
 
+Firefox publishing instructions are in the [Firefox publishing guide](docs/firefox-publishing.md). Firefox support should be tested separately before publishing because the current extension manifest and API usage are Chrome-oriented.
+
 ## Connect MCPLab
 
 Rover expects the MCPLab app at `http://127.0.0.1:8787` by default.
@@ -120,13 +122,13 @@ Learn more at [mcplab.inspectr.dev](https://mcplab.inspectr.dev/) or read Rover'
 
 ```mermaid
 flowchart LR
-    A[MCPLab catalog or queue] -->|prompt, criteria, and assignment| B[Rover]
-    B -->|register provider and accept lease| A
-    B -->|submit prompt| C[Browser agent]
-    C -->|new assistant response| B
-    B -->|captured response and status| A
-    A -->|evaluate and persist| D[MCPLab result]
-    B -->|release terminal lease| A
+    A["MCPLab catalog or queue"] -->|assignment| B["Rover"]
+    B -->|provider registration| A
+    B -->|prompt| C["Browser agent"]
+    C -->|new response| B
+    B -->|response and status| A
+    A -->|evaluation and persistence| D["MCPLab result"]
+    B -->|terminal lease release| A
 ```
 
 1. MCPLab owns the evaluation definitions, queue, provider matching, leases, evaluation logic, and persisted results.
