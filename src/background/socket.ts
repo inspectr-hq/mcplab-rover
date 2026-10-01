@@ -30,6 +30,7 @@ import { serializeQueueOperation } from '../queue/operations';
 import { configureLeaseTransport, persistLeaseRelease } from './lease-transport';
 import type { RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
 import { debugLog } from './debug-logging';
+import { isBuiltInProvider } from '../providers';
 
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
@@ -256,10 +257,13 @@ export async function loadProfilesIntoTab(tabId: number, origin: string): Promis
   } catch {
     return;
   }
+  const activeProfiles = profiles.filter(
+    (profile) => !(profile.source === 'builtin' && isBuiltInProvider(profile.id))
+  );
   loadedProviders.clear();
-  for (const profile of profiles) loadedProviders.set(profile.id, profile);
+  for (const profile of activeProfiles) loadedProviders.set(profile.id, profile);
   await chrome.tabs
-    .sendMessage(tabId, { type: 'ROVER_SET_PROFILES', profiles })
+    .sendMessage(tabId, { type: 'ROVER_SET_PROFILES', profiles: activeProfiles })
     .catch(() => undefined);
 }
 

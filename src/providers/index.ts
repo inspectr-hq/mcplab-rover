@@ -4,6 +4,7 @@ import { claudeAdapter } from './claude';
 import { chatgptAdapter } from './chatgpt';
 import { createMcplabAdapter } from './mcplab';
 import { isValidBrowserProviderProfile } from './profile-validation';
+import { isBuiltInProvider } from './catalog';
 export { BUILT_IN_PROVIDER_IDS, isBuiltInProvider } from './catalog';
 
 const builtInAdapters: ChatProviderAdapter[] = [claudeAdapter, chatgptAdapter];
@@ -12,7 +13,10 @@ let learnedAdapters: ChatProviderAdapter[] = [];
 export const adapters: ChatProviderAdapter[] = [...builtInAdapters];
 
 export function setLearnedProfiles(profiles: unknown[]): void {
-  learnedAdapters = profiles.filter(isValidBrowserProviderProfile).map(createMcplabAdapter);
+  learnedAdapters = profiles
+    .filter(isValidBrowserProviderProfile)
+    .filter((profile) => !(profile.source === 'builtin' && isBuiltInProvider(profile.id)))
+    .map(createMcplabAdapter);
   adapters.splice(0, adapters.length, ...learnedAdapters, ...builtInAdapters);
 }
 

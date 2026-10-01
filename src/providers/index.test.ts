@@ -1,0 +1,35 @@
+// @vitest-environment jsdom
+
+import { afterEach, describe, expect, it } from 'vitest';
+import { adapters, setLearnedProfiles } from './index';
+import { claudeAdapter } from './claude';
+
+describe('provider catalog loading', () => {
+  afterEach(() => setLearnedProfiles([]));
+
+  it('keeps native adapters when MCP Lab returns built-in profiles', () => {
+    const profile = {
+        id: 'claude',
+        schemaVersion: 1,
+        name: 'Claude',
+        source: 'builtin',
+        match: { origins: ['https://claude.ai'] },
+        composer: { locator: { segments: ['textarea'] }, inputMode: 'textarea' },
+        submit: { action: 'enter' },
+        assistantMessages: { locator: { segments: ['.assistant'] } },
+        completion: { stabilityMs: 2500 },
+        learned: {
+          sourceOrigin: 'https://claude.ai',
+          createdAt: '2026-10-01T00:00:00.000Z',
+          updatedAt: '2026-10-01T00:00:00.000Z',
+          confidence: {}
+        }
+      };
+    setLearnedProfiles([profile]);
+
+    expect(adapters.find((adapter) => adapter.id === 'claude')).toBe(claudeAdapter);
+
+    setLearnedProfiles([{ ...profile, source: 'workspace' }]);
+    expect(adapters.find((adapter) => adapter.id === 'claude')).not.toBe(claudeAdapter);
+  });
+});
