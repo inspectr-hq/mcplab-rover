@@ -6,6 +6,7 @@
     "test": "vitest run",
     "dev": "vite build --watch",
     "build": "tsc --noEmit && vite build && node scripts/set-extension-version.mjs && node scripts/check-extension-bundle.mjs",
+    "build:firefox": "node scripts/prepare-firefox-build.mjs",
     "typecheck": "tsc --noEmit",
     "format": "npx prettier --write \"**/*.{ts,tsx,jsx,css, astro}\" --config ./.prettierrc"
   },

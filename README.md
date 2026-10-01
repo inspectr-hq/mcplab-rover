@@ -48,7 +48,7 @@ Rover does not replace MCPLab or act as an MCP proxy. It is the browser worker t
 5. Click **Load unpacked** and select the unzipped folder.
 6. Pin **MCPLab Rover** to the browser toolbar.
 
-Firefox publishing instructions are in the [Firefox publishing guide](docs/firefox-publishing.md). Firefox support should be tested separately before publishing because the current extension manifest and API usage are Chrome-oriented.
+For Firefox, download the `mcplab-rover-firefox-<tag>.zip` release asset and follow the [Firefox development and publishing guide](docs/firefox-publishing.md).
 
 ## Connect MCPLab
 
