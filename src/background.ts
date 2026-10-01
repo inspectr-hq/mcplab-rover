@@ -18,6 +18,7 @@ let panelTabId: number | undefined;
 const panelExpandedByTab = new Map<number, boolean>();
 
 async function restorePanelAfterNavigation(tabId: number): Promise<void> {
+  if (tabId !== panelTabId) return;
   const activeTab = (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
   if (
     !shouldRestorePanelAfterNavigation({
@@ -60,17 +61,15 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'complete') {
-    void (async () => {
-      try {
-        await updateRoverRegistration(tabId);
-        await restorePanelAfterNavigation(tabId);
-      } catch (error) {
-        debugLog('panel restore skipped after navigation', {
-          tabId,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      }
-    })();
+    void restorePanelAfterNavigation(tabId).catch((error) =>
+      debugLog('panel restore skipped after navigation', {
+        tabId,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    );
+    void updateRoverRegistration(tabId).catch((error) =>
+      console.warn('[Rover] navigation registration failed', error)
+    );
     void syncDebugSubscription(tabId).catch((error) =>
       console.warn('[Rover] debug subscription sync failed', error)
     );
