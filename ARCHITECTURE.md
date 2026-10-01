@@ -150,7 +150,7 @@ These cases send diagnostic `scenario_status`, preserve the failed scenario, com
 
 ## Compatibility
 
-Rover protocol v2 requires `assignment_lease`. Registrations that do not advertise it are rejected. Rover has not been released, so there is no v1 managed-assignment compatibility path. Local queues and normal MCPLab agent execution remain unchanged.
+Rover protocol v2 requires `assignment_lease`. Registrations that do not advertise it are rejected. The released Rover protocol has no v1 managed-assignment compatibility path. Local queues and normal MCPLab agent execution remain unchanged.
 
 Capability negotiation must be explicit. Do not infer lease support from a hardcoded provider or from a missing `registered.capabilities` field.
 
