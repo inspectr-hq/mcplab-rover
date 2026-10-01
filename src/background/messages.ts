@@ -1,0 +1,575 @@
+import type {
+  DebugElementCheck,
+  DebugSnapshot,
+  ExtensionMessage,
+  ProviderId,
+  RoverState
+} from '../contracts';
+import { McplabClient } from '../mcplab/api-client';
+import { acceptsContentResult } from '../runtime/live-state';
+import {
+  createQueue,
+  isCompletedQueueItemStatus,
+  recordQueueItemOutcome,
+  type RoverQueueState
+} from '../queue/state';
+import {
+  activeTab,
+  detectProvider,
+  expectedProviderForUrl,
+  getDetectionDiagnostics
+} from './browser';
+import { createDebugSnapshot } from './debug';
+import { errorMessage } from './errors';
+import { respond } from './respond';
+import { complete, fail } from './live-test';
+import {
+  failManagedQueue,
+  finalizeManagedQueue,
+  pauseQueue,
+  runQueueItem,
+  sendScenarioStatus,
+  startQueueConversation
+} from './queue-runner';
+import { sendStage, supportsNewConversation } from './queue-message-helpers';
+import { handleQueueMessage } from './queue-message-handler';
+import {
+  leaseDebugState,
+  loadedProvider,
+  loadProfilesIntoTab,
+  updateRoverRegistration
+} from './socket';
+import { currentSocket } from './lease-transport';
+import {
+  getQueue,
+  getState,
+  QUEUE_KEY,
+  resolveOrigin,
+  saveQueue,
+  saveState,
+  STATE_KEY
+} from './store';
+import { serializeQueueOperation } from '../queue/operations';
+import { debugLog } from './debug-logging';
+
+let debugSubscribed = false;
+
+async function sendToActiveTab(message: ExtensionMessage): Promise<unknown> {
+  const tab = await activeTab();
+  if (typeof tab?.id !== 'number') throw new Error('No active browser tab is available.');
+  try {
+    return await chrome.tabs.sendMessage(tab.id, message);
+  } catch {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
+    return chrome.tabs.sendMessage(tab.id, message);
+  }
+}
+
+export async function syncDebugSubscription(tabId: number): Promise<void> {
+  if (!debugSubscribed) return;
+  try {
+    await detectProvider(tabId);
+    await chrome.tabs.sendMessage(tabId, { type: 'ROVER_DEBUG_SUBSCRIBE', enabled: true });
+  } catch {
+    // The active tab may be a restricted page.
+  }
+}
+
+export function installMessageHandler(): void {
+  chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
+    if (message.type === 'ROVER_PAGE_FOCUSED') {
+      if (typeof sender.tab?.id === 'number')
+        void updateRoverRegistration(sender.tab.id).catch(() => undefined);
+      return;
+    }
+    if (
+      message.type === 'ROVER_LEARN_START' ||
+      message.type === 'ROVER_LEARN_STOP' ||
+      message.type === 'ROVER_LEARN_CAPTURE'
+    ) {
+      return respond(sendResponse, async () => {
+        const response = (await sendToActiveTab(message)) as {
+          ok?: boolean;
+          validation?: { passed: boolean; reasons: string[] };
+          error?: string;
+        } | null;
+        return response ?? { ok: true };
+      });
+    }
+    if (message.type === 'ROVER_LEARN_SAVE') {
+      return respond(sendResponse, async () => {
+        const endpoint = await resolveOrigin(message.origin);
+        const result = await new McplabClient(endpoint).saveLearnedBrowserProvider(
+          message.profile,
+          message.agent,
+          { trace: message.trace, proposalDiagnostics: message.proposalDiagnostics }
+        );
+        return { ok: true, provider: result.provider, revision: result.revision };
+      });
+    }
+    if (message.type === 'ROVER_LEARN_PROPOSE') {
+      return respond(sendResponse, async () => {
+        const endpoint = await resolveOrigin(message.origin);
+        const proposal = await new McplabClient(endpoint).proposeLearnedBrowserProvider(
+          message.profile,
+          message.trace ?? {},
+          message.agentName
+        );
+        return { ok: true, proposal };
+      });
+    }
+    if (message.type === 'ROVER_LEARN_VALIDATE') {
+      return respond(sendResponse, async () => {
+        const response = (await sendToActiveTab(message)) as {
+          ok?: boolean;
+          validation?: { passed: boolean; reasons: string[] };
+          error?: string;
+        } | null;
+        if (!response?.ok || !response.validation)
+          throw new Error(response?.error ?? 'Could not validate the provider proposal.');
+        return response;
+      });
+    }
+    if (message.type === 'ROVER_GET_STATE') {
+      void getState().then(sendResponse);
+      return true;
+    }
+
+    if (message.type === 'ROVER_GET_ACTIVE_PROVIDER') {
+      return respond(sendResponse, async () => {
+        const tab = await activeTab();
+        const origin = await resolveOrigin();
+        let provider: ProviderId | undefined;
+        if (typeof tab?.id === 'number') {
+          await detectProvider(tab.id);
+          await loadProfilesIntoTab(tab.id, origin);
+          provider = await detectProvider(tab.id);
+        }
+        return {
+          provider,
+          profile: provider ? loadedProvider(provider) : undefined,
+          tabId: tab?.id,
+          url: tab?.url,
+          supportsNewConversation: await supportsNewConversation(provider, origin)
+        };
+      });
+    }
+
+    if (message.type === 'ROVER_GET_LEARN_TARGETS') {
+      return respond(sendResponse, async () => {
+        const tab = await activeTab();
+        if (typeof tab?.id !== 'number') return { ok: true, targets: [], url: tab?.url };
+        const response = (await sendToActiveTab(message)) as {
+          ok?: boolean;
+          targets?: Array<{ id: string }>;
+          url?: string;
+        } | null;
+        return {
+          ok: true,
+          url: response?.url ?? tab.url,
+          targets: (response?.targets ?? []).map((target) => {
+            const profile = loadedProvider(target.id);
+            return { id: target.id, name: profile?.name ?? target.id };
+          })
+        };
+      });
+    }
+
+    if (message.type === 'ROVER_START_NEW_CONVERSATION') {
+      return respond(sendResponse, async () => {
+        const queue = await getQueue();
+        if (queue && ['running', 'paused'].includes(queue.status))
+          throw new Error('Finish or stop the active queue before starting a new conversation.');
+        const tab = await activeTab();
+        if (typeof tab?.id !== 'number') throw new Error('No active browser tab is available.');
+        const provider = await detectProvider(tab.id);
+        const origin = await resolveOrigin();
+        if (!provider || !(await supportsNewConversation(provider, origin))) {
+          throw new Error('The active provider does not support starting a new conversation.');
+        }
+        await startQueueConversation({
+          ...createQueue(origin, provider, false, new Date().toISOString()),
+          tabId: tab.id
+        });
+        return { ok: true, provider };
+      });
+    }
+
+    if (message.type === 'ROVER_GET_CATALOG') {
+      return respond(sendResponse, async () => {
+        const origin = await resolveOrigin(message.origin);
+        return { ok: true, origin, testCases: await new McplabClient(origin).listTestCases() };
+      });
+    }
+
+    if (message.type === 'ROVER_GET_DEBUG') {
+      return respond(sendResponse, async () => {
+        const origin = await resolveOrigin(message.origin);
+        const [manual, queue, tab] = await Promise.all([getState(), getQueue(), activeTab()]);
+        let endpointConnected = false;
+        let endpointError: string | undefined;
+        if (message.checkEndpoint !== false) {
+          try {
+            await new McplabClient(origin).listTestCases();
+            endpointConnected = true;
+          } catch (error) {
+            endpointError = errorMessage(error);
+          }
+        }
+
+        let page:
+          | {
+              matched: boolean;
+              provider?: ProviderId;
+              profile?: DebugSnapshot['page']['profile'];
+              detection?: DebugSnapshot['page']['detection'];
+              elements: DebugElementCheck[];
+              error?: string;
+            }
+          | undefined;
+        if (typeof tab?.id === 'number') {
+          try {
+            await detectProvider(tab.id);
+            await loadProfilesIntoTab(tab.id, origin);
+            await detectProvider(tab.id);
+            const response = await chrome.tabs.sendMessage(tab.id, { type: 'ROVER_DEBUG' });
+            page = {
+              matched: response?.matched === true,
+              provider: response?.provider,
+              profile: (() => {
+                const profile = loadedProvider(response?.provider);
+                return profile
+                  ? {
+                      name: profile.name,
+                      source: profile.learned.sourceOrigin,
+                      revision: profile.learned.updatedAt,
+                      capabilities: [
+                        'composer',
+                        'submit',
+                        'assistant response',
+                        ...(profile.newConversation ? ['new conversation'] : [])
+                      ]
+                    }
+                  : undefined;
+              })(),
+              detection: getDetectionDiagnostics(tab.id),
+              elements: response?.elements ?? []
+            };
+          } catch (error) {
+            page = {
+              matched: Boolean(expectedProviderForUrl(tab.url)),
+              provider: expectedProviderForUrl(tab.url),
+              elements: [],
+              error: errorMessage(error)
+            };
+          }
+        } else {
+          page = { matched: false, elements: [], error: 'No active browser tab.' };
+        }
+
+        const leaseDebug = leaseDebugState();
+        return createDebugSnapshot({
+          checkedAt: new Date().toISOString(),
+          origin,
+          endpointConnected,
+          endpointChecked: message.checkEndpoint !== false,
+          endpointError,
+          tab,
+          page,
+          manual,
+          queue,
+          negotiatedCapabilities: leaseDebug.negotiatedCapabilities,
+          lastLeaseRenewalAt: leaseDebug.lastLeaseRenewalAt,
+          lastAssignmentDecision: leaseDebug.lastAssignmentDecision
+        });
+      });
+    }
+
+    if (message.type === 'ROVER_DEBUG_SUBSCRIBE') {
+      return respond(sendResponse, async () => {
+        debugSubscribed = message.enabled;
+        const tab = await activeTab();
+        if (typeof tab?.id === 'number') {
+          await syncDebugSubscription(tab.id);
+          if (!message.enabled)
+            await chrome.tabs
+              .sendMessage(tab.id, { type: 'ROVER_DEBUG_SUBSCRIBE', enabled: false })
+              .catch(() => undefined);
+        }
+        return { ok: true };
+      });
+    }
+
+    if (
+      message.type === 'ROVER_QUEUE_GET' ||
+      message.type === 'ROVER_QUEUE_WAITING' ||
+      message.type === 'ROVER_QUEUE_CLEAR' ||
+      message.type === 'ROVER_QUEUE_CREATE' ||
+      message.type === 'ROVER_QUEUE_SET_NEW_CHAT' ||
+      message.type === 'ROVER_QUEUE_ADD' ||
+      message.type === 'ROVER_QUEUE_REMOVE' ||
+      message.type === 'ROVER_QUEUE_MOVE' ||
+      message.type === 'ROVER_QUEUE_START' ||
+      message.type === 'ROVER_QUEUE_STOP' ||
+      message.type === 'ROVER_QUEUE_SKIP' ||
+      message.type === 'ROVER_QUEUE_RETRY'
+    )
+      return handleQueueMessage(message, sendResponse);
+
+    if (message.type === 'ROVER_PREPARE') {
+      return respond(sendResponse, async () => {
+        const queue = await getQueue();
+        if (queue && ['running', 'paused'].includes(queue.status)) {
+          throw new Error('Finish or stop the active queue before starting a Live Test.');
+        }
+        const origin = await resolveOrigin(message.origin);
+        const tab = await activeTab();
+        const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
+        const session = await new McplabClient(origin).start(
+          message.testCaseId,
+          provider ?? 'manual'
+        );
+        const state: RoverState = {
+          requestId: crypto.randomUUID(),
+          sessionId: session.id,
+          testCaseId: session.testCaseId,
+          testCaseName: session.testCaseName,
+          prompt: session.prompt,
+          origin,
+          status: provider ? 'ready' : 'manual',
+          tabId: tab?.id,
+          provider,
+          startedAt: new Date().toISOString()
+        };
+        await chrome.storage.session.remove(QUEUE_KEY);
+        await saveState(state);
+        return { ok: true, state };
+      });
+    }
+
+    if (message.type === 'ROVER_EXECUTE') {
+      void serializeQueueOperation(async () => {
+        const state = await getState();
+        if (
+          !state ||
+          state.status !== 'ready' ||
+          !state.provider ||
+          typeof state.tabId !== 'number'
+        ) {
+          throw new Error('No prepared Live Test is ready for browser execution.');
+        }
+        const running: RoverState = {
+          ...state,
+          status: 'running',
+          startedAt: new Date().toISOString()
+        };
+        await saveState(running);
+        try {
+          await chrome.tabs.sendMessage(state.tabId, {
+            type: 'ROVER_ASK',
+            requestId: state.requestId,
+            sessionId: state.sessionId,
+            prompt: state.prompt
+          });
+          sendResponse({ ok: true, state: running });
+        } catch (error) {
+          await fail(running, error);
+          throw error;
+        }
+      }).catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
+      return true;
+    }
+
+    if (message.type === 'ROVER_COMPLETE_MANUAL') {
+      void (async () => {
+        const state = await getState();
+        if (!state || state.status !== 'manual') throw new Error('No manual Live Test is ready.');
+        try {
+          sendResponse({ ok: true, state: await complete(state, message.text) });
+        } catch (error) {
+          await fail(state, error);
+          throw error;
+        }
+      })().catch((error) => sendResponse({ ok: false, error: errorMessage(error) }));
+      return true;
+    }
+
+    if (message.type === 'ROVER_CANCEL') {
+      return respond(sendResponse, async () => {
+        const state = await getState();
+        if (
+          state &&
+          state.status === 'running' &&
+          state.requestId &&
+          typeof state.tabId === 'number'
+        ) {
+          await chrome.tabs
+            .sendMessage(state.tabId, { type: 'ROVER_CANCEL_ASK', requestId: state.requestId })
+            .catch(() => undefined);
+        }
+        if (state && state.status !== 'completed')
+          await new McplabClient(state.origin).cancel(state.sessionId).catch(() => undefined);
+        await chrome.storage.session.remove(STATE_KEY);
+        return { ok: true };
+      });
+    }
+
+    if (message.type === 'ROVER_RESULT') {
+      void serializeQueueOperation(() => handleResult(message)).catch((error) =>
+        console.error('[Rover] result handling failed', error)
+      );
+    }
+  });
+}
+
+export async function handleResult(
+  message: Extract<ExtensionMessage, { type: 'ROVER_RESULT' }>
+): Promise<void> {
+  if (message.queueId && message.queueItemId) {
+    const queue = await getQueue();
+    const item = queue?.items.find((candidate) => candidate.queueItemId === message.queueItemId);
+    if (
+      !queue ||
+      queue.queueId !== message.queueId ||
+      queue.activeItemId !== message.queueItemId ||
+      item?.requestId !== message.requestId ||
+      item.sessionId !== message.sessionId ||
+      (queue.leaseId && message.leaseId !== queue.leaseId)
+    ) {
+      debugLog('ignored stale result', {
+        queueId: message.queueId,
+        queueItemId: message.queueItemId,
+        requestId: message.requestId,
+        sessionId: message.sessionId
+      });
+      return;
+    }
+    if (item.cancelRequestedAt) {
+      debugLog('ignored cancelled result', {
+        queueId: message.queueId,
+        queueItemId: message.queueItemId
+      });
+      return;
+    }
+    debugLog('result received', {
+      queueId: message.queueId,
+      queueItemId: message.queueItemId,
+      ok: message.result.ok,
+      error: message.result.ok ? undefined : message.result.error
+    });
+    if (!message.result.ok) {
+      const error = new Error(message.result.error) as Error & { code?: string };
+      if (message.result.code) error.code = message.result.code;
+      if (queue.leaseId) await failManagedQueue(queue, error);
+      else await pauseQueue(queue, error);
+      return;
+    }
+    const finalText = message.result.text;
+    sendStage(queue, item.testCaseId, 'response_captured');
+    const evaluating: RoverQueueState = {
+      ...queue,
+      items: queue.items.map((candidate) =>
+        candidate.queueItemId === item.queueItemId
+          ? { ...candidate, status: 'evaluating' as const, text: finalText }
+          : candidate
+      ),
+      updatedAt: new Date().toISOString()
+    };
+    await saveQueue(evaluating);
+    sendScenarioStatus(
+      evaluating,
+      evaluating.items.find((candidate) => candidate.queueItemId === item.queueItemId)!
+    );
+    try {
+      sendStage(queue, item.testCaseId, 'evaluating');
+      const result = await new McplabClient(queue.origin).complete(item.sessionId, {
+        finalText,
+        startedAt: item.startedAt ?? new Date().toISOString(),
+        completedAt: new Date().toISOString()
+      });
+      const latest = await getQueue();
+      if (!latest || latest.queueId !== queue.queueId || latest.activeItemId !== item.queueItemId)
+        return;
+      const latestItem = latest.items.find(
+        (candidate) => candidate.queueItemId === item.queueItemId
+      );
+      if (latestItem?.cancelRequestedAt) return;
+      const resultUrl = queue.evaluationRunId
+        ? `/results/${encodeURIComponent(queue.evaluationRunId)}`
+        : result.resultUrl;
+      const completed = recordQueueItemOutcome(
+        latest,
+        item.queueItemId,
+        result.outcome,
+        {
+          runId: result.runId,
+          resultUrl,
+          checkCounts: result.checkCounts,
+          text: finalText,
+          ...(result.outcome === 'error'
+            ? { error: result.error ?? 'Evaluation returned an error.' }
+            : {})
+        },
+        new Date().toISOString()
+      );
+      await saveQueue(completed);
+      sendScenarioStatus(
+        completed,
+        completed.items.find((candidate) => candidate.queueItemId === item.queueItemId)!,
+        item.startedAt ? Math.max(0, Date.now() - Date.parse(item.startedAt)) : undefined
+      );
+      sendStage(queue, item.testCaseId, 'persisted');
+      const socket = currentSocket();
+      if (socket?.readyState === WebSocket.OPEN) {
+        const durationMs = item.startedAt
+          ? Math.max(0, Date.parse(new Date().toISOString()) - Date.parse(item.startedAt))
+          : undefined;
+        socket.send(
+          JSON.stringify({
+            type: 'progress',
+            jobId: queue.queueId,
+            ...(queue.leaseId ? { leaseId: queue.leaseId } : {}),
+            completed: completed.items.filter((candidate) =>
+              isCompletedQueueItemStatus(candidate.status)
+            ).length,
+            total: completed.items.length,
+            currentScenarioId: completed.activeItemId
+              ? completed.items.find(
+                  (candidate) => candidate.queueItemId === completed.activeItemId
+                )?.testCaseId
+              : undefined,
+            lastDurationMs: durationMs
+          })
+        );
+      }
+      if (completed.status === 'completed' && completed.leaseId) {
+        await finalizeManagedQueue(completed, {
+          outcome: result.outcome,
+          runId: result.runId,
+          releaseReason: 'completed'
+        });
+      }
+      if (completed.status === 'running') {
+        try {
+          if (completed.newConversationBetweenItems) await startQueueConversation(completed);
+          await runQueueItem(completed);
+        } catch (error) {
+          if (completed.leaseId) await failManagedQueue(completed, error);
+          else await pauseQueue(completed, error);
+        }
+      }
+    } catch (error) {
+      if (evaluating.leaseId) await failManagedQueue(evaluating, error, 'mcplab');
+      else await pauseQueue(evaluating, error, 'mcplab');
+    }
+    return;
+  }
+  const state = await getState();
+  if (!state || !acceptsContentResult(state, message)) return;
+  try {
+    if (!message.result.ok) throw new Error(message.result.error);
+    await complete(state, message.result.text);
+  } catch (error) {
+    await fail(state, error);
+  }
+}

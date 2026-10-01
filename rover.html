@@ -8,12 +8,120 @@
   </head>
   <body>
     <main class="shell">
-      <h1><img src="icons/mcplab-favicon.svg" alt="" />MCPLab Rover</h1>
-      <p id="provider" class="muted">Detecting active chat…</p>
-      <button id="run" type="button">Run smoke test</button>
-      <p id="status" role="status" class="status">Ready</p>
-      <pre id="result" class="result" hidden></pre>
-      <button id="copy" type="button" hidden>Copy response</button>
+      <header class="brand-row">
+        <div class="brand-mark"><img src="icons/mcplab-favicon.svg" alt="" /></div>
+        <div class="brand-copy">
+          <h1>MCPLab Rover</h1>
+          <p id="provider" class="muted">Detecting active chat…</p>
+        </div>
+        <span class="notch-dot" aria-hidden="true"></span>
+      </header>
+      <div class="notch-rule" aria-hidden="true"></div>
+      <section id="connection" class="stack" aria-label="MCPLab connection">
+        <div class="connection-label">
+          <label for="origin">MCPLab</label>
+          <span id="connection-status" class="connection-status"><span id="connection-dot" class="connection-dot" aria-hidden="true"></span><span>Connecting…</span></span>
+          <button id="connection-settings" type="button" class="settings-button" aria-label="MCPLab connection settings" aria-expanded="false">⚙</button>
+        </div>
+        <div id="connection-controls" class="inline-row" hidden>
+          <input id="origin" type="url" value="http://127.0.0.1:8787" spellcheck="false" aria-label="MCPLab URL" />
+          <button id="connect" type="button" class="compact-button">Connect</button>
+        </div>
+        <div id="connection-preferences" hidden>
+          <label class="checkbox-row"><input id="debug-logging" type="checkbox" /> Console debug logging</label>
+        </div>
+        <button id="new-conversation" type="button" class="copy-button" hidden>Start new conversation</button>
+      </section>
+      <div class="mode-tabs" role="tablist" aria-label="Rover mode">
+        <button id="manual-mode" type="button" class="mode-tab active" role="tab" aria-selected="true" hidden>Manual</button>
+        <button id="queue-mode" type="button" class="mode-tab active" role="tab" aria-selected="true">Queue</button>
+        <button id="learn-mode" type="button" class="mode-tab" role="tab" aria-selected="false">Learn</button>
+        <button id="debug-mode" type="button" class="mode-tab" role="tab" aria-selected="false">Debug</button>
+      </div>
+      <section id="catalog" class="stack" aria-label="Live Test catalog" hidden>
+        <label for="search">Evaluation</label>
+        <input id="search" type="search" placeholder="Filter test cases" />
+        <select id="test-case" size="5" aria-label="Test cases"></select>
+        <p id="selection-note" class="muted wrap"></p>
+        <button id="prepare" type="button">Prepare Live Test</button>
+      </section>
+      <section id="learn-panel" class="stack" aria-label="Learn browser provider" hidden>
+        <strong>Teach Rover this chat</strong>
+        <p id="learn-status" class="muted wrap">Start learning, then send one message yourself in the active chat.</p>
+        <section id="learn-target" class="learning-target" aria-label="Learning target"></section>
+        <section id="learn-evidence-section" class="learning-section learning-evidence" aria-label="What Rover observed" hidden>
+          <div class="learning-section-heading">
+            <strong>What Rover observed</strong>
+            <span>Direct evidence from this chat</span>
+          </div>
+          <div id="learn-progress" class="debug-indicators" hidden></div>
+          <div id="learn-capabilities" class="debug-indicators"></div>
+        </section>
+        <section id="learn-proposal-section" class="learning-section learning-proposal" aria-label="MCPLab proposal" hidden>
+          <div class="learning-section-heading">
+            <strong>MCPLab proposal</strong>
+            <span>AI suggestions compared with Rover's evidence</span>
+          </div>
+          <div id="learn-proposal" class="debug-indicators"></div>
+        </section>
+        <section id="learn-validation-section" class="learning-section learning-validation" aria-label="Save readiness" hidden>
+          <div class="learning-section-heading">
+            <strong>Save readiness</strong>
+            <span>Why the provider can or cannot be saved</span>
+          </div>
+          <div id="learn-validation" class="debug-indicators"></div>
+        </section>
+        <input id="learn-name" type="text" placeholder="Provider name" aria-label="Provider name" hidden />
+        <button id="learn-capture" type="button" hidden>The chat is done, capture it</button>
+        <button id="learn-propose" type="button" hidden>Improve with MCPLab AI</button>
+        <button id="learn-save" type="button" hidden>Save provider to MCPLab</button>
+        <button id="learn-start" class="learn-reset-button" type="button">Start learning</button>
+      </section>
+      <section id="queue-panel" class="stack" aria-label="Evaluation queue" hidden>
+        <div class="inline-row queue-add-row">
+          <select id="queue-evaluation" aria-label="Evaluation to add"></select>
+          <button id="queue-add" type="button" class="compact-button">Add</button>
+        </div>
+        <label class="checkbox-row"><input id="queue-new-chat" type="checkbox" /> New conversation between evaluations</label>
+        <div id="queue-items" class="queue-items"></div>
+        <p id="queue-status" class="muted wrap">Add evaluations to create a queue.</p>
+        <div class="inline-row">
+          <button id="queue-start" type="button">Run queue</button>
+          <button id="queue-retry" type="button" class="copy-button" hidden>Retry</button>
+          <button id="queue-skip" type="button" class="copy-button" hidden>Skip</button>
+          <button id="queue-stop" type="button" class="stop-button" hidden>Stop</button>
+        </div>
+      </section>
+      <section id="debug-panel" class="stack" aria-label="Rover diagnostics" hidden>
+        <div class="inline-row debug-heading">
+          <strong>Diagnostics</strong>
+          <button id="debug-refresh" type="button" class="copy-button compact-button">Refresh</button>
+        </div>
+        <p id="debug-updated" class="muted wrap">Open Debug to inspect the active page.</p>
+        <div id="debug-indicators" class="debug-indicators"></div>
+      </section>
+      <section id="session" class="stack" aria-label="Prepared Live Test" hidden>
+        <strong id="test-name"></strong>
+        <pre id="prompt" class="result"></pre>
+        <button id="run" type="button"><span class="run-icon" aria-hidden="true">↗</span><span>Run in active chat</span></button>
+        <button id="stop" type="button" class="stop-button" hidden>Stop Live Test</button>
+        <button id="copy-prompt" type="button" class="copy-button" hidden>Copy prompt</button>
+        <textarea id="manual-answer" rows="5" placeholder="Paste the agent's final answer" hidden></textarea>
+        <button id="evaluate" type="button" hidden>Evaluate answer</button>
+      </section>
+      <div class="status-row">
+        <span class="status-pip" aria-hidden="true"></span>
+        <p id="status" role="status" class="status">Ready</p>
+      </div>
+      <section class="response-tray" aria-label="Captured response">
+        <p id="outcome" class="outcome" hidden></p>
+        <p id="checks" class="muted wrap" hidden></p>
+        <pre id="result" class="result" hidden></pre>
+        <div class="inline-row">
+          <button id="open-result" type="button" class="copy-button" hidden>View in MCPLab</button>
+          <button id="reset" type="button" class="copy-button" hidden>Run another</button>
+        </div>
+      </section>
     </main>
     <script type="module" src="/src/popup/main.ts"></script>
   </body>
