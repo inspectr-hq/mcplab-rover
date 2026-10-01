@@ -14,7 +14,8 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    document.body.innerHTML = '<textarea></textarea><button aria-label="Open settings">Settings</button>';
+    document.body.innerHTML =
+      '<textarea></textarea><button aria-label="Open settings">Settings</button>';
     const drafts: any[] = [];
     const session = startProviderDiscovery((draft) => drafts.push(draft));
     document.querySelector('textarea')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
@@ -22,7 +23,10 @@ describe('provider discovery recovery', () => {
     const response = document.createElement('div');
     response.setAttribute('data-testid', 'markdown-reply');
     response.textContent = 'An unrelated existing response changed';
-    Object.defineProperty(response, 'innerText', { value: response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      value: response.textContent,
+      configurable: true
+    });
     document.body.append(response);
     await new Promise((resolve) => setTimeout(resolve, 650));
     session.stop();
@@ -47,7 +51,10 @@ describe('provider discovery recovery', () => {
     const response = document.createElement('div');
     response.setAttribute('data-testid', 'markdown-reply');
     response.textContent = 'An old response changed while typing';
-    Object.defineProperty(response, 'innerText', { value: response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      value: response.textContent,
+      configurable: true
+    });
     document.body.append(response);
     await new Promise((resolve) => setTimeout(resolve, 650));
     session.stop();
@@ -63,7 +70,8 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    document.body.innerHTML = '<textarea></textarea><button aria-label="Send">Send</button><button aria-label="New chat">New chat</button>';
+    document.body.innerHTML =
+      '<textarea></textarea><button aria-label="Send">Send</button><button aria-label="New chat">New chat</button>';
     const drafts: any[] = [];
     const session = startProviderDiscovery((draft) => drafts.push(draft));
     document.querySelector('textarea')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
@@ -73,7 +81,10 @@ describe('provider discovery recovery', () => {
     const response = document.createElement('div');
     response.setAttribute('data-testid', 'markdown-reply');
     response.textContent = 'Answer before new conversation';
-    Object.defineProperty(response, 'innerText', { value: response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      value: response.textContent,
+      configurable: true
+    });
     document.body.append(response);
     await new Promise((resolve) => setTimeout(resolve, 100));
     send.setAttribute('aria-label', 'Send');
@@ -93,9 +104,11 @@ describe('provider discovery recovery', () => {
       beforeAssistantCount: 1,
       afterAssistantCount: 0
     });
-    expect(drafts.at(-1)?.capabilities).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'newConversation', confidence: 'medium' })
-    ]));
+    expect(drafts.at(-1)?.capabilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'newConversation', confidence: 'medium' })
+      ])
+    );
   });
 
   it('targets a title-only New Chat control rather than the Send button', async () => {
@@ -107,7 +120,8 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    document.body.innerHTML = '<textarea></textarea><button aria-label="Send">Send</button><button title="New chat"></button>';
+    document.body.innerHTML =
+      '<textarea></textarea><button aria-label="Send">Send</button><button title="New chat"></button>';
     const drafts: any[] = [];
     const session = startProviderDiscovery((draft) => drafts.push(draft));
     document.querySelector('textarea')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
@@ -117,12 +131,17 @@ describe('provider discovery recovery', () => {
     const response = document.createElement('div');
     response.setAttribute('data-testid', 'markdown-reply');
     response.textContent = 'A complete response before the next chat';
-    Object.defineProperty(response, 'innerText', { value: response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      value: response.textContent,
+      configurable: true
+    });
     document.body.append(response);
     await new Promise((resolve) => setTimeout(resolve, 100));
     send.setAttribute('aria-label', 'Send');
     await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 2_000 });
-    expect(drafts.at(-1).profile.newConversation.locator.segments.at(-1)).toBe('[title="New chat"]');
+    expect(drafts.at(-1).profile.newConversation.locator.segments.at(-1)).toBe(
+      '[title="New chat"]'
+    );
     expect(drafts.at(-1).readyToSave).toBe(false);
     const newChat = document.querySelector('[title="New chat"]')!;
     newChat.addEventListener('click', () => response.remove());
@@ -239,7 +258,10 @@ describe('provider discovery recovery', () => {
     const response = document.createElement('div');
     response.setAttribute('data-testid', 'markdown-reply');
     response.textContent = 'Answer from an agent with no Stop control';
-    Object.defineProperty(response, 'innerText', { value: response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      value: response.textContent,
+      configurable: true
+    });
     container.append(response);
     document.body.append(container);
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -270,7 +292,10 @@ describe('provider discovery recovery', () => {
     const response = document.createElement('div');
     response.setAttribute('data-testid', 'markdown-reply');
     response.textContent = 'An answer while a separate busy marker exists';
-    Object.defineProperty(response, 'innerText', { value: response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      value: response.textContent,
+      configurable: true
+    });
     container.append(response);
     document.body.append(container);
     await new Promise((resolve) => setTimeout(resolve, 120));
@@ -298,7 +323,10 @@ describe('provider discovery recovery', () => {
     send.setAttribute('aria-label', 'Stop generating');
     const response = document.createElement('div');
     response.setAttribute('data-testid', 'markdown-reply');
-    Object.defineProperty(response, 'innerText', { get: () => response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      get: () => response.textContent,
+      configurable: true
+    });
     response.textContent = 'The first streamed chunk';
     document.body.append(response);
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -310,7 +338,9 @@ describe('provider discovery recovery', () => {
     await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
     session.stop();
     expect(drafts.at(-1).trace.events.length).toBeLessThanOrEqual(32);
-    expect(drafts.at(-1).trace.events.some((event: any) => event.phase === 'generating')).toBe(true);
+    expect(drafts.at(-1).trace.events.some((event: any) => event.phase === 'generating')).toBe(
+      true
+    );
   });
 
   it('updates an early incomplete draft when a later generation and idle transition is observed', async () => {
@@ -357,7 +387,8 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    document.body.innerHTML = '<textarea aria-label="Message Copilot"></textarea><button aria-label="Send">Send</button>';
+    document.body.innerHTML =
+      '<textarea aria-label="Message Copilot"></textarea><button aria-label="Send">Send</button>';
     const composer = document.querySelector('textarea')!;
     const send = document.querySelector('button')!;
     const drafts: any[] = [];
@@ -405,7 +436,8 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><button aria-label="Submit">Submit</button><div data-test="chat-messages_message" class="chat-messages__message--user">Old user prompt</div>';
+    document.body.innerHTML =
+      '<textarea data-test="ai-agent_input"></textarea><button aria-label="Submit">Submit</button><div data-test="chat-messages_message" class="chat-messages__message--user">Old user prompt</div>';
     const composer = document.querySelector('textarea')!;
     const send = document.querySelector('button')!;
     const drafts: any[] = [];
@@ -460,7 +492,10 @@ describe('provider discovery recovery', () => {
       response.id = `answer-${request}`;
       response.setAttribute('role', 'article');
       response.textContent = `Assistant answer for request ${request}`;
-      Object.defineProperty(response, 'innerText', { get: () => response.textContent, configurable: true });
+      Object.defineProperty(response, 'innerText', {
+        get: () => response.textContent,
+        configurable: true
+      });
       document.body.append(response);
       setTimeout(() => send.setAttribute('aria-label', 'Send'), 100);
     });
@@ -471,7 +506,9 @@ describe('provider discovery recovery', () => {
     send.click();
     await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
     session.stop();
-    expect(drafts.at(-1).profile.assistantMessages.locator.segments.at(-1)).toBe('[role="article"]');
+    expect(drafts.at(-1).profile.assistantMessages.locator.segments.at(-1)).toBe(
+      '[role="article"]'
+    );
     expect(await ask(createMcplabAdapter(drafts.at(-1).profile), 'Second request')).toBe(
       'Assistant answer for request 2'
     );
@@ -486,9 +523,13 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    document.body.innerHTML = '<textarea></textarea><button aria-label="Send">Send</button><div data-testid="markdown-reply">Previous answer</div>';
+    document.body.innerHTML =
+      '<textarea></textarea><button aria-label="Send">Send</button><div data-testid="markdown-reply">Previous answer</div>';
     const response = document.querySelector('[data-testid="markdown-reply"]')!;
-    Object.defineProperty(response, 'innerText', { get: () => response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      get: () => response.textContent,
+      configurable: true
+    });
     const send = document.querySelector('button')!;
     const drafts: any[] = [];
     const session = startProviderDiscovery((draft) => drafts.push(draft));
@@ -515,7 +556,8 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    document.body.innerHTML = '<textarea></textarea><button aria-label="Send">Send</button><div data-testid="markdown-reply" data-message-id="old-turn">Old answer</div>';
+    document.body.innerHTML =
+      '<textarea></textarea><button aria-label="Send">Send</button><div data-testid="markdown-reply" data-message-id="old-turn">Old answer</div>';
     const send = document.querySelector('button')!;
     const drafts: any[] = [];
     const session = startProviderDiscovery((draft) => drafts.push(draft));
@@ -523,9 +565,13 @@ describe('provider discovery recovery', () => {
     send.click();
     send.setAttribute('aria-label', 'Stop generating');
     const response = document.querySelector('[data-message-id="old-turn"]')!;
-    response.outerHTML = '<div data-testid="markdown-reply" data-message-id="old-turn">Old answer rerendered after Send</div>';
+    response.outerHTML =
+      '<div data-testid="markdown-reply" data-message-id="old-turn">Old answer rerendered after Send</div>';
     const replacement = document.querySelector('[data-message-id="old-turn"]')!;
-    Object.defineProperty(replacement, 'innerText', { get: () => replacement.textContent, configurable: true });
+    Object.defineProperty(replacement, 'innerText', {
+      get: () => replacement.textContent,
+      configurable: true
+    });
     await new Promise((resolve) => setTimeout(resolve, 100));
     send.setAttribute('aria-label', 'Send');
     await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 2_000 });
@@ -548,7 +594,8 @@ describe('provider discovery recovery', () => {
       height: 10
     } as DOMRect);
     const drafts: any[] = [];
-    document.body.innerHTML = '<textarea aria-label="Message Copilot"></textarea><button aria-label="Send">Send</button>';
+    document.body.innerHTML =
+      '<textarea aria-label="Message Copilot"></textarea><button aria-label="Send">Send</button>';
     const session = startProviderDiscovery((draft) => drafts.push(draft));
     const composer = document.querySelector('textarea')!;
     composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
@@ -568,14 +615,22 @@ describe('provider discovery recovery', () => {
     expect(drafts[0].profile.assistantMessages.locator.segments.at(-1)).toBe(
       '[data-testid="markdown-reply"]'
     );
-    expect(drafts[0].trace.events.some((event: any) =>
-      event.snapshot?.some((node: any) => node.selector === '[data-testid="markdown-reply"]')
-    )).toBe(false);
-    expect(drafts[0].trace.events.some((event: any) =>
-      event.selectedElements?.assistant?.locator.segments.at(-1) === '[data-testid="markdown-reply"]'
-    )).toBe(true);
-    expect(drafts[0].trace.events.find((event: any) => event.selectedElements?.assistant)
-      .selectedElements.assistant).toMatchObject({
+    expect(
+      drafts[0].trace.events.some((event: any) =>
+        event.snapshot?.some((node: any) => node.selector === '[data-testid="markdown-reply"]')
+      )
+    ).toBe(false);
+    expect(
+      drafts[0].trace.events.some(
+        (event: any) =>
+          event.selectedElements?.assistant?.locator.segments.at(-1) ===
+          '[data-testid="markdown-reply"]'
+      )
+    ).toBe(true);
+    expect(
+      drafts[0].trace.events.find((event: any) => event.selectedElements?.assistant)
+        .selectedElements.assistant
+    ).toMatchObject({
       candidateScore: 21,
       attributes: { testId: 'markdown-reply' },
       changedFromBaseline: true

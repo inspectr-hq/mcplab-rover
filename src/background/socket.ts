@@ -30,6 +30,7 @@ import { serializeQueueOperation } from '../queue/operations';
 import { configureLeaseTransport, persistLeaseRelease } from './lease-transport';
 import type { RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
 import { debugLog } from './debug-logging';
+import { isBuiltInProviderProfile } from '../providers/catalog';
 
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
@@ -99,7 +100,9 @@ export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
       await serializeQueueOperation(async () => {
         const current = await getQueue();
         if (current?.queueId !== jobId || current.leaseId !== leaseId) return;
-        await saveQueue(transitionManagedLease(current, { type: 'renewed', leaseId, leaseExpiresAt }));
+        await saveQueue(
+          transitionManagedLease(current, { type: 'renewed', leaseId, leaseExpiresAt })
+        );
       });
     })().catch((error) =>
       debugLog('lease renewal failed', {
@@ -256,10 +259,11 @@ export async function loadProfilesIntoTab(tabId: number, origin: string): Promis
   } catch {
     return;
   }
+  const activeProfiles = profiles.filter((profile) => !isBuiltInProviderProfile(profile));
   loadedProviders.clear();
-  for (const profile of profiles) loadedProviders.set(profile.id, profile);
+  for (const profile of activeProfiles) loadedProviders.set(profile.id, profile);
   await chrome.tabs
-    .sendMessage(tabId, { type: 'ROVER_SET_PROFILES', profiles })
+    .sendMessage(tabId, { type: 'ROVER_SET_PROFILES', profiles: activeProfiles })
     .catch(() => undefined);
 }
 
@@ -447,6 +451,7 @@ export async function connectToMcplab(): Promise<void> {
         return;
       }
       if (message.type === 'provider_updated' && message.provider) {
+        if (isBuiltInProviderProfile(message.provider)) return;
         loadedProviders.set(message.provider.id, message.provider);
         void activeTab().then((tab) =>
           typeof tab?.id === 'number'
@@ -837,8 +842,7 @@ export function disableRoverConnection(): Promise<void> {
       roverSocket = null;
       registeredSocket = null;
       registeredTabId = undefined;
-      if (socket && socket.readyState !== WebSocket.CLOSED)
-        socket.close(1000, 'Rover disabled');
+      if (socket && socket.readyState !== WebSocket.CLOSED) socket.close(1000, 'Rover disabled');
     }
   })().finally(() => {
     roverDisablePromise = null;

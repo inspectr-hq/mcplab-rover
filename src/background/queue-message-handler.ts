@@ -1,6 +1,7 @@
 import type { ExtensionMessage } from '../contracts';
 import {
   addQueueItem,
+  dismissQueueHistoryItem,
   moveQueueItem,
   removeQueueItem,
   skipQueueItem,
@@ -36,6 +37,17 @@ export function handleQueueMessage(
   if (message.type === 'ROVER_QUEUE_WAITING') {
     sendResponse(waitingForMatching());
     return true;
+  }
+  if (message.type === 'ROVER_QUEUE_DISMISS_HISTORY') {
+    return respond(sendResponse, () =>
+      serializeQueueOperation(async () => {
+        const queue = await getQueue();
+        if (!queue) throw new Error('No queue history is available.');
+        const next = dismissQueueHistoryItem(queue, message.provider, message.queueItemId);
+        await saveQueue(next);
+        return { ok: true, queue: next };
+      })
+    );
   }
   if (message.type === 'ROVER_QUEUE_CLEAR') {
     return respond(sendResponse, async () => {

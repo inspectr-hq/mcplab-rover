@@ -308,6 +308,7 @@ export function installMessageHandler(): void {
       message.type === 'ROVER_QUEUE_SET_NEW_CHAT' ||
       message.type === 'ROVER_QUEUE_ADD' ||
       message.type === 'ROVER_QUEUE_REMOVE' ||
+      message.type === 'ROVER_QUEUE_DISMISS_HISTORY' ||
       message.type === 'ROVER_QUEUE_MOVE' ||
       message.type === 'ROVER_QUEUE_START' ||
       message.type === 'ROVER_QUEUE_STOP' ||

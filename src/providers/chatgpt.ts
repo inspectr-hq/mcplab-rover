@@ -87,5 +87,5 @@ export const chatgptAdapter: ChatProviderAdapter = {
         `chatgpt-${index}`,
       text: textFrom(element),
       visible: isVisible(element)
-    })),
+    }))
 };

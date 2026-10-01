@@ -244,7 +244,8 @@ learnStart.addEventListener(
       if (learnTargets.length > 1 && !selectedLearnTargetId) {
         learnStart.textContent = 'Start learning';
         learnCapture.hidden = true;
-        learnStatus.textContent = 'Choose the provider profile that this Learning session should update.';
+        learnStatus.textContent =
+          'Choose the provider profile that this Learning session should update.';
         return;
       }
       const targetProviderId = selectedLearnTargetId ?? learnTargets[0]?.id;
@@ -508,7 +509,8 @@ function renderQueue(queue: RoverQueueState | null): void {
   const renderGroup = (
     title: string,
     items: RoverQueueState['items'],
-    editable: boolean
+    editable: boolean,
+    history = false
   ): HTMLElement => {
     const group = document.createElement('section');
     group.className = 'queue-group';
@@ -527,8 +529,23 @@ function renderQueue(queue: RoverQueueState | null): void {
       name.textContent = `${queueIndex + 1}. ${item.name}`;
       const itemStatus = document.createElement('span');
       itemStatus.className = 'queue-item-status';
-      itemStatus.textContent = item.status;
-      row.append(name, itemStatus);
+      itemStatus.dataset.status = item.status;
+      itemStatus.textContent =
+        item.status === 'running'
+          ? ''
+          : item.status === 'passed'
+            ? '✓'
+            : item.status === 'failed'
+              ? '✕'
+              : item.status;
+      if (item.status === 'running' || item.status === 'passed' || item.status === 'failed') {
+        const label =
+          item.status === 'running' ? 'Running' : item.status === 'passed' ? 'Passed' : 'Failed';
+        itemStatus.setAttribute('role', 'img');
+        itemStatus.setAttribute('aria-label', label);
+        itemStatus.title = label;
+      }
+      row.append(itemStatus, name);
       if (editable) {
         for (const [action, label] of [
           ['up', '↑'],
@@ -563,6 +580,32 @@ function renderQueue(queue: RoverQueueState | null): void {
           row.append(button);
         }
       }
+      if (history) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'queue-history-remove';
+        button.innerHTML = `<svg width="14" height="14" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h12M6 6V3h6v3M4 6l1 9h8l1-9M7 8v5M11 8v5"/></svg>`;
+        button.title = `Remove ${item.name} from Rover history`;
+        button.setAttribute('aria-label', button.title);
+        button.addEventListener('click', async () => {
+          button.disabled = true;
+          try {
+            const response = await chrome.runtime.sendMessage({
+              type: 'ROVER_QUEUE_DISMISS_HISTORY',
+              provider: providerForView,
+              queueItemId: item.queueItemId
+            });
+            if (!response?.ok)
+              throw new Error(response?.error ?? 'Could not remove history entry.');
+            renderQueue(response.queue);
+          } catch (error) {
+            queueStatus.textContent =
+              error instanceof Error ? error.message : 'Could not remove history entry.';
+            button.disabled = false;
+          }
+        });
+        row.append(button);
+      }
       if (item.resultUrl) {
         const link = document.createElement('a');
         link.className = 'queue-result-link';
@@ -581,13 +624,18 @@ function renderQueue(queue: RoverQueueState | null): void {
   if (active.length)
     groups.push(renderGroup(managed ? `${queue.provider} queue` : 'Up next', active, editable));
   if (completed.length)
-    groups.push(renderGroup(`Recent ${providerForView} evaluations`, completed, false));
+    groups.push(renderGroup(`Recent ${providerForView} evaluations`, completed, false, true));
   queueItems.replaceChildren(...groups);
   queueItems.parentElement?.classList.toggle('queue-managed', managed);
   queueStart.hidden = !editable;
-  const phaseLabel = managedPhaseLabel(queue.managedPhase);
-  queueStatus.textContent =
-    !matchesCurrentAssignment && managed
+  const readyForNextEvaluation =
+    (queue.status === 'completed' || queue.status === 'stopped') &&
+    !queue.leaseId &&
+    !queue.pendingLeaseActions?.length;
+  const phaseLabel = managedPhaseLabel(readyForNextEvaluation ? 'terminal' : queue.managedPhase);
+  queueStatus.textContent = readyForNextEvaluation
+    ? `${phaseLabel}.`
+    : !matchesCurrentAssignment && managed
       ? `Assignment received for ${queue.provider}. Switch to a matching page to run it (${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} processed).`
       : !matchesCurrentAssignment
         ? `Switch to ${queue.provider} to edit or run this queue.`
@@ -608,17 +656,33 @@ function renderQueue(queue: RoverQueueState | null): void {
 }
 
 async function refreshActiveProvider(retry = true): Promise<void> {
+  provider.textContent = 'Checking this tab for a supported chat…';
   try {
     const response = (await chrome.runtime.sendMessage({ type: 'ROVER_GET_ACTIVE_PROVIDER' })) as
-      {
-        provider?: string;
-        profile?: BrowserProviderProfile;
-        url?: string;
-        supportsNewConversation?: boolean;
-      } | undefined;
+      | {
+          provider?: string;
+          profile?: BrowserProviderProfile;
+          url?: string;
+          supportsNewConversation?: boolean;
+          error?: string;
+        }
+      | undefined;
     activeProvider = response?.provider;
     activeProviderProfile = response?.profile;
     activeTabUrl = response?.url;
+    const providerName =
+      activeProviderProfile?.name ??
+      (activeProvider === 'claude'
+        ? 'Claude'
+        : activeProvider === 'chatgpt-com'
+          ? 'ChatGPT'
+          : activeProvider);
+    provider.textContent =
+      !response || response.error
+        ? 'Could not check this tab. Try reopening Rover.'
+        : activeProvider
+          ? `Active chat: ${providerName}`
+          : 'No supported chat detected on this tab';
     renderLearnTarget();
     const builtInSupport = response?.provider === 'claude' || response?.provider === 'chatgpt-com';
     activeProviderSupportsNewConversation =
@@ -629,6 +693,7 @@ async function refreshActiveProvider(retry = true): Promise<void> {
     // Provider detection can race popup startup while the content script is loading.
     // Retry once after the content script has had time to initialize.
     if (retry) window.setTimeout(() => void refreshActiveProvider(false), 500);
+    else provider.textContent = 'Could not check this tab. Try reopening Rover.';
   }
 }
 
@@ -638,8 +703,7 @@ async function refreshLearnTargets(): Promise<void> {
   })) as { targets?: Array<{ id: string; name: string }>; url?: string } | undefined;
   learnTargets = response?.targets ?? [];
   activeTabUrl = response?.url ?? activeTabUrl;
-  selectedLearnTargetId =
-    learnTargets.length === 1 ? learnTargets[0]?.id : selectedLearnTargetId;
+  selectedLearnTargetId = learnTargets.length === 1 ? learnTargets[0]?.id : selectedLearnTargetId;
   renderLearnTarget();
 }
 
@@ -939,15 +1003,11 @@ function render(state: RoverState | null): void {
   evaluate.hidden = !manualVisible || state?.status !== 'manual';
 
   if (!state) {
-    provider.textContent = 'Connect to choose a Live Test';
     status.textContent = items.length ? 'Choose a test case' : 'Ready';
     return;
   }
   testName.textContent = state.testCaseName;
   prompt.textContent = state.prompt;
-  provider.textContent = state.provider
-    ? `Active chat: ${state.provider}`
-    : 'Manual browser handoff';
   result.textContent = state.text ?? '';
   status.textContent = {
     ready: 'Review the prompt, then run it in the active chat.',
@@ -1101,7 +1161,9 @@ function renderLearnProposal(draft: BrowserProviderDiscoveryDraft): void {
     learnProposalSection.hidden = true;
     return;
   }
-  const captured = new Map(profileSummary(draft.capturedProfile).map((entry) => [entry.label, entry.value]));
+  const captured = new Map(
+    profileSummary(draft.capturedProfile).map((entry) => [entry.label, entry.value])
+  );
   const proposal = profileSummary(draft.profile);
   renderIndicatorList(
     learnProposal,
@@ -1156,12 +1218,16 @@ function renderLearnProgress(progress: BrowserProviderDiscoveryProgress): void {
     {
       label: 'Composer',
       state: progress.composerDetected ? 'pass' : 'unknown',
-      detail: progress.composerDetected ? 'Detected the message input.' : 'Waiting to detect the message input…'
+      detail: progress.composerDetected
+        ? 'Detected the message input.'
+        : 'Waiting to detect the message input…'
     },
     {
       label: 'Submit',
       state: progress.submitDetected ? 'pass' : 'unknown',
-      detail: progress.submitDetected ? 'Detected how prompts are sent.' : 'Waiting for you to send a message…'
+      detail: progress.submitDetected
+        ? 'Detected how prompts are sent.'
+        : 'Waiting for you to send a message…'
     },
     {
       label: 'Response',
@@ -1202,15 +1268,13 @@ chrome.runtime.onMessage.addListener((message: { type?: string }) => {
         event.draft.targetProviderName ??
         learnTargets.find(
           (target) =>
-            target.id ===
-            (event.draft?.targetProviderId ?? selectedLearnTargetId ?? activeProvider)
-        )
-          ?.name ??
+            target.id === (event.draft?.targetProviderId ?? selectedLearnTargetId ?? activeProvider)
+        )?.name ??
         activeProviderProfile?.name,
       sourceUrl: event.draft.sourceUrl ?? activeTabUrl
     };
     learnName.value = discoveryDraft.targetProviderId
-      ? discoveryDraft.targetProviderName ?? discoveryDraft.profile.name
+      ? (discoveryDraft.targetProviderName ?? discoveryDraft.profile.name)
       : suggestedProviderName(discoveryDraft.profile);
     void chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: discoveryDraft });
     learnStart.textContent = 'Stop learning';
@@ -1253,7 +1317,7 @@ void chrome.storage.local.get([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]).
   if (!draft) return;
   discoveryDraft = draft;
   learnName.value = draft.targetProviderId
-    ? draft.targetProviderName ?? draft.profile.name
+    ? (draft.targetProviderName ?? draft.profile.name)
     : suggestedProviderName(draft.profile);
   learnName.hidden = false;
   learnCapture.hidden = true;

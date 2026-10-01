@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  shouldHidePanelOnTabActivation,
+  shouldHidePreviousPanel,
   shouldRestorePanelExpanded,
   shouldRestorePanelAfterNavigation
 } from '../src/background/panel-visibility';
@@ -36,10 +36,10 @@ describe('panel visibility', () => {
     ).toBe(true);
   });
 
-  it('hides the tracked panel when a different tab becomes active', () => {
-    expect(shouldHidePanelOnTabActivation({ panelTabId: 12, activeTabId: 13 })).toBe(true);
-    expect(shouldHidePanelOnTabActivation({ panelTabId: 12, activeTabId: 12 })).toBe(false);
-    expect(shouldHidePanelOnTabActivation({ panelTabId: undefined, activeTabId: 13 })).toBe(false);
+  it('hides the previous panel when Rover is explicitly opened on a different tab', () => {
+    expect(shouldHidePreviousPanel({ panelTabId: 12, activeTabId: 13 })).toBe(true);
+    expect(shouldHidePreviousPanel({ panelTabId: 12, activeTabId: 12 })).toBe(false);
+    expect(shouldHidePreviousPanel({ panelTabId: undefined, activeTabId: 13 })).toBe(false);
   });
 
   it('preserves the last expanded state during navigation restore', () => {

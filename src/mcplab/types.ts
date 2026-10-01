@@ -10,6 +10,7 @@ export interface BrowserProviderProfile {
   schemaVersion: 1;
   id: string;
   name: string;
+  source?: 'builtin' | 'workspace';
   match: { origins: string[] };
   composer: { locator: ShadowLocator; inputMode: 'input' | 'textarea' | 'contenteditable' };
   submit: { action: 'click' | 'enter'; locator?: ShadowLocator };

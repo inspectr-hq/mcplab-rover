@@ -148,14 +148,17 @@ const copilotWorkingTrace = {
 
 describe('provider discovery replay', () => {
   it('does not validate a learned click New Chat action before context change is observed', () => {
-    const result = replayProviderProfile({
-      ...profile,
-      newConversation: {
-        action: 'click',
-        locator: { segments: ['button[title="New chat"]'] },
-        confirmation: 'context-change'
-      }
-    }, trace);
+    const result = replayProviderProfile(
+      {
+        ...profile,
+        newConversation: {
+          action: 'click',
+          locator: { segments: ['button[title="New chat"]'] },
+          confirmation: 'context-change'
+        }
+      },
+      trace
+    );
     expect(result.reasons).toContain('New Chat context change was not observed during Learning.');
   });
 
@@ -200,7 +203,9 @@ describe('provider discovery replay', () => {
           : event
       )
     });
-    expect(result.reasons).toContain('Generation signal was not observed after submission and before final.');
+    expect(result.reasons).toContain(
+      'Generation signal was not observed after submission and before final.'
+    );
   });
 
   it('does not combine a matching response with a different changed response', () => {
@@ -238,12 +243,16 @@ describe('provider discovery replay', () => {
         return event;
       })
     });
-    expect(result.reasons).toContain('Selected assistant response was not observed changing after submission.');
+    expect(result.reasons).toContain(
+      'Selected assistant response was not observed changing after submission.'
+    );
   });
 
   it('does not fall back to snapshot presence when a new trace lacks selected evidence', () => {
     const result = replayProviderProfile(profile, { ...trace, evidenceVersion: 1 });
-    expect(result.reasons).toContain('Selected assistant evidence is missing from the Learning trace.');
+    expect(result.reasons).toContain(
+      'Selected assistant evidence is missing from the Learning trace.'
+    );
   });
 
   it('rejects a broad assistant selector that also matched non-assistant elements', () => {
@@ -355,8 +364,6 @@ describe('provider discovery replay', () => {
       },
       copilotWorkingTrace
     );
-    expect(result.reasons).toContain(
-      'Working selector remains active in the final state.'
-    );
+    expect(result.reasons).toContain('Working selector remains active in the final state.');
   });
 });

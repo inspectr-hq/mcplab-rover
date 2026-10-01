@@ -175,6 +175,7 @@ export type ExtensionMessage =
     }
   | { type: 'ROVER_QUEUE_SET_NEW_CHAT'; enabled: boolean }
   | { type: 'ROVER_QUEUE_REMOVE'; queueItemId: string }
+  | { type: 'ROVER_QUEUE_DISMISS_HISTORY'; provider: ProviderId; queueItemId: string }
   | { type: 'ROVER_QUEUE_MOVE'; queueItemId: string; direction: 'up' | 'down' }
   | { type: 'ROVER_QUEUE_START' }
   | { type: 'ROVER_QUEUE_STOP' }

@@ -19,6 +19,8 @@
   --result-text: #24231f;
   --result-border: #d2d1cb;
   --copy-surface: #eee9e2;
+  --success: #059669;
+  --failure: #dc2626;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -34,6 +36,8 @@
     --result-text: #efebe4;
     --result-border: #2b2b2b;
     --copy-surface: #252525;
+    --success: #34d399;
+    --failure: #f87171;
   }
 }
 
@@ -379,8 +383,7 @@ button:disabled {
   font-size: 11px;
 }
 .queue-item {
-  display: grid;
-  grid-template-columns: 1fr auto auto auto;
+  display: flex;
   align-items: center;
   gap: 5px;
   padding: 7px 8px;
@@ -390,13 +393,45 @@ button:disabled {
   font-size: 11px;
 }
 .queue-item-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .queue-item-status {
+  flex-shrink: 0;
   color: var(--text-muted);
   font-size: 10px;
+}
+.queue-item-status[data-status='running'] {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: queue-status-spin 0.8s linear infinite;
+}
+@keyframes queue-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .queue-item-status[data-status='running'] {
+    animation: none;
+  }
+}
+.queue-item-status[data-status='passed'],
+.queue-item-status[data-status='failed'] {
+  font-size: 14px;
+  font-weight: 600;
+}
+.queue-item-status[data-status='passed'] {
+  color: var(--success);
+}
+.queue-item-status[data-status='failed'] {
+  color: var(--failure);
 }
 .queue-result-link {
   color: var(--text-muted);
@@ -404,6 +439,7 @@ button:disabled {
   white-space: nowrap;
 }
 .queue-item button {
+  flex-shrink: 0;
   width: 22px;
   height: 22px;
   padding: 0;
@@ -411,6 +447,11 @@ button:disabled {
   color: var(--text-muted);
   box-shadow: none;
   font-size: 12px;
+}
+.queue-item .queue-history-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .debug-heading {
   align-items: center;

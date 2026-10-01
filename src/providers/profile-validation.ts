@@ -28,6 +28,12 @@ export function isValidBrowserProviderProfile(value: unknown): value is BrowserP
   )
     return false;
   if (
+    profile.source !== undefined &&
+    profile.source !== 'builtin' &&
+    profile.source !== 'workspace'
+  )
+    return false;
+  if (
     !profile.match ||
     !Array.isArray(profile.match.origins) ||
     profile.match.origins.length === 0 ||

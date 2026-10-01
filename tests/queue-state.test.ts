@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addQueueItem,
   archiveCompletedQueueItems,
+  dismissQueueHistoryItem,
   createQueue,
   moveQueueItem,
   removeQueueItem,
@@ -66,6 +67,88 @@ describe('queue state', () => {
     );
     expect(completed.recentHistory?.claude[0]?.testCaseId).toBe('alpha');
   });
+  it('dismisses history without changing assignment results or restoring it on archive', () => {
+    let queue = addQueueItem(
+      addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), alpha),
+      beta
+    );
+    queue = startQueue(queue, '2026-10-01T10:00:00Z');
+    const finishedId = queue.activeItemId!;
+    queue = recordQueueItemOutcome(
+      queue,
+      finishedId,
+      'passed',
+      { runId: 'saved-result' },
+      '2026-10-01T10:01:00Z'
+    );
+    queue.recentHistory!['chatgpt-com'] = [{ ...queue.items[0]!, queueItemId: 'other-provider' }];
+    const dismissed = dismissQueueHistoryItem(queue, 'claude', finishedId);
+    expect(dismissed.recentHistory?.claude).toEqual([]);
+    expect(dismissed.recentHistory?.['chatgpt-com']).toEqual(queue.recentHistory?.['chatgpt-com']);
+    expect(dismissed.items).toHaveLength(2);
+    expect(dismissed.items[0]).toMatchObject({ status: 'passed', runId: 'saved-result' });
+    expect(dismissed.activeItemId).toBe(queue.activeItemId);
+    expect(queue.recentHistory?.claude).toHaveLength(1);
+    const completed = recordQueueItemOutcome(
+      dismissed,
+      dismissed.activeItemId!,
+      'failed',
+      {},
+      '2026-10-01T10:02:00Z'
+    );
+    expect(completed.recentHistory?.claude.map((item) => item.queueItemId)).toEqual([
+      queue.activeItemId
+    ]);
+    expect(completed.items.map((item) => item.status)).toEqual(['passed', 'failed']);
+    const restarted = startQueue(completed, '2026-10-01T10:03:00Z');
+    const rerun = recordQueueItemOutcome(
+      restarted,
+      finishedId,
+      'passed',
+      {},
+      '2026-10-01T10:04:00Z'
+    );
+    expect(rerun.recentHistory?.claude.some((item) => item.queueItemId === finishedId)).toBe(true);
+  });
+
+  it('keeps other finished entries visible when older queues have no archived history', () => {
+    let queue = startQueue(
+      addQueueItem(
+        addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), alpha),
+        beta
+      ),
+      'now'
+    );
+    queue = recordQueueItemOutcome(queue, queue.activeItemId!, 'passed', {}, 'now');
+    queue = recordQueueItemOutcome(queue, queue.activeItemId!, 'failed', {}, 'now');
+    delete queue.recentHistory;
+    const dismissed = dismissQueueHistoryItem(queue, 'claude', queue.items[0]!.queueItemId);
+    expect(dismissed.recentHistory?.claude.map((item) => item.queueItemId)).toEqual([
+      queue.items[1]!.queueItemId
+    ]);
+  });
+
+  it('dismisses another provider history without touching the current assignment', () => {
+    const queue = startQueue(
+      addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), alpha),
+      'now'
+    );
+    const archived = { ...queue.items[0]!, status: 'passed' as const };
+    queue.recentHistory = { 'chatgpt-com': [archived] };
+    const dismissed = dismissQueueHistoryItem(queue, 'chatgpt-com', archived.queueItemId);
+    expect(dismissed.recentHistory?.['chatgpt-com']).toEqual([]);
+    expect(dismissed.items).toEqual(queue.items);
+    expect(dismissed.activeItemId).toBe(queue.activeItemId);
+  });
+
+  it('refuses to dismiss unfinished items and tolerates an already removed entry', () => {
+    const queue = addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), alpha);
+    expect(() => dismissQueueHistoryItem(queue, 'claude', queue.items[0]!.queueItemId)).toThrow(
+      'Only finished'
+    );
+    expect(dismissQueueHistoryItem(queue, 'claude', 'missing')).toBe(queue);
+  });
+
   it('supports duplicate evaluations and explicit ordering', () => {
     let queue = createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z');
     queue = addQueueItem(queue, alpha);

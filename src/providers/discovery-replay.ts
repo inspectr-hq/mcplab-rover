@@ -1,4 +1,7 @@
-import type { BrowserProviderDiscoveryTrace, BrowserProviderDiscoveryTraceEvent } from '../contracts';
+import type {
+  BrowserProviderDiscoveryTrace,
+  BrowserProviderDiscoveryTraceEvent
+} from '../contracts';
 import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
 
 export interface DiscoveryReplayResult {
@@ -21,12 +24,13 @@ function matchesObservedSelector(
   profileSelector: string,
   selected: NonNullable<SelectionRole[keyof SelectionRole]>
 ): boolean {
-  if (selected.selectors.some((candidate) => matchesSelector(profileSelector, candidate))) return true;
+  if (selected.selectors.some((candidate) => matchesSelector(profileSelector, candidate)))
+    return true;
   const attributes = profileSelector.match(/\[[^\]]+\]/g) ?? [];
   if (attributes.length < 2) return false;
   return attributes.every((attribute) =>
-    selected.selectors.some((candidate) =>
-      matchesSelector(attribute, candidate) || candidate.includes(attribute)
+    selected.selectors.some(
+      (candidate) => matchesSelector(attribute, candidate) || candidate.includes(attribute)
     )
   );
 }
@@ -83,7 +87,11 @@ export function replayProviderProfile(
   const submit = lastSelector(profile.submit.locator);
   const composerSelections = selectedEvidence(events, 'composer', ['baseline', 'submitted']);
   if (composerSelections.length > 0) {
-    if (!composerSelections.some(({ element }) => matchesSelectedLocator(profile.composer.locator, element)))
+    if (
+      !composerSelections.some(({ element }) =>
+        matchesSelectedLocator(profile.composer.locator, element)
+      )
+    )
       reasons.push('Composer selector does not identify the selected composer.');
   } else if (trace.evidenceVersion === 1) {
     reasons.push('Selected composer evidence is missing from the Learning trace.');
@@ -96,7 +104,11 @@ export function replayProviderProfile(
   if (profile.submit.action === 'click') {
     const submitSelections = selectedEvidence(events, 'submit', ['submitted']);
     if (submitSelections.length > 0) {
-      if (!submitSelections.some(({ element }) => matchesSelectedLocator(profile.submit.locator, element)))
+      if (
+        !submitSelections.some(({ element }) =>
+          matchesSelectedLocator(profile.submit.locator, element)
+        )
+      )
         reasons.push('Submit selector does not identify the selected send control.');
     } else if (trace.evidenceVersion === 1)
       reasons.push('Selected send-control evidence is missing from the Learning trace.');
@@ -119,17 +131,21 @@ export function replayProviderProfile(
     )
       reasons.push('Assistant selector also matched non-assistant elements.');
     const submittedIndex = events.findIndex((event) => event.phase === 'submitted');
-    if (submittedIndex < 0 || !matchingSelections.some(({ index, element }) =>
-      index > submittedIndex &&
-      (trace.evidenceVersion === 1
-        ? element.changedAfterSubmission === true
-        : element.changedFromBaseline === true)
-    ))
+    if (
+      submittedIndex < 0 ||
+      !matchingSelections.some(
+        ({ index, element }) =>
+          index > submittedIndex &&
+          (trace.evidenceVersion === 1
+            ? element.changedAfterSubmission === true
+            : element.changedFromBaseline === true)
+      )
+    )
       reasons.push('Selected assistant response was not observed changing after submission.');
     if (
       trace.evidenceVersion === 1 &&
-      !matchingSelections.some(({ index, element }) =>
-        index > submittedIndex && element.absentAtSubmission === true
+      !matchingSelections.some(
+        ({ index, element }) => index > submittedIndex && element.absentAtSubmission === true
       )
     )
       reasons.push('Selected assistant response was not a new turn after submission.');
@@ -160,7 +176,11 @@ export function replayProviderProfile(
     )
       reasons.push('Generation signal was not observed after submission and before final.');
     if (generatingSelections.length > 0) {
-      if (!generatingSelections.some(({ element }) => matchesSelectedLocator(profile.completion.generatingLocator, element)))
+      if (
+        !generatingSelections.some(({ element }) =>
+          matchesSelectedLocator(profile.completion.generatingLocator, element)
+        )
+      )
         reasons.push('Generation selector does not identify the observed generation control.');
     } else if (trace.evidenceVersion === 1)
       reasons.push('Selected generation-control evidence is missing from the Learning trace.');
@@ -196,11 +216,17 @@ export function replayProviderProfile(
   } else {
     const idleSelections = selectedEvidence(events, 'idle', ['final']);
     if (idleSelections.length > 0) {
-      if (!idleSelections.some(({ element }) => matchesSelectedLocator(profile.completion.idleLocator, element)))
+      if (
+        !idleSelections.some(({ element }) =>
+          matchesSelectedLocator(profile.completion.idleLocator, element)
+        )
+      )
         reasons.push('Idle selector does not identify the observed ready control.');
     } else if (trace.evidenceVersion === 1)
       reasons.push('Selected idle-control evidence is missing from the Learning trace.');
-    else if (!snapshots('final').some((node) => matchesSelector(idle, node.selector) && !node.disabled))
+    else if (
+      !snapshots('final').some((node) => matchesSelector(idle, node.selector) && !node.disabled)
+    )
       reasons.push('Idle selector was not observed in an enabled final snapshot.');
   }
   if (
@@ -212,9 +238,8 @@ export function replayProviderProfile(
   if (trace.newConversationEvidence) {
     const evidence = trace.newConversationEvidence;
     const configured = profile.newConversation;
-    const locators = configured?.action === 'click'
-      ? [configured.locator, ...(configured.locators ?? [])]
-      : [];
+    const locators =
+      configured?.action === 'click' ? [configured.locator, ...(configured.locators ?? [])] : [];
     if (
       !locators.some((value) =>
         matchesSelectedLocator(value, {
