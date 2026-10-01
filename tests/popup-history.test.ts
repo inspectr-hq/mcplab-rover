@@ -63,6 +63,31 @@ it('shows passed evaluations as an accessible green check', () => {
   expect(status.nextElementSibling?.textContent).toBe('1. Search assets');
 });
 
+it('shows an accessible running spinner before the name and replaces it on completion', () => {
+  const queue = startQueue(
+    addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), {
+      id: 'running-case',
+      name: 'Working',
+      prompt: '',
+      assertionCount: 1
+    }),
+    'now'
+  );
+  sendMessage.mockClear();
+  storageChanged({ 'rover.queue': { newValue: queue } }, 'session');
+  const status = document.querySelector<HTMLElement>('.queue-item-status')!;
+  expect(status.dataset.status).toBe('running');
+  expect(status.textContent).toBe('');
+  expect(status.getAttribute('aria-label')).toBe('Running');
+  expect(status.getAttribute('role')).toBe('img');
+  expect(status.nextElementSibling?.textContent).toBe('1. Working');
+  const completed = recordQueueItemOutcome(queue, queue.activeItemId!, 'passed', {}, 'now');
+  storageChanged({ 'rover.queue': { newValue: completed } }, 'session');
+  expect(document.querySelector('.queue-item-status')?.textContent).toBe('✓');
+  expect(document.querySelector('[data-status="running"]')).toBeNull();
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+
 it('shows a failed cross before the number and name', async () => {
   let queue = startQueue(
     addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), {

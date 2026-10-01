@@ -531,9 +531,9 @@ function renderQueue(queue: RoverQueueState | null): void {
       itemStatus.className = 'queue-item-status';
       itemStatus.dataset.status = item.status;
       itemStatus.textContent =
-        item.status === 'passed' ? '✓' : item.status === 'failed' ? '✕' : item.status;
-      if (item.status === 'passed' || item.status === 'failed') {
-        const label = item.status === 'passed' ? 'Passed' : 'Failed';
+        item.status === 'running' ? '' : item.status === 'passed' ? '✓' : item.status === 'failed' ? '✕' : item.status;
+      if (item.status === 'running' || item.status === 'passed' || item.status === 'failed') {
+        const label = item.status === 'running' ? 'Running' : item.status === 'passed' ? 'Passed' : 'Failed';
         itemStatus.setAttribute('role', 'img');
         itemStatus.setAttribute('aria-label', label);
         itemStatus.title = label;
