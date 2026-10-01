@@ -33,7 +33,6 @@ Rover does not replace MCPLab or act as an MCP proxy. It is the browser worker t
 - **Central assignment:** Let MCPLab match queued work to the connected Rover and browser provider.
 - **Reliable execution:** Explicit leases, stale-result protection, reconnect handling, cancellation, and durable terminal actions protect managed runs.
 - **Automatic response capture:** Rover tracks newly created or changed assistant responses instead of reusing older page content.
-- **Manual fallback:** Copy a prompt and paste the final answer when a page cannot be automated.
 - **Learned providers:** Teach Rover the composer and response layout of another browser agent from the UI.
 - **Clear outcomes:** See passed, failed, incomplete, and error results with evaluated and unavailable check counts.
 - **Local by default:** Rover accepts only loopback HTTP origins for its MCPLab connection.
@@ -60,8 +59,6 @@ npx @inspectr/mcplab app --open
 ```
 
 Then open a supported browser agent and click the Rover toolbar icon. A pulsing green indicator shows that Rover is connected. Use the settings icon next to **MCPLab** if your local app uses another loopback port.
-
-Rover currently accepts `http://127.0.0.1`, `http://localhost`, or `http://[::1]` origins only. Remote origins and authentication are intentionally outside the current release.
 
 ## Run an evaluation
 
@@ -123,18 +120,21 @@ Learn more at [mcplab.inspectr.dev](https://mcplab.inspectr.dev/) or read Rover'
 
 ```mermaid
 flowchart LR
-    A[MCPLab evaluation] -->|prompt and criteria| B[Rover]
+    A[MCPLab catalog or queue] -->|prompt, criteria, and assignment| B[Rover]
+    B -->|register provider and accept lease| A
     B -->|submit prompt| C[Browser agent]
     C -->|new assistant response| B
-    B -->|captured response| A
+    B -->|captured response and status| A
     A -->|evaluate and persist| D[MCPLab result]
+    B -->|release terminal lease| A
 ```
 
-1. MCPLab owns the evaluation definitions, queue, evaluation logic, and persisted results.
-2. Rover connects to the local MCPLab app and registers the provider detected in the active browser tab.
-3. Rover submits the selected prompt and waits for a new assistant response.
-4. MCPLab evaluates the response using the configured response and judge assertions.
-5. The result is stored with Rover provenance and can be opened in MCPLab.
+1. MCPLab owns the evaluation definitions, queue, provider matching, leases, evaluation logic, and persisted results.
+2. Rover connects to the local MCPLab app and registers the provider detected in the active browser tab, including its extension version.
+3. For centrally assigned work, Rover accepts one explicit lease and keeps the assignment bound to its provider tab. Local queue and Live Test runs use the same browser execution and capture path without a central assignment.
+4. Rover submits the prompt and waits for a newly created or changed assistant response.
+5. Rover sends the captured response and execution status to MCPLab. MCPLab evaluates it using the configured response and judge assertions, then persists the result.
+6. Rover releases a managed lease when the assignment reaches a terminal outcome. The result is stored with Rover provenance and can be opened in MCPLab.
 
 Browser-only runs do not observe MCP tool calls yet. Tool-dependent checks are reported as `not_evaluated`, which produces an `incomplete` outcome when all evaluated checks pass. Inspectr telemetry is planned as a later extension of the same evaluation pipeline.
 
