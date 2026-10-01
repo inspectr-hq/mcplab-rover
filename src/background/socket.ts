@@ -30,7 +30,7 @@ import { serializeQueueOperation } from '../queue/operations';
 import { configureLeaseTransport, persistLeaseRelease } from './lease-transport';
 import type { RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
 import { debugLog } from './debug-logging';
-import { isBuiltInProvider } from '../providers';
+import { isBuiltInProviderProfile } from '../providers/catalog';
 
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
@@ -257,9 +257,7 @@ export async function loadProfilesIntoTab(tabId: number, origin: string): Promis
   } catch {
     return;
   }
-  const activeProfiles = profiles.filter(
-    (profile) => !(profile.source === 'builtin' && isBuiltInProvider(profile.id))
-  );
+  const activeProfiles = profiles.filter((profile) => !isBuiltInProviderProfile(profile));
   loadedProviders.clear();
   for (const profile of activeProfiles) loadedProviders.set(profile.id, profile);
   await chrome.tabs
@@ -451,6 +449,7 @@ export async function connectToMcplab(): Promise<void> {
         return;
       }
       if (message.type === 'provider_updated' && message.provider) {
+        if (isBuiltInProviderProfile(message.provider)) return;
         loadedProviders.set(message.provider.id, message.provider);
         void activeTab().then((tab) =>
           typeof tab?.id === 'number'

@@ -62,7 +62,14 @@ class FakeWebSocket {
   }
 }
 
-import { connectToMcplab, disableRoverConnection, enableRoverConnection, startLeaseRenewal, updateRoverRegistration } from '../src/background/socket';
+import {
+  connectToMcplab,
+  disableRoverConnection,
+  enableRoverConnection,
+  loadedProvider,
+  startLeaseRenewal,
+  updateRoverRegistration
+} from '../src/background/socket';
 import { createQueue } from '../src/queue/state';
 import { serializeQueueOperation } from '../src/queue/operations';
 
@@ -86,7 +93,10 @@ describe('socket assignment lifecycle', () => {
       FakeWebSocket as unknown as typeof WebSocket;
     (globalThis as typeof globalThis & { chrome: unknown }).chrome = {
       runtime: { getManifest: () => ({ version: '1.0.0' }) },
-      tabs: { get: vi.fn(async () => ({ id: 7, url: 'https://claude.ai/chat/1' })) },
+      tabs: {
+        get: vi.fn(async () => ({ id: 7, url: 'https://claude.ai/chat/1' })),
+        sendMessage: vi.fn(async () => undefined)
+      },
       storage: { session: { remove: vi.fn() } }
     } as unknown as typeof chrome;
     mocks.resolveOrigin.mockResolvedValue('http://127.0.0.1:8787');
@@ -123,6 +133,54 @@ describe('socket assignment lifecycle', () => {
     releaseOrigin('http://127.0.0.1:8787');
     await pending;
     expect(mocks.detectProvider).not.toHaveBeenCalled();
+  });
+
+  it('ignores built-in provider updates in background state', async () => {
+    const socket = await connectedSocket();
+    const workspaceProfile = {
+      id: 'claude',
+      schemaVersion: 1,
+      name: 'Workspace Claude',
+      source: 'workspace',
+      match: { origins: ['https://claude.ai'] },
+      composer: { locator: { segments: ['textarea'] }, inputMode: 'textarea' },
+      submit: { action: 'enter' },
+      assistantMessages: { locator: { segments: ['.assistant'] } },
+      completion: { stabilityMs: 2500 },
+      learned: {
+        sourceOrigin: 'https://claude.ai',
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-01T00:00:00.000Z',
+        confidence: {}
+      }
+    };
+    socket.message({ type: 'provider_updated', provider: workspaceProfile });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(loadedProvider('claude')?.name).toBe('Workspace Claude');
+
+    socket.message({
+      type: 'provider_updated',
+      provider: {
+        id: 'claude',
+        schemaVersion: 1,
+        name: 'MCP Lab Claude',
+        source: 'builtin',
+        match: { origins: ['https://claude.ai'] },
+        composer: { locator: { segments: ['textarea'] }, inputMode: 'textarea' },
+        submit: { action: 'enter' },
+        assistantMessages: { locator: { segments: ['.assistant'] } },
+        completion: { stabilityMs: 2500 },
+        learned: {
+          sourceOrigin: 'https://claude.ai',
+          createdAt: '2026-10-01T00:00:00.000Z',
+          updatedAt: '2026-10-01T00:00:00.000Z',
+          confidence: {}
+        }
+      }
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(loadedProvider('claude')?.name).toBe('Workspace Claude');
   });
 
   it('stops and releases an active leased queue when Rover is disabled', async () => {

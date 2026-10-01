@@ -73,6 +73,12 @@ function evaluate(adapter: ChatProviderAdapter, candidates = adapter.getAssistan
 }
 
 describe('learned provider profile validation', () => {
+  it('rejects an unknown profile source', () => {
+    expect(
+      isValidBrowserProviderProfile({ ...learnedProfile, source: 'BuiltIn' })
+    ).toBe(false);
+  });
+
   it('rejects an invalid New Chat alternative even when the primary locator is valid', () => {
     expect(isValidBrowserProviderProfile({
       ...learnedProfile,
