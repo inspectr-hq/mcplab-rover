@@ -670,13 +670,19 @@ async function refreshActiveProvider(retry = true): Promise<void> {
     activeProvider = response?.provider;
     activeProviderProfile = response?.profile;
     activeTabUrl = response?.url;
-    const providerName = activeProviderProfile?.name ??
-      (activeProvider === 'claude' ? 'Claude' : activeProvider === 'chatgpt-com' ? 'ChatGPT' : activeProvider);
-    provider.textContent = !response || response.error
-      ? 'Could not check this tab. Try reopening Rover.'
-      : activeProvider
-        ? `Active chat: ${providerName}`
-        : 'No supported chat detected on this tab';
+    const providerName =
+      activeProviderProfile?.name ??
+      (activeProvider === 'claude'
+        ? 'Claude'
+        : activeProvider === 'chatgpt-com'
+          ? 'ChatGPT'
+          : activeProvider);
+    provider.textContent =
+      !response || response.error
+        ? 'Could not check this tab. Try reopening Rover.'
+        : activeProvider
+          ? `Active chat: ${providerName}`
+          : 'No supported chat detected on this tab';
     renderLearnTarget();
     const builtInSupport = response?.provider === 'claude' || response?.provider === 'chatgpt-com';
     activeProviderSupportsNewConversation =
