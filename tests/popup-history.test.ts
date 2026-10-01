@@ -5,6 +5,7 @@ import { createQueue, addQueueItem, startQueue, recordQueueItemOutcome } from '.
 import { clearLeaseState } from '../src/queue/lease-outbox';
 
 let sendMessage: ReturnType<typeof vi.fn>;
+let runtimeMessage: (message: { type: string }) => void;
 let storageChanged: (changes: Record<string, { newValue: unknown }>, area: string) => void;
 
 beforeEach(async () => {
@@ -34,7 +35,14 @@ beforeEach(async () => {
     return null;
   });
   vi.stubGlobal('chrome', {
-    runtime: { sendMessage, onMessage: { addListener: vi.fn() } },
+    runtime: {
+      sendMessage,
+      onMessage: {
+        addListener: vi.fn((listener) => {
+          runtimeMessage = listener;
+        })
+      }
+    },
     storage: {
       local: { get: vi.fn(async () => ({})) },
       onChanged: {
@@ -52,7 +60,10 @@ beforeEach(async () => {
   );
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 it('shows passed evaluations as an accessible green check', () => {
   const status = document.querySelector<HTMLElement>('.queue-item-status')!;
@@ -173,5 +184,68 @@ it('keeps acknowledgement progress visible until MCPLab settles the assignment',
   storageChanged({ 'rover.queue': { newValue: queue } }, 'session');
   expect(document.querySelector('#queue-status')?.textContent).toBe(
     'Waiting for MCPLab acknowledgement.'
+  );
+});
+
+it('updates the tab header in queue mode and preserves it when Live Test state changes', async () => {
+  await vi.waitFor(() =>
+    expect(document.querySelector('#provider')?.textContent).toBe('Active chat: Claude')
+  );
+  storageChanged(
+    {
+      'rover.run': {
+        newValue: {
+          status: 'ready',
+          provider: 'chatgpt-com',
+          testCaseName: 'Old session',
+          prompt: ''
+        }
+      }
+    },
+    'session'
+  );
+  expect(document.querySelector('#provider')?.textContent).toBe('Active chat: Claude');
+  storageChanged({ 'rover.run': { newValue: null } }, 'session');
+  expect(document.querySelector('#provider')?.textContent).toBe('Active chat: Claude');
+});
+
+it.each([
+  [{ provider: 'chatgpt-com' }, 'Active chat: ChatGPT'],
+  [{ provider: 'local-chat', profile: { name: 'Local provider' } }, 'Active chat: Local provider'],
+  [{}, 'No supported chat detected on this tab'],
+  [{ error: 'Content script unavailable' }, 'Could not check this tab. Try reopening Rover.']
+])('updates the header from the latest tab detection %j', async (response, label) => {
+  sendMessage.mockResolvedValueOnce(response);
+  runtimeMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+  await vi.waitFor(() => expect(document.querySelector('#provider')?.textContent).toBe(label));
+});
+
+it('shows checking only while tab detection is pending', async () => {
+  let resolveDetection!: (value: unknown) => void;
+  sendMessage.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveDetection = resolve;
+      })
+  );
+  runtimeMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+  expect(document.querySelector('#provider')?.textContent).toBe(
+    'Checking this tab for a supported chat…'
+  );
+  resolveDetection({ provider: 'claude' });
+  await vi.waitFor(() =>
+    expect(document.querySelector('#provider')?.textContent).toBe('Active chat: Claude')
+  );
+});
+
+it('ends the checking label when detection and its existing retry both fail', async () => {
+  vi.useFakeTimers();
+  sendMessage
+    .mockRejectedValueOnce(new Error('Tab not available'))
+    .mockRejectedValueOnce(new Error('Tab not available'));
+  runtimeMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+  await vi.advanceTimersByTimeAsync(500);
+  expect(document.querySelector('#provider')?.textContent).toBe(
+    'Could not check this tab. Try reopening Rover.'
   );
 });

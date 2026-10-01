@@ -531,9 +531,16 @@ function renderQueue(queue: RoverQueueState | null): void {
       itemStatus.className = 'queue-item-status';
       itemStatus.dataset.status = item.status;
       itemStatus.textContent =
-        item.status === 'running' ? '' : item.status === 'passed' ? '✓' : item.status === 'failed' ? '✕' : item.status;
+        item.status === 'running'
+          ? ''
+          : item.status === 'passed'
+            ? '✓'
+            : item.status === 'failed'
+              ? '✕'
+              : item.status;
       if (item.status === 'running' || item.status === 'passed' || item.status === 'failed') {
-        const label = item.status === 'running' ? 'Running' : item.status === 'passed' ? 'Passed' : 'Failed';
+        const label =
+          item.status === 'running' ? 'Running' : item.status === 'passed' ? 'Passed' : 'Failed';
         itemStatus.setAttribute('role', 'img');
         itemStatus.setAttribute('aria-label', label);
         itemStatus.title = label;
@@ -626,10 +633,9 @@ function renderQueue(queue: RoverQueueState | null): void {
     !queue.leaseId &&
     !queue.pendingLeaseActions?.length;
   const phaseLabel = managedPhaseLabel(readyForNextEvaluation ? 'terminal' : queue.managedPhase);
-  queueStatus.textContent =
-    readyForNextEvaluation
-      ? `${phaseLabel}.`
-      : !matchesCurrentAssignment && managed
+  queueStatus.textContent = readyForNextEvaluation
+    ? `${phaseLabel}.`
+    : !matchesCurrentAssignment && managed
       ? `Assignment received for ${queue.provider}. Switch to a matching page to run it (${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} processed).`
       : !matchesCurrentAssignment
         ? `Switch to ${queue.provider} to edit or run this queue.`
@@ -650,6 +656,7 @@ function renderQueue(queue: RoverQueueState | null): void {
 }
 
 async function refreshActiveProvider(retry = true): Promise<void> {
+  provider.textContent = 'Checking this tab for a supported chat…';
   try {
     const response = (await chrome.runtime.sendMessage({ type: 'ROVER_GET_ACTIVE_PROVIDER' })) as
       | {
@@ -657,11 +664,19 @@ async function refreshActiveProvider(retry = true): Promise<void> {
           profile?: BrowserProviderProfile;
           url?: string;
           supportsNewConversation?: boolean;
+          error?: string;
         }
       | undefined;
     activeProvider = response?.provider;
     activeProviderProfile = response?.profile;
     activeTabUrl = response?.url;
+    const providerName = activeProviderProfile?.name ??
+      (activeProvider === 'claude' ? 'Claude' : activeProvider === 'chatgpt-com' ? 'ChatGPT' : activeProvider);
+    provider.textContent = !response || response.error
+      ? 'Could not check this tab. Try reopening Rover.'
+      : activeProvider
+        ? `Active chat: ${providerName}`
+        : 'No supported chat detected on this tab';
     renderLearnTarget();
     const builtInSupport = response?.provider === 'claude' || response?.provider === 'chatgpt-com';
     activeProviderSupportsNewConversation =
@@ -672,6 +687,7 @@ async function refreshActiveProvider(retry = true): Promise<void> {
     // Provider detection can race popup startup while the content script is loading.
     // Retry once after the content script has had time to initialize.
     if (retry) window.setTimeout(() => void refreshActiveProvider(false), 500);
+    else provider.textContent = 'Could not check this tab. Try reopening Rover.';
   }
 }
 
@@ -981,15 +997,11 @@ function render(state: RoverState | null): void {
   evaluate.hidden = !manualVisible || state?.status !== 'manual';
 
   if (!state) {
-    provider.textContent = 'Connect to choose a Live Test';
     status.textContent = items.length ? 'Choose a test case' : 'Ready';
     return;
   }
   testName.textContent = state.testCaseName;
   prompt.textContent = state.prompt;
-  provider.textContent = state.provider
-    ? `Active chat: ${state.provider}`
-    : 'Manual browser handoff';
   result.textContent = state.text ?? '';
   status.textContent = {
     ready: 'Review the prompt, then run it in the active chat.',
