@@ -76,16 +76,20 @@ describe('popup view model', () => {
   });
 
   it('guides the next Learning action when New Chat has not been confirmed', () => {
-    expect(learnResultStatus({
-      readyToSave: true,
-      hasNewConversation: true,
-      newConversationContextObserved: false
-    })).toContain('click New Chat');
-    expect(learnResultStatus({
-      readyToSave: true,
-      hasNewConversation: true,
-      newConversationContextObserved: true
-    })).toContain('New Chat context change observed');
+    expect(
+      learnResultStatus({
+        readyToSave: true,
+        hasNewConversation: true,
+        newConversationContextObserved: false
+      })
+    ).toContain('click New Chat');
+    expect(
+      learnResultStatus({
+        readyToSave: true,
+        hasNewConversation: true,
+        newConversationContextObserved: true
+      })
+    ).toContain('New Chat context change observed');
   });
 
   it('labels diagnostic timestamps as checked time', () => {

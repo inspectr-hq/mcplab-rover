@@ -60,7 +60,7 @@ function findTextWithin(candidate: Element, locator: ShadowLocator): Element | n
   for (const [index, selector] of locator.segments.entries()) {
     const matches = roots.flatMap((root) => Array.from(root.querySelectorAll(selector)));
     if (index === locator.segments.length - 1) return matches[0] ?? null;
-    roots = matches.flatMap((match) => match.shadowRoot ? [match.shadowRoot] : []);
+    roots = matches.flatMap((match) => (match.shadowRoot ? [match.shadowRoot] : []));
   }
   return null;
 }
@@ -136,7 +136,9 @@ export function createMcplabAdapter(profile: BrowserProviderProfile): ChatProvid
         : undefined;
       const generating =
         configuredGenerating ??
-        Boolean(stopControl || (submitControl instanceof HTMLButtonElement && submitControl.disabled));
+        Boolean(
+          stopControl || (submitControl instanceof HTMLButtonElement && submitControl.disabled)
+        );
       const stopVisible = configuredGenerating ?? Boolean(stopControl);
       const idle = profile.completion.idleLocator
         ? findPath(profile.completion.idleLocator, true).some((element) =>
@@ -240,7 +242,9 @@ export function createMcplabAdapter(profile: BrowserProviderProfile): ChatProvid
             .find((element) => {
               const target = clickableTarget(element);
               const label = `${controlLabel(element)} ${controlLabel(target)} ${element.getAttribute('data-test') ?? ''} ${element.getAttribute('data-testid') ?? ''} ${element.getAttribute('trackingtest') ?? ''}`;
-              return /new[\s_-]*(chat|conversation)|new[\s_-]*thread|start[\s_-]*(a[\s_-]*)?new/.test(label);
+              return /new[\s_-]*(chat|conversation)|new[\s_-]*thread|start[\s_-]*(a[\s_-]*)?new/.test(
+                label
+              );
             });
           if (!button) throw new Error(`${profile.name} new conversation control was not found`);
           const composerStartedWithText = Boolean(beforeComposer.trim());

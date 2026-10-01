@@ -1,14 +1,7 @@
 import type { ResponseCandidate } from './candidate-selection';
 
 export type ProviderExecutionState =
-  | 'idle'
-  | 'submitted'
-  | 'waiting'
-  | 'generating'
-  | 'working'
-  | 'finished'
-  | 'error'
-  | 'unknown';
+  'idle' | 'submitted' | 'waiting' | 'generating' | 'working' | 'finished' | 'error' | 'unknown';
 
 export type ProviderRawSignalName =
   | 'generation_active'
@@ -20,10 +13,7 @@ export type ProviderRawSignalName =
   | 'error_visible';
 
 export type ProviderSignalName =
-  | ProviderRawSignalName
-  | 'response_present'
-  | 'response_mutating'
-  | 'response_identity_changed';
+  ProviderRawSignalName | 'response_present' | 'response_mutating' | 'response_identity_changed';
 
 export interface SelectedResponseObservation {
   identity: string;
@@ -103,9 +93,7 @@ function evidence(
   at: number,
   names: ProviderSignalName[]
 ): EvidenceRecord[] {
-  return names
-    .filter((signal) => signals[signal])
-    .map((signal) => ({ signal, at, value: true }));
+  return names.filter((signal) => signals[signal]).map((signal) => ({ signal, at, value: true }));
 }
 
 function hasOwn<T extends object>(value: T, key: PropertyKey): boolean {
@@ -167,10 +155,7 @@ export class ProviderStateEngine {
         blockingEvidence: [],
         anomaly: 'post-terminal-observation'
       };
-      this.history = [
-        ...this.history,
-        anomaly
-      ].slice(-HISTORY_LIMIT);
+      this.history = [...this.history, anomaly].slice(-HISTORY_LIMIT);
       return this.snapshot(observation.observedAt);
     }
 
@@ -191,9 +176,7 @@ export class ProviderStateEngine {
     const responsePresenceChanged = responsePresent !== this.lastResponsePresent;
     const responseActivity =
       responsePresent &&
-      (responsePresenceChanged ||
-        responseIdentityChanged ||
-        responseTextChanged);
+      (responsePresenceChanged || responseIdentityChanged || responseTextChanged);
 
     if (responseActivity) this.lastResponseActivityAt = at;
     if (responsePresent) {
@@ -269,8 +252,7 @@ export class ProviderStateEngine {
       this.terminalReason = 'provider-error';
       this.errorMessage = observation.error || 'Provider reported an error.';
       next = 'error';
-    }
-    else if (!responsePresent) next = 'waiting';
+    } else if (!responsePresent) next = 'waiting';
     else if (responseMutating) next = 'generating';
     else if (working) next = 'working';
     else if (generationActive) next = 'generating';
@@ -294,10 +276,7 @@ export class ProviderStateEngine {
       return this.snapshot(at);
     } else next = 'finished';
 
-    const minimumDuration = Math.max(
-      0,
-      this.options.minimumStateDurationMs?.[this.state] ?? 0
-    );
+    const minimumDuration = Math.max(0, this.options.minimumStateDurationMs?.[this.state] ?? 0);
     if (next !== this.state && at - this.stateSince < minimumDuration) next = this.state;
     this.transition(next, at, this.positiveEvidence, this.blockingEvidence);
     return this.snapshot(at);

@@ -64,6 +64,50 @@ describe('queue message handler', () => {
     expect(mocks.getQueue).not.toHaveBeenCalled();
   });
 
+  it('persists history dismissal without stopping or releasing an assignment', async () => {
+    const queue = {
+      queueId: 'queue-1',
+      mode: 'queue',
+      origin: 'http://localhost:8787',
+      provider: 'claude',
+      newConversationBetweenItems: false,
+      status: 'completed',
+      createdAt: 'now',
+      updatedAt: 'now',
+      leaseId: 'lease-1',
+      managedPhase: 'waiting_ack',
+      items: [
+        {
+          queueItemId: 'finished',
+          testCaseId: 'case',
+          id: 'case',
+          name: 'Case',
+          prompt: '',
+          assertionCount: 0,
+          status: 'passed'
+        }
+      ]
+    };
+    mocks.getQueue.mockResolvedValue(queue);
+    const sendResponse = vi.fn();
+    handleQueueMessage(
+      { type: 'ROVER_QUEUE_DISMISS_HISTORY', provider: 'claude', queueItemId: 'finished' },
+      sendResponse
+    );
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: true }))
+    );
+    expect(mocks.saveQueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        leaseId: 'lease-1',
+        managedPhase: 'waiting_ack',
+        recentHistory: { claude: [] }
+      })
+    );
+    expect(mocks.cancelActiveQueueItem).not.toHaveBeenCalled();
+    expect(mocks.persistLeaseRelease).not.toHaveBeenCalled();
+  });
+
   it('starts a draft queue and dispatches its first item', async () => {
     const queue = {
       queueId: 'queue-1',

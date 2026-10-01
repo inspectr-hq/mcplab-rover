@@ -19,6 +19,7 @@
   --result-text: #24231f;
   --result-border: #d2d1cb;
   --copy-surface: #eee9e2;
+  --success: #059669;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -34,6 +35,7 @@
     --result-text: #efebe4;
     --result-border: #2b2b2b;
     --copy-surface: #252525;
+    --success: #34d399;
   }
 }
 
@@ -397,6 +399,11 @@ button:disabled {
 .queue-item-status {
   color: var(--text-muted);
   font-size: 10px;
+}
+.queue-item-status[data-status='passed'] {
+  color: var(--success);
+  font-size: 14px;
+  font-weight: 600;
 }
 .queue-result-link {
   color: var(--text-muted);

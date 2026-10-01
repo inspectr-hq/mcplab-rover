@@ -26,18 +26,29 @@ vi.mock('../src/background/lease-transport', () => ({
   },
   persistLeaseRelease: mocks.persistLeaseRelease
 }));
-vi.mock('../src/background/store', () => ({ getQueue: mocks.getQueue, saveQueue: mocks.saveQueue }));
+vi.mock('../src/background/store', () => ({
+  getQueue: mocks.getQueue,
+  saveQueue: mocks.saveQueue
+}));
 
-import { deferQueueItem, finalizeManagedQueue, pauseQueue, runQueueItem } from '../src/background/queue-runner';
+import {
+  deferQueueItem,
+  finalizeManagedQueue,
+  pauseQueue,
+  runQueueItem
+} from '../src/background/queue-runner';
 import { stopQueue } from '../src/queue/state';
 
 describe('server assignment failure handling', () => {
   it('ignores a delayed queue-item error after the queue was stopped', async () => {
     vi.clearAllMocks();
     let rejectProvider!: (error: Error) => void;
-    mocks.detectProvider.mockImplementation(() => new Promise((_, reject) => {
-      rejectProvider = reject;
-    }));
+    mocks.detectProvider.mockImplementation(
+      () =>
+        new Promise((_, reject) => {
+          rejectProvider = reject;
+        })
+    );
     const queue = {
       queueId: 'job-stopped',
       mode: 'queue' as const,
@@ -48,10 +59,17 @@ describe('server assignment failure handling', () => {
       newConversationBetweenItems: true,
       status: 'running' as const,
       activeItemId: 'item-1',
-      items: [{
-        queueItemId: 'item-1', testCaseId: 'scenario-1', id: 'scenario-1',
-        name: 'Scenario 1', prompt: 'Hi', assertionCount: 0, status: 'running' as const
-      }],
+      items: [
+        {
+          queueItemId: 'item-1',
+          testCaseId: 'scenario-1',
+          id: 'scenario-1',
+          name: 'Scenario 1',
+          prompt: 'Hi',
+          assertionCount: 0,
+          status: 'running' as const
+        }
+      ],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };

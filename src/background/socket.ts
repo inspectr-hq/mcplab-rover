@@ -100,7 +100,9 @@ export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
       await serializeQueueOperation(async () => {
         const current = await getQueue();
         if (current?.queueId !== jobId || current.leaseId !== leaseId) return;
-        await saveQueue(transitionManagedLease(current, { type: 'renewed', leaseId, leaseExpiresAt }));
+        await saveQueue(
+          transitionManagedLease(current, { type: 'renewed', leaseId, leaseExpiresAt })
+        );
       });
     })().catch((error) =>
       debugLog('lease renewal failed', {
@@ -840,8 +842,7 @@ export function disableRoverConnection(): Promise<void> {
       roverSocket = null;
       registeredSocket = null;
       registeredTabId = undefined;
-      if (socket && socket.readyState !== WebSocket.CLOSED)
-        socket.close(1000, 'Rover disabled');
+      if (socket && socket.readyState !== WebSocket.CLOSED) socket.close(1000, 'Rover disabled');
     }
   })().finally(() => {
     roverDisablePromise = null;

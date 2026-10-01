@@ -63,8 +63,11 @@ describe('badge restoration after navigation', () => {
 
   it('restores the badge while registration is waiting on the queue', async () => {
     let finishRegistration!: () => void;
-    mocks.updateRoverRegistration.mockImplementation(() =>
-      new Promise<void>((resolve) => { finishRegistration = resolve; })
+    mocks.updateRoverRegistration.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishRegistration = resolve;
+        })
     );
     mocks.onUpdated.mock.calls[0]![0](7, { status: 'complete' });
 
@@ -93,11 +96,12 @@ describe('badge restoration after navigation', () => {
     mocks.sendMessage.mockRejectedValueOnce(new Error('Receiving end does not exist.'));
     mocks.onUpdated.mock.calls[0]![0](7, { status: 'complete' });
 
-    await vi.waitFor(() => expect(mocks.executeScript).toHaveBeenCalledWith({
-      target: { tabId: 7 },
-      files: ['content.js']
-    }));
+    await vi.waitFor(() =>
+      expect(mocks.executeScript).toHaveBeenCalledWith({
+        target: { tabId: 7 },
+        files: ['content.js']
+      })
+    );
     await vi.waitFor(() => expect(mocks.sendMessage).toHaveBeenCalledTimes(2));
   });
 });
-

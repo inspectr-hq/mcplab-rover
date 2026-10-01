@@ -5,7 +5,12 @@ import type {
   BrowserProviderDiscoveryTraceEvent
 } from '../contracts';
 import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
-import { hasAssistantMarker, scoreAssistantCandidate, selectAssistantCandidate, type ChatCandidateDescriptor } from './candidate-descriptor';
+import {
+  hasAssistantMarker,
+  scoreAssistantCandidate,
+  selectAssistantCandidate,
+  type ChatCandidateDescriptor
+} from './candidate-descriptor';
 import { replayProviderProfile } from './discovery-replay';
 import { controlLabel, isGenerationControlLabel } from './control-labels';
 import { stableTurnIdentity } from './turn-identity';
@@ -44,17 +49,10 @@ function selectorAttributeValue(element: Element, attribute: string): string | u
 function selector(element: Element): string {
   const html = element as HTMLElement;
   const authorRole = selectorAttributeValue(html, 'data-message-author-role');
-  if (authorRole)
-    return `[data-message-author-role="${CSS.escape(authorRole)}"]`;
+  if (authorRole) return `[data-message-author-role="${CSS.escape(authorRole)}"]`;
   const assistantClass = assistantClassSelector(element);
   if (assistantClass) return assistantClass;
-  for (const attribute of [
-    'data-testid',
-    'data-test',
-    'aria-label',
-    'title',
-    'name'
-  ]) {
+  for (const attribute of ['data-testid', 'data-test', 'aria-label', 'title', 'name']) {
     const value = selectorAttributeValue(html, attribute);
     if (value) return `[${attribute}="${CSS.escape(value)}"]`;
   }
@@ -307,9 +305,11 @@ export function startProviderDiscovery(
   let lastDraftReady = false;
   let lastDraftSignature = '';
   let lastDraft: BrowserProviderDiscoveryDraft | null = null;
-  let pendingNewConversation:
-    | { control: HTMLElement; beforeUrl: string; beforeAssistantCount: number }
-    | null = null;
+  let pendingNewConversation: {
+    control: HTMLElement;
+    beforeUrl: string;
+    beforeAssistantCount: number;
+  } | null = null;
   let stopped = false;
   let observedGeneration = false;
   let observedIdle = false;
@@ -371,18 +371,34 @@ export function startProviderDiscovery(
       const currentAssistantCount = candidate
         ? allElements('*').filter((item) => {
             const value = descriptor(item, baselineTexts);
-            return value.visible && Boolean(value.text.trim()) && hasAssistantMarker(value) &&
-              scoreAssistantCandidate(value) !== Number.NEGATIVE_INFINITY;
+            return (
+              value.visible &&
+              Boolean(value.text.trim()) &&
+              hasAssistantMarker(value) &&
+              scoreAssistantCandidate(value) !== Number.NEGATIVE_INFINITY
+            );
           }).length
         : 0;
       const identity = stableTurnIdentity(element);
       const attributes = {
-        ...(element.getAttribute('role') ? { role: element.getAttribute('role')!.slice(0, 128) } : {}),
-        ...(element.getAttribute('aria-label') ? { ariaLabel: element.getAttribute('aria-label')!.slice(0, 128) } : {}),
-        ...(element.getAttribute('aria-busy') ? { ariaBusy: element.getAttribute('aria-busy')!.slice(0, 128) } : {}),
-        ...(element.getAttribute('data-testid') ? { testId: element.getAttribute('data-testid')!.slice(0, 128) } : {}),
-        ...(element.getAttribute('data-test') ? { dataTest: element.getAttribute('data-test')!.slice(0, 128) } : {}),
-        ...(element.getAttribute('data-message-author-role') ? { authorRole: element.getAttribute('data-message-author-role')!.slice(0, 128) } : {})
+        ...(element.getAttribute('role')
+          ? { role: element.getAttribute('role')!.slice(0, 128) }
+          : {}),
+        ...(element.getAttribute('aria-label')
+          ? { ariaLabel: element.getAttribute('aria-label')!.slice(0, 128) }
+          : {}),
+        ...(element.getAttribute('aria-busy')
+          ? { ariaBusy: element.getAttribute('aria-busy')!.slice(0, 128) }
+          : {}),
+        ...(element.getAttribute('data-testid')
+          ? { testId: element.getAttribute('data-testid')!.slice(0, 128) }
+          : {}),
+        ...(element.getAttribute('data-test')
+          ? { dataTest: element.getAttribute('data-test')!.slice(0, 128) }
+          : {}),
+        ...(element.getAttribute('data-message-author-role')
+          ? { authorRole: element.getAttribute('data-message-author-role')!.slice(0, 128) }
+          : {})
       };
       const selectors = selectorCandidates(element);
       const selectorEvaluations = candidate
@@ -428,7 +444,8 @@ export function startProviderDiscovery(
           : {})
       };
     };
-    const selectedElements: NonNullable<BrowserProviderDiscoveryTraceEvent['selectedElements']> = {};
+    const selectedElements: NonNullable<BrowserProviderDiscoveryTraceEvent['selectedElements']> =
+      {};
     if ((phase === 'baseline' || phase === 'submitted') && composer)
       selectedElements.composer = evidenceFor(composer);
     if (phase === 'submitted' && submit && submit !== composer)
@@ -490,9 +507,11 @@ export function startProviderDiscovery(
           : assistantCount < pending.beforeAssistantCount
             ? 'assistant-count-reduced'
             : null;
-      const readyComposer = composer && !(composer instanceof HTMLInputElement || composer instanceof HTMLTextAreaElement
-        ? composer.value.trim()
-        : composer.textContent?.trim());
+      const readyComposer =
+        composer &&
+        !(composer instanceof HTMLInputElement || composer instanceof HTMLTextAreaElement
+          ? composer.value.trim()
+          : composer.textContent?.trim());
       if (signal && readyComposer) {
         const updatedTrace: BrowserProviderDiscoveryTrace = {
           ...trace,
@@ -605,11 +624,10 @@ export function startProviderDiscovery(
         ? true
         : !observedGeneration && workingLocator
           ? selectedStableSince !== null && Date.now() - selectedStableSince >= 500
-          :
-        (Boolean(controls.idleControl) &&
-          !controls.generating &&
-          selectedStableSince !== null &&
-          Date.now() - selectedStableSince >= 500));
+          : Boolean(controls.idleControl) &&
+            !controls.generating &&
+            selectedStableSince !== null &&
+            Date.now() - selectedStableSince >= 500);
     if (composer && assistant && responseIsReady) {
       const draftSignature = `${selectedSignature}:${observedGeneration}:${observedIdle}:${generatingLocator?.segments.join('/') ?? ''}:${idleControl ? locator(idleControl).segments.join('/') : ''}`;
       if (draftSignature !== lastDraftSignature) {
@@ -633,8 +651,12 @@ export function startProviderDiscovery(
     );
     submissionAssistantCount = elements.filter((element) => {
       const value = descriptor(element, baselineTexts);
-      return value.visible && Boolean(value.text.trim()) && hasAssistantMarker(value) &&
-        scoreAssistantCandidate(value) !== Number.NEGATIVE_INFINITY;
+      return (
+        value.visible &&
+        Boolean(value.text.trim()) &&
+        hasAssistantMarker(value) &&
+        scoreAssistantCandidate(value) !== Number.NEGATIVE_INFINITY
+      );
     }).length;
   };
   const onFocus = (event: FocusEvent) => {
@@ -736,16 +758,17 @@ export function startProviderDiscovery(
     emitted = true;
     const submitLocator = submit && submit !== composer ? locator(submit) : undefined;
     const newConversation = findNewConversationControls();
-    const newConversationProfile = newConversation.length > 0
-      ? newConversation[0] instanceof HTMLAnchorElement && newConversation[0].href
-        ? { action: 'navigate' as const, url: newConversation[0].href }
-        : {
-            action: 'click' as const,
-            locator: locator(newConversation[0]),
-            locators: newConversation.map((control) => locator(control)),
-            confirmation: 'context-change' as const
-          }
-      : undefined;
+    const newConversationProfile =
+      newConversation.length > 0
+        ? newConversation[0] instanceof HTMLAnchorElement && newConversation[0].href
+          ? { action: 'navigate' as const, url: newConversation[0].href }
+          : {
+              action: 'click' as const,
+              locator: locator(newConversation[0]),
+              locators: newConversation.map((control) => locator(control)),
+              confirmation: 'context-change' as const
+            }
+        : undefined;
     const profile: BrowserProviderProfile = {
       schemaVersion: 1,
       id:
@@ -767,9 +790,7 @@ export function startProviderDiscovery(
       assistantMessages: { locator: locator(assistant) },
       completion: {
         stabilityMs: 2500,
-        ...(generatingLocator
-          ? { generatingLocator }
-          : {}),
+        ...(generatingLocator ? { generatingLocator } : {}),
         ...(idleControl
           ? { idleLocator: controlLocator(idleControl, 'idle') }
           : submit && submit !== composer
@@ -796,7 +817,14 @@ export function startProviderDiscovery(
         : { valid: true, matchCount: 0, visible: true },
       assistant: validateLocator(profile.assistantMessages.locator)
     };
-    record('final', lastCandidateCount, lastChangedCandidateCount, lastControls, lastSelected, assistant);
+    record(
+      'final',
+      lastCandidateCount,
+      lastChangedCandidateCount,
+      lastControls,
+      lastSelected,
+      assistant
+    );
     const replay = replayProviderProfile(profile, trace);
     lastDraftReady = replay.passed;
     const draft: BrowserProviderDiscoveryDraft = {
@@ -826,15 +854,16 @@ export function startProviderDiscovery(
         {
           id: 'completion',
           label: 'Completion',
-          confidence: observedGeneration && observedIdle ? 'high' : observedGeneration ? 'medium' : 'low',
+          confidence:
+            observedGeneration && observedIdle ? 'high' : observedGeneration ? 'medium' : 'low',
           detail:
             observedGeneration && observedIdle
               ? 'Observed the generation control and its idle transition.'
               : workingLocator
                 ? 'Observed assistant-scoped activity ending; completion remains inferred from response stability.'
-              : observedGeneration
-                ? 'Observed generation, but not the idle transition yet.'
-                : 'No generation or working transition observed; completion cannot be validated.'
+                : observedGeneration
+                  ? 'Observed generation, but not the idle transition yet.'
+                  : 'No generation or working transition observed; completion cannot be validated.'
         },
         {
           id: 'newConversation',
@@ -861,7 +890,14 @@ export function startProviderDiscovery(
       subtree: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ['aria-label', 'aria-busy', 'title', 'disabled', 'class', 'data-is-streaming']
+      attributeFilter: [
+        'aria-label',
+        'aria-busy',
+        'title',
+        'disabled',
+        'class',
+        'data-is-streaming'
+      ]
     });
   const stop = () => {
     stopped = true;

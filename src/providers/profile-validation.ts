@@ -27,7 +27,11 @@ export function isValidBrowserProviderProfile(value: unknown): value is BrowserP
     typeof profile.name !== 'string'
   )
     return false;
-  if (profile.source !== undefined && profile.source !== 'builtin' && profile.source !== 'workspace')
+  if (
+    profile.source !== undefined &&
+    profile.source !== 'builtin' &&
+    profile.source !== 'workspace'
+  )
     return false;
   if (
     !profile.match ||

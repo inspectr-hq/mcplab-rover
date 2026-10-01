@@ -110,9 +110,12 @@ describe('socket assignment lifecycle', () => {
 
   it('does not create a socket after the toolbar disables a pending connection', async () => {
     let releaseTab!: (tab: { id: number; url: string }) => void;
-    mocks.activeTab.mockImplementation(() => new Promise((resolve) => {
-      releaseTab = resolve;
-    }));
+    mocks.activeTab.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseTab = resolve;
+        })
+    );
     enableRoverConnection();
     await vi.waitFor(() => expect(mocks.activeTab).toHaveBeenCalled());
     await disableRoverConnection();
@@ -123,9 +126,12 @@ describe('socket assignment lifecycle', () => {
 
   it('does not continue tab registration after the toolbar disables Rover', async () => {
     let releaseOrigin!: (origin: string) => void;
-    mocks.resolveOrigin.mockImplementation(() => new Promise((resolve) => {
-      releaseOrigin = resolve;
-    }));
+    mocks.resolveOrigin.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseOrigin = resolve;
+        })
+    );
     enableRoverConnection();
     const pending = updateRoverRegistration(7);
     await vi.waitFor(() => expect(mocks.resolveOrigin).toHaveBeenCalled());
@@ -206,12 +212,18 @@ describe('socket assignment lifecycle', () => {
     const socket = await connectedSocket();
     mocks.getQueue.mockResolvedValue({
       ...createQueue('http://127.0.0.1:8787', 'claude', true, new Date().toISOString()),
-      queueId: 'job-1', status: 'running', leaseId: 'lease-1', activeItemId: 'item-1'
+      queueId: 'job-1',
+      status: 'running',
+      leaseId: 'lease-1',
+      activeItemId: 'item-1'
     });
     let finishCancellation!: () => void;
-    mocks.cancelActiveQueueItem.mockImplementation(() => new Promise<void>((resolve) => {
-      finishCancellation = resolve;
-    }));
+    mocks.cancelActiveQueueItem.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishCancellation = resolve;
+        })
+    );
     const closing = disableRoverConnection();
     await vi.waitFor(() => expect(mocks.cancelActiveQueueItem).toHaveBeenCalledOnce());
     expect(mocks.saveQueue).not.toHaveBeenCalled();
@@ -235,15 +247,20 @@ describe('socket assignment lifecycle', () => {
     };
     mocks.getQueue.mockResolvedValue(queue);
     let release!: () => void;
-    const blocked = serializeQueueOperation(() => new Promise<void>((resolve) => {
-      release = resolve;
-    }));
+    const blocked = serializeQueueOperation(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        })
+    );
     await vi.waitFor(() => expect(release).toBeTypeOf('function'));
     vi.useFakeTimers();
     try {
       await startLeaseRenewal(queue);
       await vi.advanceTimersByTimeAsync(31_000);
-      expect(socket.sent.filter((value) => JSON.parse(value).type === 'lease_renew')).toHaveLength(2);
+      expect(socket.sent.filter((value) => JSON.parse(value).type === 'lease_renew')).toHaveLength(
+        2
+      );
     } finally {
       release();
       await blocked;
@@ -256,7 +273,10 @@ describe('socket assignment lifecycle', () => {
     const socket = await connectedSocket();
     mocks.getQueue.mockResolvedValue({
       ...createQueue('http://127.0.0.1:8787', 'claude', true, new Date().toISOString()),
-      queueId: 'job-1', status: 'running', leaseId: 'lease-1', activeItemId: 'item-1'
+      queueId: 'job-1',
+      status: 'running',
+      leaseId: 'lease-1',
+      activeItemId: 'item-1'
     });
     mocks.cancelActiveQueueItem.mockRejectedValue(new Error('Tab disappeared'));
     await disableRoverConnection();

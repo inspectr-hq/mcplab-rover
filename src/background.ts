@@ -80,7 +80,8 @@ installMessageHandler();
 
 chrome.runtime.onMessage.addListener((message: { type?: string; expanded?: boolean }, sender) => {
   if (message.type !== 'ROVER_PANEL_STATE' || typeof sender.tab?.id !== 'number') return;
-  if (panelTabId === sender.tab.id) panelExpandedByTab.set(sender.tab.id, message.expanded === true);
+  if (panelTabId === sender.tab.id)
+    panelExpandedByTab.set(sender.tab.id, message.expanded === true);
 });
 
 chrome.action.onClicked.addListener(async (tab) => {

@@ -42,6 +42,8 @@ export interface RoverQueueItem extends QueueCatalogItem, QueueItemResult {
   completedAt?: string;
   error?: string;
   cancelRequestedAt?: string;
+  /** Local history visibility; keep the outcome for assignment bookkeeping. */
+  hiddenFromHistory?: boolean;
 }
 
 export interface QueueFailure {
@@ -144,7 +146,7 @@ export function addQueueItem(queue: RoverQueueState, catalog: QueueCatalogItem):
 
 export function archiveCompletedQueueItems(queue: RoverQueueState, maxItems = 5): RoverQueueState {
   const completed = queue.items
-    .filter((item) => completedStatuses.has(item.status))
+    .filter((item) => completedStatuses.has(item.status) && !item.hiddenFromHistory)
     .sort(
       (a, b) => (Date.parse(b.completedAt ?? '') || 0) - (Date.parse(a.completedAt ?? '') || 0)
     );
@@ -157,6 +159,47 @@ export function archiveCompletedQueueItems(queue: RoverQueueState, maxItems = 5)
     )
     .slice(0, maxItems);
   return updated(queue, { recentHistory: { ...queue.recentHistory, [queue.provider]: merged } });
+}
+
+export function getQueueHistoryForProvider(
+  queue: Pick<RoverQueueState, 'provider' | 'items' | 'recentHistory'>,
+  provider: ProviderId
+): RoverQueueItem[] {
+  return (
+    queue.recentHistory?.[provider] ??
+    (queue.provider === provider
+      ? queue.items.filter((item) => isCompletedQueueItemStatus(item.status))
+      : [])
+  ).filter((item) => !item.hiddenFromHistory);
+}
+
+export function dismissQueueHistoryItem(
+  queue: RoverQueueState,
+  provider: ProviderId,
+  queueItemId: string
+): RoverQueueState {
+  const currentItem =
+    queue.provider === provider
+      ? queue.items.find((item) => item.queueItemId === queueItemId)
+      : undefined;
+  const history = getQueueHistoryForProvider(queue, provider);
+  const item = currentItem ?? history.find((candidate) => candidate.queueItemId === queueItemId);
+  if (!item) return queue;
+  if (!isCompletedQueueItemStatus(item.status))
+    throw new Error('Only finished evaluations can be removed from history.');
+  return updated(queue, {
+    items: currentItem
+      ? queue.items.map((candidate) =>
+          candidate.queueItemId === queueItemId
+            ? { ...candidate, hiddenFromHistory: true }
+            : candidate
+        )
+      : queue.items,
+    recentHistory: {
+      ...queue.recentHistory,
+      [provider]: history.filter((candidate) => candidate.queueItemId !== queueItemId)
+    }
+  });
 }
 
 export function moveQueueItem(
@@ -196,6 +239,7 @@ export function startQueue(queue: RoverQueueState, now: string): RoverQueueState
         startedAt: undefined,
         completedAt: undefined,
         cancelRequestedAt: undefined,
+        hiddenFromHistory: undefined,
         runId: undefined,
         resultUrl: undefined,
         checkCounts: undefined,
