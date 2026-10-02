@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { createQueue, addQueueItem, startQueue, recordQueueItemOutcome } from '../src/queue/state';
 import { clearLeaseState } from '../src/queue/lease-outbox';
+import type { BrowserProviderDiscoveryDraft } from '../src/contracts';
 
 let sendMessage: ReturnType<typeof vi.fn>;
 let runtimeMessage: (message: { type: string }) => void;
@@ -53,7 +54,7 @@ beforeEach(async () => {
       }
     },
     storage: {
-      local: { get: vi.fn(async () => ({})) },
+      local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) },
       onChanged: {
         addListener: vi.fn((listener) => {
           storageChanged = listener;
@@ -593,4 +594,101 @@ it('keeps capture hidden when the page cannot start learning', async () => {
   );
   expect(start.textContent).toBe('Start learning');
   expect(document.querySelector<HTMLElement>('#learn-capture')!.hidden).toBe(true);
+});
+
+function learningDraft(readyToSave: boolean): BrowserProviderDiscoveryDraft {
+  return {
+    profile: {
+      schemaVersion: 1,
+      id: 'gemini',
+      name: 'Gemini',
+      match: { origins: ['https://gemini.google.com'] },
+      composer: { locator: { segments: ['textarea'] }, inputMode: 'textarea' },
+      submit: { action: 'enter' },
+      assistantMessages: { locator: { segments: ['structured-content-container'] } },
+      completion: { stabilityMs: 2500 },
+      learned: {
+        sourceOrigin: 'https://gemini.google.com',
+        createdAt: '2026-10-02T00:00:00.000Z',
+        updatedAt: '2026-10-02T00:00:00.000Z',
+        confidence: {}
+      }
+    },
+    readyToSave,
+    validationReasons: readyToSave ? [] : ['Response selector did not match the captured answer.'],
+    capabilities: [
+      { id: 'composer', label: 'Composer', confidence: 'high', detail: 'Found the message input.' },
+      { id: 'submit', label: 'Send', confidence: 'medium', detail: 'Found the send action.' },
+      {
+        id: 'assistantMessages',
+        label: 'Response',
+        confidence: 'low',
+        detail: 'Observed a new response element.'
+      },
+      {
+        id: 'newConversation',
+        label: 'New conversation',
+        confidence: 'low',
+        detail: 'Opening a new conversation was not yet confirmed.'
+      }
+    ]
+  };
+}
+
+it('labels uncertain learned capabilities without showing a validation failure', () => {
+  runtimeMessage(
+    Object.assign(
+      { type: 'ROVER_LEARN_PROGRESS' },
+      {
+        progress: {
+          composerDetected: true,
+          submitDetected: true,
+          assistantDetected: true,
+          assistantPreview: 'Hello',
+          generatingObserved: true,
+          idleObserved: true
+        }
+      }
+    )
+  );
+  expect(document.querySelectorAll('#learn-progress [data-state="pass"]')).toHaveLength(5);
+
+  sendMessage.mockClear();
+  runtimeMessage(Object.assign({ type: 'ROVER_LEARN_RESULT' }, { draft: learningDraft(true) }));
+  const evidence = document.querySelector('#learn-capabilities')!;
+  expect(evidence.querySelector('[data-state="fail"]')).toBeNull();
+  const rows = Array.from(evidence.querySelectorAll<HTMLElement>('.debug-indicator'));
+  expect(rows.map((row) => row.dataset.state)).toEqual(['pass', 'unknown', 'unknown', 'unknown']);
+  expect(rows[0]?.textContent).toContain('Confidence: high.');
+  expect(rows[1]?.textContent).toContain('Confidence: medium.');
+  expect(rows[2]?.textContent).toContain('Observed a new response element. Confidence: low.');
+  expect(rows[3]?.textContent).toContain('not yet confirmed. Confidence: low.');
+  expect(document.querySelector('#learn-validation [data-state="pass"]')?.textContent).toContain(
+    'All required lifecycle checks passed.'
+  );
+  expect(document.querySelector<HTMLElement>('#learn-validation-section')!.dataset.state).toBe(
+    'pass'
+  );
+  expect(document.querySelector<HTMLButtonElement>('#learn-save')!.hidden).toBe(false);
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+
+it('reserves the red validation section for a draft that cannot be saved', () => {
+  const style = document.createElement('style');
+  style.textContent = readFileSync('src/popup/style.css', 'utf8');
+  document.head.append(style);
+  runtimeMessage(Object.assign({ type: 'ROVER_LEARN_RESULT' }, { draft: learningDraft(true) }));
+  const section = document.querySelector<HTMLElement>('#learn-validation-section')!;
+  expect(getComputedStyle(section).borderColor).toBe('rgba(66, 211, 146, 0.35)');
+
+  runtimeMessage(Object.assign({ type: 'ROVER_LEARN_RESULT' }, { draft: learningDraft(false) }));
+  expect(section.dataset.state).toBe('fail');
+  expect(getComputedStyle(section).borderColor).toBe('rgba(255, 105, 97, 0.38)');
+  expect(document.querySelector('#learn-validation [data-state="fail"]')?.textContent).toContain(
+    'Provider cannot be saved'
+  );
+  expect(document.querySelector('#learn-validation')?.textContent).toContain(
+    'Response selector did not match the captured answer.'
+  );
+  expect(document.querySelector<HTMLButtonElement>('#learn-save')!.hidden).toBe(true);
 });

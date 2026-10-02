@@ -471,7 +471,10 @@ button:disabled {
   border-color: rgba(112, 148, 255, 0.42);
   background: color-mix(in srgb, #708cff 5%, var(--surface));
 }
-.learning-validation {
+.learning-validation[data-state='pass'] {
+  border-color: rgba(66, 211, 146, 0.35);
+}
+.learning-validation[data-state='fail'] {
   border-color: rgba(255, 105, 97, 0.38);
 }
 .learning-section-heading {

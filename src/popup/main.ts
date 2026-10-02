@@ -1166,8 +1166,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
     renderQueue(changes['rover.queue'].newValue as RoverQueueState | null);
 });
 
-function confidenceState(confidence: 'high' | 'medium' | 'low'): 'pass' | 'fail' | 'unknown' {
-  return confidence === 'high' ? 'pass' : confidence === 'medium' ? 'unknown' : 'fail';
+function confidenceState(confidence: 'high' | 'medium' | 'low'): 'pass' | 'unknown' {
+  return confidence === 'high' ? 'pass' : 'unknown';
 }
 
 function renderLearnCapabilities(
@@ -1179,7 +1179,7 @@ function renderLearnCapabilities(
     capabilities.map((capability) => ({
       label: capability.label,
       state: confidenceState(capability.confidence),
-      detail: capability.detail
+      detail: `${capability.detail} Confidence: ${capability.confidence}.`
     }))
   );
 }
@@ -1221,6 +1221,7 @@ function renderLearnProposal(draft: BrowserProviderDiscoveryDraft): void {
 }
 
 function renderLearnValidation(draft: BrowserProviderDiscoveryDraft): void {
+  learnValidationSection.dataset.state = draft.readyToSave ? 'pass' : 'fail';
   const reasons = draft.validationReasons ?? [];
   renderIndicatorList(learnValidation, [
     {
