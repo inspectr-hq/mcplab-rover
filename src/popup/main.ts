@@ -1067,7 +1067,7 @@ async function loadCatalog(requestedOrigin?: string): Promise<void> {
 }
 
 connect.addEventListener('click', () => void loadCatalog(origin.value));
-search.addEventListener('input', renderCatalog);
+search.addEventListener('input', () => renderCatalog());
 testCase.addEventListener('change', updateSelection);
 queueEvaluation.addEventListener('change', updateSelection);
 

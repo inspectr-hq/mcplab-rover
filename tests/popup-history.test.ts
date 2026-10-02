@@ -283,7 +283,6 @@ it('places connection controls beside the title with working settings and connec
   expect(settings.getAttribute('aria-expanded')).toBe('false');
 });
 
-
 it('populates the queue dropdown when startup switches to Queue before catalog loading finishes', async () => {
   const dropdown = document.querySelector<HTMLSelectElement>('#queue-evaluation')!;
   await vi.waitFor(() => expect(dropdown.options.length).toBe(2));
@@ -315,7 +314,12 @@ it('disables Add when the selected evaluation is unsupported', async () => {
 
 it('shows loading and an empty catalog in Queue with Add disabled', async () => {
   let finish!: (value: unknown) => void;
-  sendMessage.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  sendMessage.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+  );
   document.querySelector<HTMLButtonElement>('#connect')!.click();
   const dropdown = document.querySelector<HTMLSelectElement>('#queue-evaluation')!;
   expect(dropdown.textContent).toBe('Loading evaluations…');
@@ -327,16 +331,19 @@ it('shows loading and an empty catalog in Queue with Add disabled', async () => 
   expect(document.querySelector<HTMLButtonElement>('#queue-add')!.disabled).toBe(true);
 });
 
-it.each(['response', 'exception'])('shows a catalog error in Queue after a failed %s and recovers on reconnect', async (failure) => {
-  if (failure === 'response') sendMessage.mockResolvedValueOnce({ ok: false, error: 'Offline' });
-  else sendMessage.mockRejectedValueOnce(new Error('Offline'));
-  document.querySelector<HTMLButtonElement>('#connect')!.click();
-  const dropdown = document.querySelector<HTMLSelectElement>('#queue-evaluation')!;
-  await vi.waitFor(() => expect(dropdown.textContent).toBe('Could not load evaluations'));
-  expect(dropdown.disabled).toBe(true);
-  expect(document.querySelector<HTMLButtonElement>('#queue-add')!.disabled).toBe(true);
-  document.querySelector<HTMLButtonElement>('#connect')!.click();
-  await vi.waitFor(() => expect(dropdown.options.length).toBe(2));
-  expect(dropdown.value).toBe('case');
-  expect(document.querySelector<HTMLButtonElement>('#queue-add')!.disabled).toBe(false);
-});
+it.each(['response', 'exception'])(
+  'shows a catalog error in Queue after a failed %s and recovers on reconnect',
+  async (failure) => {
+    if (failure === 'response') sendMessage.mockResolvedValueOnce({ ok: false, error: 'Offline' });
+    else sendMessage.mockRejectedValueOnce(new Error('Offline'));
+    document.querySelector<HTMLButtonElement>('#connect')!.click();
+    const dropdown = document.querySelector<HTMLSelectElement>('#queue-evaluation')!;
+    await vi.waitFor(() => expect(dropdown.textContent).toBe('Could not load evaluations'));
+    expect(dropdown.disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>('#queue-add')!.disabled).toBe(true);
+    document.querySelector<HTMLButtonElement>('#connect')!.click();
+    await vi.waitFor(() => expect(dropdown.options.length).toBe(2));
+    expect(dropdown.value).toBe('case');
+    expect(document.querySelector<HTMLButtonElement>('#queue-add')!.disabled).toBe(false);
+  }
+);
