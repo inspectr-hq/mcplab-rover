@@ -30,6 +30,15 @@ beforeEach(async () => {
   sendMessage = vi.fn(async (message) => {
     if (message.type === 'ROVER_QUEUE_GET') return queue;
     if (message.type === 'ROVER_GET_ACTIVE_PROVIDER') return { provider: 'claude' };
+    if (message.type === 'ROVER_GET_CATALOG')
+      return {
+        ok: true,
+        origin: 'http://localhost:8787',
+        testCases: [
+          { id: 'case', name: 'Search assets', assertionCount: 1, eligible: true },
+          { id: 'unsupported', name: 'Unsupported case', assertionCount: 0, eligible: false }
+        ]
+      };
     if (message.type === 'ROVER_QUEUE_DISMISS_HISTORY')
       return { ok: true, queue: { ...queue, recentHistory: { claude: [] } } };
     return null;
@@ -248,4 +257,86 @@ it('ends the checking label when detection and its existing retry both fail', as
   expect(document.querySelector('#provider')?.textContent).toBe(
     'Could not check this tab. Try reopening Rover.'
   );
+});
+
+it('places connection controls beside the title with working settings and connection status', async () => {
+  const titleRow = document.querySelector('h1')!.parentElement;
+  const connection = document.querySelector<HTMLElement>('#connection-status')!;
+  const settings = document.querySelector<HTMLButtonElement>('#connection-settings')!;
+  expect(connection.parentElement).toBe(titleRow);
+  expect(settings.parentElement).toBe(titleRow);
+  expect(document.querySelector('.connection-label')).toBeNull();
+  const controls = document.querySelector<HTMLElement>('#connection-controls')!;
+  const preferences = document.querySelector<HTMLElement>('#connection-preferences')!;
+  settings.click();
+  expect(controls.hidden).toBe(false);
+  expect(preferences.hidden).toBe(false);
+  expect(settings.getAttribute('aria-expanded')).toBe('true');
+  sendMessage.mockResolvedValueOnce({ ok: true, origin: 'http://localhost:8787', testCases: [] });
+  document.querySelector<HTMLButtonElement>('#connect')!.click();
+  await vi.waitFor(() => expect(connection.dataset.state).toBe('connected'));
+  expect(connection.textContent).toBe('Connected');
+  expect(document.querySelector<HTMLElement>('#connection-dot')!.title).toBe('Connected');
+  settings.click();
+  expect(controls.hidden).toBe(true);
+  expect(preferences.hidden).toBe(true);
+  expect(settings.getAttribute('aria-expanded')).toBe('false');
+});
+
+
+it('populates the queue dropdown when startup switches to Queue before catalog loading finishes', async () => {
+  const dropdown = document.querySelector<HTMLSelectElement>('#queue-evaluation')!;
+  await vi.waitFor(() => expect(dropdown.options.length).toBe(2));
+  expect(document.querySelector<HTMLElement>('#queue-panel')!.hidden).toBe(false);
+  expect(dropdown.value).toBe('case');
+  expect(dropdown.disabled).toBe(false);
+  const add = document.querySelector<HTMLButtonElement>('#queue-add')!;
+  expect(add.disabled).toBe(false);
+  sendMessage.mockClear();
+  add.click();
+  await vi.waitFor(() =>
+    expect(sendMessage).toHaveBeenCalledWith({
+      type: 'ROVER_QUEUE_ADD',
+      item: { id: 'case', name: 'Search assets', prompt: '', assertionCount: 1 }
+    })
+  );
+});
+
+it('disables Add when the selected evaluation is unsupported', async () => {
+  const dropdown = document.querySelector<HTMLSelectElement>('#queue-evaluation')!;
+  await vi.waitFor(() => expect(dropdown.options.length).toBe(2));
+  dropdown.value = 'unsupported';
+  dropdown.dispatchEvent(new Event('change'));
+  expect(document.querySelector<HTMLButtonElement>('#queue-add')!.disabled).toBe(true);
+  dropdown.value = 'case';
+  dropdown.dispatchEvent(new Event('change'));
+  expect(document.querySelector<HTMLButtonElement>('#queue-add')!.disabled).toBe(false);
+});
+
+it('shows loading and an empty catalog in Queue with Add disabled', async () => {
+  let finish!: (value: unknown) => void;
+  sendMessage.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+  document.querySelector<HTMLButtonElement>('#connect')!.click();
+  const dropdown = document.querySelector<HTMLSelectElement>('#queue-evaluation')!;
+  expect(dropdown.textContent).toBe('Loading evaluations…');
+  expect(dropdown.disabled).toBe(true);
+  expect(document.querySelector<HTMLButtonElement>('#queue-add')!.disabled).toBe(true);
+  finish({ ok: true, origin: 'http://localhost:8787', testCases: [] });
+  await vi.waitFor(() => expect(dropdown.textContent).toBe('No evaluations found'));
+  expect(dropdown.disabled).toBe(true);
+  expect(document.querySelector<HTMLButtonElement>('#queue-add')!.disabled).toBe(true);
+});
+
+it.each(['response', 'exception'])('shows a catalog error in Queue after a failed %s and recovers on reconnect', async (failure) => {
+  if (failure === 'response') sendMessage.mockResolvedValueOnce({ ok: false, error: 'Offline' });
+  else sendMessage.mockRejectedValueOnce(new Error('Offline'));
+  document.querySelector<HTMLButtonElement>('#connect')!.click();
+  const dropdown = document.querySelector<HTMLSelectElement>('#queue-evaluation')!;
+  await vi.waitFor(() => expect(dropdown.textContent).toBe('Could not load evaluations'));
+  expect(dropdown.disabled).toBe(true);
+  expect(document.querySelector<HTMLButtonElement>('#queue-add')!.disabled).toBe(true);
+  document.querySelector<HTMLButtonElement>('#connect')!.click();
+  await vi.waitFor(() => expect(dropdown.options.length).toBe(2));
+  expect(dropdown.value).toBe('case');
+  expect(document.querySelector<HTMLButtonElement>('#queue-add')!.disabled).toBe(false);
 });

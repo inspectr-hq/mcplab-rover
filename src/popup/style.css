@@ -93,6 +93,7 @@ body {
   transform: translateX(9px);
 }
 .brand-row {
+  padding-right: 24px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -115,6 +116,7 @@ body {
   height: 18px;
 }
 .brand-copy {
+  flex: 1;
   min-width: 0;
 }
 h1 {
@@ -292,13 +294,13 @@ button:disabled {
 .inline-row > * {
   flex: 1;
 }
-.connection-label {
+.brand-title-row {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.connection-label label {
-  margin-right: 0;
+.brand-title-row h1 {
+  white-space: nowrap;
 }
 .connection-status {
   display: inline-flex;
@@ -306,9 +308,9 @@ button:disabled {
   gap: 5px;
   color: var(--text-muted);
   font-size: 10px;
-}
-.connection-status {
   margin-left: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .connection-dot {
   width: 7px;
@@ -329,6 +331,7 @@ button:disabled {
   background: #ff6961;
 }
 .settings-button {
+  flex-shrink: 0;
   width: 22px;
   height: 22px;
   padding: 0;

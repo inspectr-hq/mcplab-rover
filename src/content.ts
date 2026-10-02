@@ -71,7 +71,7 @@ function togglePanel(expand = false): boolean {
     button span { position: absolute; right: 1px; top: 1px; width: 8px; height: 8px; border-radius: 50%; background: #77736e; box-shadow: 0 0 0 2px #101010; }
     button[data-connected="true"] span { background: #42d392; box-shadow: 0 0 8px rgba(66,211,146,.8), 0 0 0 2px #101010; animation: pulse 1.8s ease-in-out infinite; }
     iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: 20px 8px 20px 20px; background: transparent; box-shadow: 0 16px 48px rgba(0,0,0,.24); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
-    :host(.expanded) button { top: 18px; left: auto; right: 8px; width: 24px; height: 24px; background: rgba(0,0,0,.35); box-shadow: none; }
+    :host(.expanded) button { top: 28px; left: auto; right: 8px; width: 24px; height: 24px; background: rgba(0,0,0,.35); box-shadow: none; }
     :host(.expanded) button img { display: none; }
     :host(.expanded) button span { display: none; }
     :host(.expanded) button::before { content: '›'; color: white; font: 22px/1 system-ui; transform: rotate(180deg); }

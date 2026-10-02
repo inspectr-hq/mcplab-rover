@@ -11,26 +11,23 @@
       <header class="brand-row">
         <div class="brand-mark"><img src="icons/mcplab-favicon.svg" alt="" /></div>
         <div class="brand-copy">
-          <h1>MCPLab Rover</h1>
+          <div class="brand-title-row">
+            <h1>MCPLab Rover</h1>
+            <span id="connection-status" class="connection-status"><span id="connection-dot" class="connection-dot" aria-hidden="true"></span><span>Connecting…</span></span>
+            <button id="connection-settings" type="button" class="settings-button" aria-label="MCPLab connection settings" aria-expanded="false">⚙</button>
+          </div>
           <p id="provider" class="muted">Checking this tab for a supported chat…</p>
         </div>
       </header>
       <div class="notch-rule" aria-hidden="true"></div>
-      <section id="connection" class="stack" aria-label="MCPLab connection">
-        <div class="connection-label">
-          <label for="origin">MCPLab</label>
-          <span id="connection-status" class="connection-status"><span id="connection-dot" class="connection-dot" aria-hidden="true"></span><span>Connecting…</span></span>
-          <button id="connection-settings" type="button" class="settings-button" aria-label="MCPLab connection settings" aria-expanded="false">⚙</button>
-        </div>
-        <div id="connection-controls" class="inline-row" hidden>
-          <input id="origin" type="url" value="http://127.0.0.1:8787" spellcheck="false" aria-label="MCPLab URL" />
-          <button id="connect" type="button" class="compact-button">Connect</button>
-        </div>
-        <div id="connection-preferences" hidden>
-          <label class="checkbox-row"><input id="debug-logging" type="checkbox" /> Console debug logging</label>
-        </div>
-        <button id="new-conversation" type="button" class="copy-button" hidden>Start new conversation</button>
-      </section>
+      <div id="connection-controls" class="inline-row" hidden>
+        <input id="origin" type="url" value="http://127.0.0.1:8787" spellcheck="false" aria-label="MCPLab URL" />
+        <button id="connect" type="button" class="compact-button">Connect</button>
+      </div>
+      <div id="connection-preferences" hidden>
+        <label class="checkbox-row"><input id="debug-logging" type="checkbox" /> Console debug logging</label>
+      </div>
+      <button id="new-conversation" type="button" class="copy-button" hidden>Start new conversation</button>
       <div class="mode-tabs" role="tablist" aria-label="Rover mode">
         <button id="manual-mode" type="button" class="mode-tab active" role="tab" aria-selected="true" hidden>Manual</button>
         <button id="queue-mode" type="button" class="mode-tab active" role="tab" aria-selected="true">Queue</button>

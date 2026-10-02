@@ -748,7 +748,7 @@ function renderLearnTarget(): void {
   learnTarget.append(title, document.createElement('br'), detail);
 }
 
-function renderCatalog(): void {
+function renderCatalog(emptyLabel = 'No evaluations found'): void {
   const selectedTestCaseId = testCase.value;
   const selectedQueueEvaluationId = queueEvaluation.value;
   const visible = filterTestCases(items, search.value);
@@ -769,6 +769,13 @@ function renderCatalog(): void {
       return option;
     })
   );
+  if (!visible.length) {
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = emptyLabel;
+    queueEvaluation.append(placeholder);
+  }
+  queueEvaluation.disabled = !visible.some((item) => item.eligible);
   if (visible.some((item) => item.id === selectedTestCaseId)) testCase.value = selectedTestCaseId;
   if (visible.some((item) => item.id === selectedQueueEvaluationId))
     queueEvaluation.value = selectedQueueEvaluationId;
@@ -776,6 +783,7 @@ function renderCatalog(): void {
 }
 
 function updateSelection(): void {
+  queueAdd.disabled = !items.find((item) => item.id === queueEvaluation.value)?.eligible;
   const item = selectedItem();
   prepare.disabled = !item?.eligible;
   selectionNote.textContent =
@@ -1028,6 +1036,8 @@ async function loadCatalog(requestedOrigin?: string): Promise<void> {
   connect.disabled = true;
   setConnectionState('connecting', 'Connecting…');
   status.textContent = 'Connecting to MCPLab…';
+  items = [];
+  renderCatalog('Loading evaluations…');
   try {
     const response = await chrome.runtime.sendMessage({
       type: 'ROVER_GET_CATALOG',
@@ -1035,6 +1045,7 @@ async function loadCatalog(requestedOrigin?: string): Promise<void> {
     });
     connect.disabled = false;
     if (!response?.ok) {
+      renderCatalog('Could not load evaluations');
       setConnectionState('disconnected', 'Disconnected');
       status.textContent = `Connection error: ${response?.error ?? 'Could not connect.'}`;
       return;
@@ -1042,12 +1053,13 @@ async function loadCatalog(requestedOrigin?: string): Promise<void> {
     setConnectionState('connected', 'Connected');
     origin.value = response.origin;
     items = response.testCases;
+    renderCatalog();
     if (!current && mode === 'manual') {
       catalog.hidden = false;
-      renderCatalog();
       status.textContent = items.length ? 'Choose a test case' : 'No test cases found.';
     }
   } catch (error) {
+    renderCatalog('Could not load evaluations');
     connect.disabled = false;
     setConnectionState('disconnected', 'Disconnected');
     status.textContent = `Connection error: ${error instanceof Error ? error.message : 'Could not connect.'}`;
@@ -1057,6 +1069,7 @@ async function loadCatalog(requestedOrigin?: string): Promise<void> {
 connect.addEventListener('click', () => void loadCatalog(origin.value));
 search.addEventListener('input', renderCatalog);
 testCase.addEventListener('change', updateSelection);
+queueEvaluation.addEventListener('change', updateSelection);
 
 prepare.addEventListener('click', async () => {
   await runButtonAction(prepare, async () => {
