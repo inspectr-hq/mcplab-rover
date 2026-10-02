@@ -398,3 +398,22 @@ it('hides the empty queue status but shows errors and progress', async () => {
   expect(getComputedStyle(status).display).not.toBe('none');
   expect(status.textContent).toContain('requires a supported or learned browser provider');
 });
+
+
+it('orders the evaluation dropdown alphabetically by name', async () => {
+  sendMessage.mockResolvedValueOnce({
+    ok: true,
+    origin: 'http://localhost:8787',
+    testCases: [
+      { id: 'z', name: 'Zulu', assertionCount: 1, eligible: true },
+      { id: 'b', name: 'beta', assertionCount: 1, eligible: true },
+      { id: 'a', name: 'Alpha', assertionCount: 1, eligible: true }
+    ]
+  });
+  document.querySelector<HTMLButtonElement>('#connect')!.click();
+  const dropdown = document.querySelector<HTMLSelectElement>('#queue-evaluation')!;
+  await vi.waitFor(() => expect(dropdown.options.length).toBe(3));
+  expect(Array.from(dropdown.options, (option) => option.textContent)).toEqual([
+    'Alpha', 'beta', 'Zulu'
+  ]);
+});

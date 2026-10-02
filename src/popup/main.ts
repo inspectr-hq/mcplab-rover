@@ -753,7 +753,9 @@ function renderLearnTarget(): void {
 function renderCatalog(emptyLabel = 'No evaluations found'): void {
   const selectedTestCaseId = testCase.value;
   const selectedQueueEvaluationId = queueEvaluation.value;
-  const visible = filterTestCases(items, search.value);
+  const visible = [...filterTestCases(items, search.value)].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  );
   testCase.replaceChildren(
     ...visible.map((item) => {
       const option = document.createElement('option');
