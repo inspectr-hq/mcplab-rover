@@ -74,7 +74,7 @@ function togglePanel(expand = false): boolean {
     :host(.expanded) button { top: 28px; left: auto; right: 8px; width: 24px; height: 24px; background: rgba(0,0,0,.35); box-shadow: none; }
     :host(.expanded) button img { display: none; }
     :host(.expanded) button span { display: none; }
-    :host(.expanded) button::before { content: '›'; color: white; font: 22px/1 system-ui; transform: rotate(180deg); }
+    :host(.expanded) button::before { content: ''; width: 16px; height: 16px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M10 4 6 8 10 12' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; }
     :host(.expanded) iframe { opacity: 1; pointer-events: auto; }
     @keyframes pulse { 0%,100% { transform: scale(.85); opacity: .55; } 50% { transform: scale(1); opacity: 1; } }
   `;

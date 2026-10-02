@@ -79,19 +79,6 @@ body {
   font-size: 12px;
   line-height: 1.45;
 }
-.shell::after {
-  content: '';
-  position: absolute;
-  top: 22px;
-  right: -1px;
-  width: 13px;
-  height: 30px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 0;
-  border-radius: 0 16px 16px 0;
-  transform: translateX(9px);
-}
 .brand-row {
   padding-right: 24px;
   display: flex;
