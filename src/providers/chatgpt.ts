@@ -4,7 +4,11 @@ import { debugCheck, first, pageAlertText } from './adapter-helpers';
 import { observationFromCandidates } from '../runtime/provider-signals';
 import type { ProviderSignalEvaluator } from '../runtime/provider-state-engine';
 
-const composerSelectors = ['[aria-label="Chat with ChatGPT"]', '[contenteditable="true"]'];
+const composerSelectors = [
+  '[contenteditable="true"][aria-label="Ask ChatGPT"]',
+  '[aria-label="Chat with ChatGPT"]',
+  '[contenteditable="true"]'
+];
 const assistantSelector =
   '[data-message-author-role="assistant"], [data-markdown-text-style="assistant-message"]';
 const newConversationSelectors = [
@@ -73,10 +77,38 @@ export const chatgptAdapter: ChatProviderAdapter = {
       ?.click();
   },
   startNewConversation: async () => {
+    const initialComposer = chatgptAdapter.findComposer();
+    const beforeMessageCount = chatgptAdapter.getAssistantCandidates().length;
+    const beforeUrl = location.href;
+    if (
+      initialComposer &&
+      !textFrom(initialComposer).trim() &&
+      beforeMessageCount === 0 &&
+      !location.pathname.startsWith('/c/')
+    )
+      return;
     const control = first<HTMLElement>(newConversationSelectors);
     if (control) {
       control.click();
-      return;
+      const deadline = Date.now() + 15_000;
+      while (Date.now() < deadline) {
+        const composer = chatgptAdapter.findComposer();
+        const messageCount = chatgptAdapter.getAssistantCandidates().length;
+        const contextChanged =
+          location.href !== beforeUrl ||
+          composer !== initialComposer ||
+          messageCount < beforeMessageCount;
+        if (
+          composer &&
+          isVisible(composer) &&
+          !textFrom(composer).trim() &&
+          messageCount === 0 &&
+          contextChanged
+        )
+          return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new Error('ChatGPT new conversation did not become ready');
     }
     location.assign('https://chatgpt.com/');
   },

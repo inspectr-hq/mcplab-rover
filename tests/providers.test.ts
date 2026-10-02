@@ -138,13 +138,22 @@ describe('ChatGPT adapter', () => {
     document.body.innerHTML = `
       <div aria-label="Chat with ChatGPT" contenteditable="true"></div>
       <button aria-label="New chat">New chat</button>
+      <div data-message-author-role="assistant">Previous reply</div>
     `;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
     let clicks = 0;
-    document.querySelector('button')!.addEventListener('click', () => clicks++);
+    document.querySelector('button')!.addEventListener('click', () => {
+      clicks++;
+      document.querySelector('[data-message-author-role]')!.remove();
+    });
 
     await chatgptAdapter.startNewConversation?.();
 
     expect(clicks).toBe(1);
+    vi.restoreAllMocks();
   });
 });
 

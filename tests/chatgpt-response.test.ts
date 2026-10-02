@@ -25,6 +25,32 @@ describe('ChatGPT current response markup', () => {
     document.body.innerHTML = '';
   });
 
+  it('waits for the new chat composer instead of returning after the click', async () => {
+    vi.useFakeTimers();
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      response('old-answer') + '<button aria-label="New chat">New chat</button>'
+    );
+    const oldComposer = chatgptAdapter.findComposer()!;
+    document.querySelector('button')!.addEventListener('click', () => {
+      setTimeout(() => {
+        document.body.innerHTML = '<div contenteditable="true" aria-label="Ask ChatGPT"></div>';
+      }, 500);
+    });
+    let ready = false;
+    const pending = chatgptAdapter.startNewConversation!().then(() => {
+      ready = true;
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(ready).toBe(false);
+    await vi.advanceTimersByTimeAsync(500);
+    await pending;
+    await chatgptAdapter.setComposerText('MCPLab prompt');
+    expect(chatgptAdapter.findComposer()?.textContent).toBe('MCPLab prompt');
+    expect(oldComposer.textContent).toBe('');
+    expect(oldComposer.isConnected).toBe(false);
+  });
+
   it('captures answer content without user text, headings, or action controls', () => {
     document.body.insertAdjacentHTML(
       'beforeend',
