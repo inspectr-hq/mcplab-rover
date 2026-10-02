@@ -75,6 +75,54 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('lists removed local names separately from assignment progress', () => {
+  const queue = {
+    ...createQueue('http://localhost:8787', 'claude', false, 'now'),
+    evaluationRunId: 'run',
+    status: 'running',
+    managedPhase: 'running',
+    droppedLocalItemNames: ['First', '<Second>']
+  };
+  storageChanged({ 'rover.queue': { newValue: queue } }, 'session');
+  expect(document.querySelector('#queue-takeover-notice')?.textContent).toBe(
+    'MCPLab assignment took over; removed from local queue: First, <Second>.'
+  );
+  expect(document.querySelector('#queue-status')?.textContent).toContain('Running');
+});
+
+it.each(['paused', 'waiting_ack'] as const)(
+  'keeps %s queue status visible during and after a provider check',
+  async (state) => {
+    const queue = {
+      ...createQueue('http://localhost:8787', 'claude', false, 'now'),
+      status: state === 'paused' ? 'paused' : 'completed',
+      ...(state === 'paused'
+        ? { error: { stage: 'browser', message: 'Composer missing' } }
+        : { evaluationRunId: 'run', managedPhase: 'waiting_ack', leaseId: 'lease' })
+    };
+    storageChanged({ 'rover.queue': { newValue: queue } }, 'session');
+    const expected =
+      state === 'paused' ? 'Paused: Composer missing' : 'Waiting for MCPLab acknowledgement.';
+    expect(document.querySelector('#queue-status')?.textContent).toBe(expected);
+    let resolveDetection!: (value: unknown) => void;
+    sendMessage.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveDetection = resolve;
+        })
+    );
+    runtimeMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+    expect(document.querySelector('#queue-status')?.textContent).toBe(expected);
+    resolveDetection({});
+    await vi.waitFor(() =>
+      expect(document.querySelector('#provider')?.textContent).toBe(
+        'No supported chat detected on this tab'
+      )
+    );
+    expect(document.querySelector('#queue-status')?.textContent).toBe(expected);
+  }
+);
+
 it('shows passed evaluations as an accessible green check', () => {
   const status = document.querySelector<HTMLElement>('.queue-item-status')!;
   expect(status.textContent).toBe('✓');
@@ -350,6 +398,41 @@ it.each(['response', 'exception'])(
 );
 
 
+it.each([true, false])(
+  'hides Run queue on a closed assignment (evaluation ID present: %s)',
+  (hasEvaluationId) => {
+    const running = startQueue(
+      addQueueItem(
+        addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), {
+          id: 'first',
+          name: 'First',
+          prompt: '',
+          assertionCount: 0
+        }),
+        { id: 'pending', name: 'Pending', prompt: '', assertionCount: 0 }
+      ),
+      'now'
+    );
+    const queue = {
+      ...running,
+      status: 'stopped',
+      activeItemId: undefined,
+      evaluationRunId: hasEvaluationId ? 'closed-run' : undefined,
+      managedPhase: 'terminal'
+    };
+    sendMessage.mockClear();
+    storageChanged({ 'rover.queue': { newValue: queue } }, 'session');
+    expect(document.querySelector<HTMLButtonElement>('#queue-start')!.hidden).toBe(true);
+    expect(
+      document
+        .querySelector<HTMLButtonElement>('#queue-add')!
+        .closest('.queue-add-row')!
+        .hasAttribute('hidden')
+    ).toBe(false);
+    expect(sendMessage).not.toHaveBeenCalled();
+  }
+);
+
 it('only shows Run queue while there are unfinished local evaluations', () => {
   const run = document.querySelector<HTMLButtonElement>('#queue-start')!;
   expect(run.hidden).toBe(true);
@@ -515,6 +598,7 @@ it('requires a detected matching provider before showing Add', async () => {
   sendMessage.mockResolvedValueOnce({});
   runtimeMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
   expect(row.hidden).toBe(true);
+  expect(document.querySelector('#queue-status')?.textContent).toBe('');
   await vi.waitFor(() =>
     expect(document.querySelector('#provider')?.textContent).toBe(
       'No supported chat detected on this tab'

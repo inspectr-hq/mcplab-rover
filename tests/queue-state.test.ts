@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addQueueItem,
   archiveCompletedQueueItems,
+  canAcceptQueueAssignment,
   dismissQueueHistoryItem,
   createQueue,
   moveQueueItem,
@@ -18,6 +19,71 @@ const alpha: QueueCatalogItem = { id: 'alpha', name: 'Alpha', prompt: 'A', asser
 const beta: QueueCatalogItem = { id: 'beta', name: 'Beta', prompt: 'B', assertionCount: 2 };
 
 describe('queue state', () => {
+  it('keeps pending local evaluations when adding to a stopped queue', () => {
+    const running = startQueue(
+      addQueueItem(
+        addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), alpha),
+        beta
+      ),
+      'now'
+    );
+    const stopped = stopQueue(running, 'now');
+    const next = addQueueItem(stopped, {
+      id: 'gamma',
+      name: 'Gamma',
+      prompt: 'G',
+      assertionCount: 0
+    });
+    expect(next.status).toBe('draft');
+    expect(next.items.map((item) => item.testCaseId)).toEqual(['beta', 'gamma']);
+    expect(next.items[0]).toEqual(stopped.items[1]);
+    expect(next.recentHistory?.claude[0]?.testCaseId).toBe('alpha');
+    expect(startQueue(next, 'now').items.map((item) => item.status)).toEqual(['running', 'queued']);
+  });
+
+  it.each(['stopped', 'completed'] as const)('cannot restart a %s MCPLab assignment', (status) => {
+    const running = startQueue(
+      addQueueItem(
+        addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), alpha),
+        beta
+      ),
+      'now'
+    );
+    const closed = {
+      ...stopQueue(running, 'now'),
+      status,
+      evaluationRunId: 'closed-run',
+      managedPhase: 'terminal' as const
+    };
+    expect(() => startQueue(closed, 'now')).toThrow('MCPLab');
+  });
+
+  it('accepts a new assignment after a legacy managed queue has settled', () => {
+    const queue = {
+      ...createQueue('http://localhost:8787', 'claude', false, 'now'),
+      status: 'stopped' as const,
+      managedPhase: 'terminal' as const,
+      items: [{ ...beta, testCaseId: beta.id, queueItemId: 'pending', status: 'queued' as const }]
+    };
+    expect(canAcceptQueueAssignment(queue)).toBe(true);
+    const draft = addQueueItem(queue, alpha);
+    expect(draft.items.map((item) => item.testCaseId)).toEqual(['alpha']);
+  });
+
+  it.each([
+    { leaseId: 'lease' },
+    { pendingLeaseActions: [{ type: 'release' as const, leaseId: 'lease' }] },
+    { managedPhase: 'finalizing' as const },
+    { managedPhase: 'waiting_ack' as const }
+  ])('waits for outstanding lease work before accepting another assignment: %o', (lease) => {
+    const queue = {
+      ...createQueue('http://localhost:8787', 'claude', false, 'now'),
+      status: 'completed' as const,
+      ...lease
+    };
+    expect(canAcceptQueueAssignment(queue)).toBe(false);
+  });
+
   it('archives completed items by provider and caps history at five', () => {
     const queue = createQueue('http://127.0.0.1:8787', 'claude', true, '2026-09-11T00:00:00.000Z');
     const items = Array.from({ length: 7 }, (_, index) => ({

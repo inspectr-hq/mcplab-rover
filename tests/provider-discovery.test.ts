@@ -4,7 +4,105 @@ import { startProviderDiscovery } from '../src/providers/provider-discovery';
 import { createMcplabAdapter } from '../src/providers/mcplab';
 import { ask } from '../src/runtime/ask';
 
-describe('provider discovery recovery', () => {
+describe('provider discovery recovery', { timeout: 10_000 }, () => {
+  it('does not capture during a brief gap in generation controls', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis, 'CSS', {
+      value: { escape: (value: string) => value },
+      configurable: true
+    });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
+    document.body.innerHTML = '<textarea></textarea><button aria-label="Send">Send</button>';
+    const drafts: any[] = [];
+    const progress: any[] = [];
+    const session = startProviderDiscovery(
+      (draft) => drafts.push(draft),
+      (update) => progress.push(update)
+    );
+    try {
+      document
+        .querySelector('textarea')!
+        .dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      const send = document.querySelector('button')!;
+      send.click();
+      send.setAttribute('aria-label', 'Stop generating');
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        '<div data-message-author-role="assistant">Partial reply</div>'
+      );
+      const answer = document.querySelector<HTMLElement>('[data-message-author-role]')!;
+      Object.defineProperty(answer, 'innerText', {
+        get: () => answer.textContent,
+        configurable: true
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      send.setAttribute('aria-label', 'Send');
+      await vi.advanceTimersByTimeAsync(750);
+      expect(progress.at(-1)?.idleObserved).toBe(false);
+      expect(drafts).toHaveLength(0);
+      send.setAttribute('aria-label', 'Stop generating');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(drafts).toHaveLength(0);
+      answer.textContent = 'The complete reply';
+      send.setAttribute('aria-label', 'Send');
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(drafts.at(-1)?.readyToSave).toBe(true);
+      expect(
+        drafts.at(-1)?.capabilities.find((item: any) => item.id === 'completion').confidence
+      ).toBe('high');
+    } finally {
+      session.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for the full response text to stabilize after generation ends', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis, 'CSS', {
+      value: { escape: (value: string) => value },
+      configurable: true
+    });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
+    document.body.innerHTML = '<textarea></textarea><button aria-label="Send">Send</button>';
+    const drafts: any[] = [];
+    const session = startProviderDiscovery((draft) => drafts.push(draft));
+    try {
+      document
+        .querySelector('textarea')!
+        .dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      const send = document.querySelector('button')!;
+      send.click();
+      send.setAttribute('aria-label', 'Stop generating');
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        '<div data-message-author-role="assistant"></div>'
+      );
+      const answer = document.querySelector<HTMLElement>('[data-message-author-role]')!;
+      answer.textContent = 'The first paragraph. '.repeat(20);
+      Object.defineProperty(answer, 'innerText', {
+        get: () => answer.textContent,
+        configurable: true
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      send.setAttribute('aria-label', 'Send');
+      await vi.advanceTimersByTimeAsync(2000);
+      answer.textContent += 'The final paragraph arrived later.';
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(drafts).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(drafts.at(-1)?.readyToSave).toBe(true);
+    } finally {
+      session.stop();
+      vi.useRealTimers();
+    }
+  });
+
   it('does not arm a request when an unrelated control is clicked', async () => {
     Object.defineProperty(globalThis, 'CSS', {
       value: { escape: (value: string) => value },
@@ -88,7 +186,7 @@ describe('provider discovery recovery', () => {
     document.body.append(response);
     await new Promise((resolve) => setTimeout(resolve, 100));
     send.setAttribute('aria-label', 'Send');
-    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 3_500 });
     expect(drafts.at(-1)?.readyToSave).toBe(false);
     const newChat = document.querySelector('button[aria-label="New chat"]')!;
     newChat.addEventListener('click', () => response.remove());
@@ -138,7 +236,7 @@ describe('provider discovery recovery', () => {
     document.body.append(response);
     await new Promise((resolve) => setTimeout(resolve, 100));
     send.setAttribute('aria-label', 'Send');
-    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 3_500 });
     expect(drafts.at(-1).profile.newConversation.locator.segments.at(-1)).toBe(
       '[title="New chat"]'
     );
@@ -182,7 +280,7 @@ describe('provider discovery recovery', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(drafts).toHaveLength(0);
     container.setAttribute('aria-busy', 'false');
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    await new Promise((resolve) => setTimeout(resolve, 3_100));
     session.stop();
     expect(drafts.at(-1)?.profile.completion.workingLocator.segments.at(-1)).toBe(
       'section[aria-busy="true"]'
@@ -224,7 +322,7 @@ describe('provider discovery recovery', () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
     send.setAttribute('aria-label', 'Send');
     container.setAttribute('aria-busy', 'false');
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    await new Promise((resolve) => setTimeout(resolve, 3_100));
     session.stop();
 
     expect(drafts.at(-1)?.profile.completion.workingLocator.segments.at(-1)).toBe(
@@ -267,7 +365,7 @@ describe('provider discovery recovery', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(drafts).toHaveLength(0);
     container.setAttribute('aria-busy', 'false');
-    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 3_500 });
     session.stop();
     expect(drafts.at(-1)?.profile.completion.generatingLocator).toBeUndefined();
     expect(drafts.at(-1)?.profile.completion.workingLocator).toBeDefined();
@@ -300,7 +398,7 @@ describe('provider discovery recovery', () => {
     document.body.append(container);
     await new Promise((resolve) => setTimeout(resolve, 120));
     container.replaceWith(response);
-    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 3_500 });
     session.stop();
     expect(drafts.at(-1)?.trace.events.at(-1)?.workingActive).toBe(false);
   });
@@ -335,7 +433,7 @@ describe('provider discovery recovery', () => {
       response.textContent = `Streaming response content ${index}`;
       await Promise.resolve();
     }
-    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 3_500 });
     session.stop();
     expect(drafts.at(-1).trace.events.length).toBeLessThanOrEqual(32);
     expect(drafts.at(-1).trace.events.some((event: any) => event.phase === 'generating')).toBe(
@@ -372,7 +470,7 @@ describe('provider discovery recovery', () => {
     send.setAttribute('aria-label', 'Stop generating');
     await new Promise((resolve) => setTimeout(resolve, 150));
     send.setAttribute('aria-label', 'Send');
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    await new Promise((resolve) => setTimeout(resolve, 3_100));
     session.stop();
     expect(drafts.at(-1)?.readyToSave).toBe(true);
     expect(drafts.at(-1)?.trace.observedGeneration).toBe(true);
@@ -416,7 +514,7 @@ describe('provider discovery recovery', () => {
     composer.value = 'Learning request';
     composer.dispatchEvent(new Event('input', { bubbles: true }));
     send.click();
-    await new Promise((resolve) => setTimeout(resolve, 1_250));
+    await new Promise((resolve) => setTimeout(resolve, 3_250));
     session.stop();
     expect(drafts).toHaveLength(1);
     expect(drafts[0].readyToSave).toBe(true);
@@ -465,7 +563,7 @@ describe('provider discovery recovery', () => {
     composer.value = 'Learning request';
     composer.dispatchEvent(new Event('input', { bubbles: true }));
     send.click();
-    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 3_500 });
     session.stop();
     const adapter = createMcplabAdapter(drafts.at(-1).profile);
     expect(await ask(adapter, 'Second request')).toBe('Final custom response 2');
@@ -504,7 +602,7 @@ describe('provider discovery recovery', () => {
     composer.value = 'Learning request';
     composer.dispatchEvent(new Event('input', { bubbles: true }));
     send.click();
-    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 3_500 });
     session.stop();
     expect(drafts.at(-1).profile.assistantMessages.locator.segments.at(-1)).toBe(
       '[role="article"]'
@@ -539,7 +637,7 @@ describe('provider discovery recovery', () => {
     response.textContent = 'Previous answer changed after Send';
     await new Promise((resolve) => setTimeout(resolve, 100));
     send.setAttribute('aria-label', 'Send');
-    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 3_500 });
     session.stop();
     expect(drafts.at(-1)?.readyToSave).toBe(false);
     expect(drafts.at(-1)?.validationReasons).toContain(
@@ -574,7 +672,7 @@ describe('provider discovery recovery', () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 100));
     send.setAttribute('aria-label', 'Send');
-    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 3_500 });
     session.stop();
     expect(drafts.at(-1)?.readyToSave).toBe(false);
   });
@@ -769,7 +867,7 @@ describe('provider discovery recovery', () => {
       configurable: true
     });
     document.body.append(response);
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    await new Promise((resolve) => setTimeout(resolve, 3_100));
 
     expect(drafts).toHaveLength(1);
     expect(drafts[0].trace.observedGeneration).toBe(true);
@@ -855,7 +953,7 @@ describe('provider discovery recovery', () => {
           send.remove();
           document.body.insertAdjacentHTML('beforeend', '<button aria-label="Dictate"></button>');
         }
-        await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
+        await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 3_500 });
         expect(progress.at(-1)?.idleObserved).toBe(true);
         expect(drafts.at(-1)?.profile.completion.idleLocator).toBeUndefined();
         expect(drafts.at(-1)?.profile.submit.locator.segments.at(-1)).toBe(
@@ -908,7 +1006,7 @@ describe('provider discovery recovery', () => {
       submit.setAttribute('title', 'Submit');
       submit.textContent = 'Submit';
     }, 450);
-    await vi.waitFor(() => expect(drafts).toHaveLength(1), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts).toHaveLength(1), { timeout: 3_500 });
     session.stop();
     expect(drafts).toHaveLength(1);
     expect(drafts[0].trace.observedGeneration).toBe(true);

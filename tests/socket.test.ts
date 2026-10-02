@@ -70,7 +70,7 @@ import {
   startLeaseRenewal,
   updateRoverRegistration
 } from '../src/background/socket';
-import { createQueue } from '../src/queue/state';
+import { createQueue, addQueueItem } from '../src/queue/state';
 import { serializeQueueOperation } from '../src/queue/operations';
 
 const assignment = {
@@ -300,21 +300,56 @@ describe('socket assignment lifecycle', () => {
     return socket;
   }
 
-  it('rejects an assignment while an existing queue is busy', async () => {
-    mocks.getQueue.mockResolvedValue({
-      ...createQueue('http://127.0.0.1:8787', 'claude', true, new Date().toISOString()),
-      status: 'running'
-    });
+  it.each(['draft', 'stopped'] as const)(
+    'accepts a %s local queue and records dropped names',
+    async (status) => {
+      const socket = await connectedSocket();
+      const local = addQueueItem(
+        addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), {
+          id: 'first',
+          name: 'First',
+          prompt: '',
+          assertionCount: 0
+        }),
+        { id: 'second', name: 'Second', prompt: '', assertionCount: 0 }
+      );
+      mocks.getQueue.mockResolvedValue({ ...local, status });
+      socket.message(assignment);
+      await vi.waitFor(() => expect(mocks.runQueueItem).toHaveBeenCalled());
+      expect(mocks.runQueueItem.mock.calls[0][0]).toMatchObject({
+        droppedLocalItemNames: ['First', 'Second']
+      });
+      expect(socket.sent.map((value) => JSON.parse(value).type)).toContain('assignment_accept');
+    }
+  );
+
+  it('accepts an assignment into an empty local draft', async () => {
     const socket = await connectedSocket();
+    mocks.getQueue.mockResolvedValue(createQueue('http://localhost:8787', 'claude', false, 'now'));
     socket.message(assignment);
-    await vi.waitFor(() =>
-      expect(socket.sent.map((value) => JSON.parse(value).type)).toContain('assignment_reject')
-    );
-    expect(
-      JSON.parse(socket.sent.find((value) => JSON.parse(value).type === 'assignment_reject')!)
-        .reason
-    ).toBe('busy');
+    await vi.waitFor(() => expect(mocks.runQueueItem).toHaveBeenCalled());
+    expect(socket.sent.map((value) => JSON.parse(value).type)).toContain('assignment_accept');
+    expect(socket.sent.map((value) => JSON.parse(value).type)).not.toContain('assignment_reject');
   });
+
+  it.each(['running', 'paused'] as const)(
+    'rejects an assignment while a local queue is %s',
+    async (status) => {
+      mocks.getQueue.mockResolvedValue({
+        ...createQueue('http://127.0.0.1:8787', 'claude', true, new Date().toISOString()),
+        status
+      });
+      const socket = await connectedSocket();
+      socket.message(assignment);
+      await vi.waitFor(() =>
+        expect(socket.sent.map((value) => JSON.parse(value).type)).toContain('assignment_reject')
+      );
+      expect(
+        JSON.parse(socket.sent.find((value) => JSON.parse(value).type === 'assignment_reject')!)
+          .reason
+      ).toBe('busy');
+    }
+  );
 
   it('accepts a compatible assignment and starts its queue', async () => {
     mocks.getQueue.mockResolvedValue(null);

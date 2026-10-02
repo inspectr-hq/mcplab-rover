@@ -84,6 +84,8 @@ export interface RoverQueueState {
   sourceConfigName?: string;
   sourceAgentName?: string;
   recentHistory?: Record<string, RoverQueueItem[]>;
+  /** Names removed by MCPLab takeover, displayed separately from assignment progress. */
+  droppedLocalItemNames?: string[];
   leaseId?: string;
   leaseExpiresAt?: string;
   leaseState?: QueueLeaseState;
@@ -133,17 +135,40 @@ export function createQueue(
   };
 }
 
-export function isQueueSettled(queue: RoverQueueState): boolean {
-  return (
-    (queue.status === 'completed' || queue.status === 'stopped') &&
-    !queue.leaseId &&
-    !queue.pendingLeaseActions?.length &&
-    queue.managedPhase !== 'finalizing' &&
-    queue.managedPhase !== 'waiting_ack'
+export function isManagedQueue(queue: RoverQueueState): boolean {
+  return Boolean(
+    queue.evaluationRunId || queue.leaseId || (queue.managedPhase && queue.managedPhase !== 'idle')
   );
 }
 
-export function addQueueItem(queue: RoverQueueState, catalog: QueueCatalogItem): RoverQueueState {
+function hasPendingQueueLease(queue: RoverQueueState): boolean {
+  return Boolean(
+    queue.leaseId ||
+    queue.pendingLeaseActions?.length ||
+    queue.managedPhase === 'finalizing' ||
+    queue.managedPhase === 'waiting_ack'
+  );
+}
+
+export function canAcceptQueueAssignment(queue: RoverQueueState): boolean {
+  // MCPLab takes priority over waiting local items; running and paused queues must finish
+  // or be stopped first. Lease cleanup must settle before accepting another assignment.
+  // ponytail: local queues are small and overlap is rare. Report dropped names instead of
+  // maintaining a second queue; add defer-and-restore only if that workflow becomes common.
+  return !hasPendingQueueLease(queue) && queue.status !== 'running' && queue.status !== 'paused';
+}
+
+export function isQueueSettled(queue: RoverQueueState): boolean {
+  return (
+    (queue.status === 'completed' || queue.status === 'stopped') && !hasPendingQueueLease(queue)
+  );
+}
+
+export function addQueueItem(
+  queue: RoverQueueState,
+  catalog: QueueCatalogItem,
+  tabId = queue.tabId
+): RoverQueueState {
   if (isQueueSettled(queue)) {
     queue = {
       ...createQueue(
@@ -152,7 +177,8 @@ export function addQueueItem(queue: RoverQueueState, catalog: QueueCatalogItem):
         queue.newConversationBetweenItems,
         new Date().toISOString()
       ),
-      tabId: queue.tabId,
+      tabId,
+      items: isManagedQueue(queue) ? [] : queue.items.filter((item) => item.status === 'queued'),
       recentHistory: archiveCompletedQueueItems(queue).recentHistory
     };
   }
@@ -166,7 +192,7 @@ export function addQueueItem(queue: RoverQueueState, catalog: QueueCatalogItem):
     queueItemId: crypto.randomUUID(),
     status: 'queued'
   };
-  return updated(queue, { items: [...queue.items, item] });
+  return updated(queue, { tabId, items: [...queue.items, item] });
 }
 
 export function archiveCompletedQueueItems(queue: RoverQueueState, maxItems = 5): RoverQueueState {
@@ -253,6 +279,15 @@ export function removeQueueItem(queue: RoverQueueState, queueItemId: string): Ro
 }
 
 export function startQueue(queue: RoverQueueState, now: string): RoverQueueState {
+  if (
+    isManagedQueue(queue) &&
+    (!queue.leaseId ||
+      queue.status === 'completed' ||
+      queue.status === 'stopped' ||
+      queue.managedPhase === 'terminal' ||
+      queue.pendingLeaseActions?.length)
+  )
+    throw new Error('This MCPLab assignment is closed. Queue a new evaluation in MCPLab.');
   if (queue.status === 'running') return queue;
   const restart = queue.status === 'completed' || queue.status === 'stopped';
   const candidates = restart

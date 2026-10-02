@@ -3,7 +3,9 @@ import type { WaitingEvaluation } from '../contracts';
 import { McplabClient } from '../mcplab/api-client';
 import {
   archiveCompletedQueueItems,
+  canAcceptQueueAssignment,
   createQueue,
+  isManagedQueue,
   isCompletedQueueItemStatus,
   startQueue,
   stopQueue,
@@ -669,13 +671,7 @@ export async function connectToMcplab(): Promise<void> {
           newConversationBeforeStart: message.newConversationBeforeStart === true,
           newConversationBetweenScenarios: message.newConversationBetweenScenarios !== false
         });
-        if (
-          previous &&
-          (['running', 'paused'].includes(previous.status) ||
-            previous.pendingLeaseActions?.length ||
-            previous.managedPhase === 'finalizing' ||
-            previous.managedPhase === 'waiting_ack')
-        ) {
+        if (previous && !canAcceptQueueAssignment(previous)) {
           rejectAssignment('busy');
           return;
         }
@@ -689,6 +685,12 @@ export async function connectToMcplab(): Promise<void> {
         const assignedBase = {
           ...queue,
           recentHistory: history,
+          // Preserve the notice across consecutive MCPLab assignments so a quick handoff
+          // cannot hide which local items the user needs to re-add.
+          droppedLocalItemNames:
+            previous && !isManagedQueue(previous)
+              ? previous.items.filter((item) => item.status === 'queued').map((item) => item.name)
+              : previous?.droppedLocalItemNames,
           queueId: message.jobId!,
           evaluationRunId: message.evaluationRunId,
           sourceConfigPath: message.configPath,

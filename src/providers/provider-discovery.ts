@@ -16,6 +16,7 @@ import { controlLabel, isGenerationControlLabel } from './control-labels';
 import { stableTurnIdentity } from './turn-identity';
 
 const DISCOVERY_LOG = '[MCPLab Rover][provider-discovery]';
+const COMPLETION_STABILITY_MS = 2500;
 
 function discoveryLog(message: string, details?: unknown): void {
   if (details === undefined) console.info(`${DISCOVERY_LOG} ${message}`);
@@ -313,6 +314,7 @@ export function startProviderDiscovery(
   let stopped = false;
   let observedGeneration = false;
   let observedIdle = false;
+  let idleSince: number | null = null;
   let generatingLocator: ShadowLocator | undefined;
   let workingLocator: ShadowLocator | undefined;
   let lastWorkingElement: HTMLElement | null = null;
@@ -571,7 +573,15 @@ export function startProviderDiscovery(
         : undefined;
       record('generating', candidates.length, 0, controls, selected ?? undefined);
     }
-    if (observedGeneration && !controls.generating) observedIdle = true;
+    // Stop controls can disappear briefly between response stages. Require the same
+    // sustained idle period used by the saved profile before claiming completion.
+    if (controls.generating || workingElement || !selected) {
+      idleSince = null;
+      observedIdle = false;
+    } else if (observedGeneration) {
+      idleSince ??= Date.now();
+      observedIdle = Date.now() - idleSince >= COMPLETION_STABILITY_MS;
+    }
     idleControl = controls.idleControl;
     const topCandidates = candidates
       .map((candidate) => ({ element: candidate.element, descriptor: candidate.descriptor }))
@@ -588,8 +598,15 @@ export function startProviderDiscovery(
     lastSelected = selected ?? undefined;
     lastControls = controls;
     const scanSignature = `${candidates.length}:${selected?.testId ?? selected?.tagName ?? 'none'}:${Boolean(workingElement)}:${topCandidates.map((candidate) => `${candidate.testId ?? candidate.tag}:${candidate.text}`).join('|')}`;
-    if (scanSignature !== selectedSignature) {
-      selectedSignature = scanSignature;
+    // Stability follows the complete selected answer, not truncated debug previews or
+    // unrelated DOM candidate counts that may change while the answer remains idle.
+    const responseSignature = JSON.stringify([
+      selectedElement ? locator(selectedElement).segments : null,
+      selected?.text,
+      Boolean(workingElement)
+    ]);
+    if (responseSignature !== selectedSignature) {
+      selectedSignature = responseSignature;
       selectedStableSince = selected ? Date.now() : null;
     }
     if (scanSignature !== lastScanSignature) {
@@ -624,9 +641,9 @@ export function startProviderDiscovery(
         ? true
         : !observedGeneration && workingLocator
           ? selectedStableSince !== null && Date.now() - selectedStableSince >= 500
-          : !controls.generating &&
+          : observedIdle &&
             selectedStableSince !== null &&
-            Date.now() - selectedStableSince >= 500);
+            Date.now() - selectedStableSince >= COMPLETION_STABILITY_MS);
     if (composer && assistant && responseIsReady) {
       const draftSignature = `${selectedSignature}:${observedGeneration}:${observedIdle}:${generatingLocator?.segments.join('/') ?? ''}:${idleControl ? locator(idleControl).segments.join('/') : ''}`;
       if (draftSignature !== lastDraftSignature) {
@@ -789,7 +806,7 @@ export function startProviderDiscovery(
       submit: submitLocator ? { action: 'click', locator: submitLocator } : { action: 'enter' },
       assistantMessages: { locator: locator(assistant) },
       completion: {
-        stabilityMs: 2500,
+        stabilityMs: COMPLETION_STABILITY_MS,
         ...(generatingLocator ? { generatingLocator } : {}),
         ...(idleControl
           ? { idleLocator: controlLocator(idleControl, 'idle') }

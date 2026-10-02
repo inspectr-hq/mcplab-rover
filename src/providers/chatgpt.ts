@@ -1,6 +1,7 @@
 import type { ChatProviderAdapter } from './types';
-import { isVisible, setTextValue, textFrom } from './dom';
-import { debugCheck, first, pageAlertText } from './adapter-helpers';
+import { composerValue, isVisible, setTextValue, textFrom } from './dom';
+import { debugCheck, first, pageAlertText, waitForNewConversation } from './adapter-helpers';
+import type { ResponseCandidate } from '../runtime/candidate-selection';
 import { observationFromCandidates } from '../runtime/provider-signals';
 import type { ProviderSignalEvaluator } from '../runtime/provider-state-engine';
 
@@ -79,51 +80,49 @@ export const chatgptAdapter: ChatProviderAdapter = {
   startNewConversation: async () => {
     const initialComposer = chatgptAdapter.findComposer();
     const beforeMessageCount = chatgptAdapter.getAssistantCandidates().length;
-    const beforeUrl = location.href;
     if (
       initialComposer &&
-      !textFrom(initialComposer).trim() &&
+      !composerValue(initialComposer).trim() &&
       beforeMessageCount === 0 &&
       !location.pathname.startsWith('/c/')
     )
       return;
     const control = first<HTMLElement>(newConversationSelectors);
     if (control) {
-      control.click();
-      const deadline = Date.now() + 15_000;
-      while (Date.now() < deadline) {
-        const composer = chatgptAdapter.findComposer();
-        const messageCount = chatgptAdapter.getAssistantCandidates().length;
-        const contextChanged =
-          location.href !== beforeUrl ||
-          composer !== initialComposer ||
-          messageCount < beforeMessageCount;
-        if (
-          composer &&
-          isVisible(composer) &&
-          !textFrom(composer).trim() &&
-          messageCount === 0 &&
-          contextChanged
-        )
-          return;
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      }
-      throw new Error('ChatGPT new conversation did not become ready');
+      await waitForNewConversation({
+        findComposer: chatgptAdapter.findComposer,
+        messageCount: () => chatgptAdapter.getAssistantCandidates().length,
+        start: () => control.click(),
+        providerName: 'ChatGPT',
+        confirmation: 'empty-chat'
+      });
+      return;
     }
     location.assign('https://chatgpt.com/');
   },
-  getAssistantCandidates: () =>
+  getAssistantCandidates: () => {
+    const turns = new Map<string, ResponseCandidate[]>();
     Array.from(document.querySelectorAll<HTMLElement>(assistantSelector))
       .filter((element) => !element.querySelector(assistantSelector))
-      .map((element, index) => ({
-        key:
+      .forEach((element, index) => {
+        const key =
           element.closest('[data-message-id]')?.getAttribute('data-message-id') ||
           element
             .closest('[data-chatgpt-selection-message-id]')
             ?.getAttribute('data-chatgpt-selection-message-id') ||
-          element.getAttribute('data-testid') ||
-          `chatgpt-${index}`,
-        text: textFrom(element),
-        visible: isVisible(element)
-      }))
+          element.closest('[data-turn-key]')?.getAttribute('data-turn-key') ||
+          `chatgpt-${index}`;
+        const blocks = turns.get(key) ?? [];
+        blocks.push({ key, text: textFrom(element), visible: isVisible(element) });
+        turns.set(key, blocks);
+      });
+    return Array.from(turns, ([key, blocks]) => {
+      const visible = blocks.filter((block) => block.visible);
+      return {
+        key,
+        text: (visible.length ? visible : blocks).map((block) => block.text).join('\n\n'),
+        visible: visible.length > 0
+      };
+    });
+  }
 };

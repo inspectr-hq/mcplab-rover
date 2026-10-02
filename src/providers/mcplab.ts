@@ -1,7 +1,7 @@
 import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
 import type { ChatProviderAdapter } from './types';
-import { isVisible, setTextValue, textFrom } from './dom';
-import { pageAlertText } from './adapter-helpers';
+import { composerValue, isVisible, setTextValue, textFrom } from './dom';
+import { pageAlertText, waitForNewConversation } from './adapter-helpers';
 import { controlLabel, isGenerationControlLabel } from './control-labels';
 import { stableTurnIdentity } from './turn-identity';
 import { observationFromCandidates } from '../runtime/provider-signals';
@@ -25,12 +25,6 @@ function findStopControl(): HTMLElement | null {
       return isGenerationControlLabel(controlLabel(element));
     }) ?? null
   );
-}
-
-function composerValue(element: HTMLElement): string {
-  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)
-    return element.value;
-  return element.textContent ?? '';
 }
 
 function rootsFor(root: Document | ShadowRoot): Array<Document | ShadowRoot> {
@@ -247,30 +241,13 @@ export function createMcplabAdapter(profile: BrowserProviderProfile): ChatProvid
               );
             });
           if (!button) throw new Error(`${profile.name} new conversation control was not found`);
-          const composerStartedWithText = Boolean(beforeComposer.trim());
-          const beforeUrl = location.href;
-          clickableTarget(button).click();
-          const deadline = Date.now() + 15_000;
-          while (Date.now() < deadline) {
-            const composer = findComposer();
-            const messageCount = candidates().length;
-            const changedConversation =
-              (composerStartedWithText && Boolean(composer && !composerValue(composer).trim())) ||
-              messageCount < beforeMessageCount ||
-              location.href !== beforeUrl;
-            const meaningfulContextChange =
-              messageCount < beforeMessageCount || location.href !== beforeUrl;
-            if (
-              composer &&
-              !composerValue(composer).trim() &&
-              (profile.newConversation?.confirmation === 'context-change'
-                ? meaningfulContextChange
-                : changedConversation)
-            )
-              return;
-            await new Promise((resolve) => setTimeout(resolve, 50));
-          }
-          throw new Error(`${profile.name} new conversation did not become ready`);
+          await waitForNewConversation({
+            findComposer,
+            messageCount: () => candidates().length,
+            start: () => clickableTarget(button).click(),
+            providerName: profile.name,
+            confirmation: profile.newConversation?.confirmation
+          });
         }
       : undefined,
     getAssistantCandidates: candidates,

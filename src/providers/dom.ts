@@ -20,6 +20,12 @@ export function setTextValue(element: HTMLElement, value: string): void {
   element.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
+export function composerValue(element: HTMLElement): string {
+  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)
+    return element.value;
+  return element.textContent ?? '';
+}
+
 export function textFrom(element: Element): string {
   return (element as HTMLElement).innerText || element.textContent || '';
 }

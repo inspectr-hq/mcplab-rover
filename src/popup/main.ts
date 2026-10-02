@@ -6,7 +6,7 @@ import type {
   RoverState
 } from '../contracts';
 import type { BrowserProviderProfile, LiveTestCatalogItem } from '../mcplab/types';
-import { isQueueSettled, type RoverQueueState } from '../queue/state';
+import { isManagedQueue, isQueueSettled, type RoverQueueState } from '../queue/state';
 import {
   debugFingerprint,
   buildLearnedProviderSave,
@@ -61,6 +61,8 @@ const queueAdd = document.querySelector<HTMLButtonElement>('#queue-add')!;
 const queueNewChat = document.querySelector<HTMLInputElement>('#queue-new-chat')!;
 const queueItems = document.querySelector<HTMLElement>('#queue-items')!;
 const queueStatus = document.querySelector<HTMLParagraphElement>('#queue-status')!;
+const queueTakeoverNotice =
+  document.querySelector<HTMLParagraphElement>('#queue-takeover-notice')!;
 const queueStart = document.querySelector<HTMLButtonElement>('#queue-start')!;
 const queueRetry = document.querySelector<HTMLButtonElement>('#queue-retry')!;
 const queueSkip = document.querySelector<HTMLButtonElement>('#queue-skip')!;
@@ -93,6 +95,7 @@ let items: LiveTestCatalogItem[] = [];
 let current: RoverState | null = null;
 let currentQueue: RoverQueueState | null = null;
 let activeProvider: string | undefined;
+let activeProviderChecking = false;
 let activeProviderProfile: BrowserProviderProfile | undefined;
 let activeTabUrl: string | undefined;
 let learnTargets: Array<{ id: string; name: string }> = [];
@@ -477,6 +480,10 @@ async function setMode(next: 'manual' | 'queue' | 'learn' | 'debug'): Promise<vo
 
 function renderQueue(queue: RoverQueueState | null): void {
   currentQueue = queue;
+  queueTakeoverNotice.hidden = !queue?.droppedLocalItemNames?.length;
+  queueTakeoverNotice.textContent = queue?.droppedLocalItemNames?.length
+    ? `MCPLab assignment took over; removed from local queue: ${queue.droppedLocalItemNames.join(', ')}.`
+    : '';
   const addRow = queueEvaluation.closest('.queue-add-row') as HTMLElement | null;
   if (!queue) {
     addRow?.toggleAttribute('hidden', true);
@@ -510,6 +517,7 @@ function renderQueue(queue: RoverQueueState | null): void {
   const readyForNextEvaluation = isQueueSettled(queue);
   const editable =
     Boolean(activeProvider) &&
+    !activeProviderChecking &&
     matchesCurrentAssignment &&
     (queue.status === 'draft' || readyForNextEvaluation) &&
     (!managed || readyForNextEvaluation);
@@ -639,27 +647,25 @@ function renderQueue(queue: RoverQueueState | null): void {
     groups.push(renderGroup(`Recent ${providerForView} evaluations`, completed, false, true));
   queueItems.replaceChildren(...groups);
   queueItems.parentElement?.classList.toggle('queue-managed', managed);
-  queueStart.hidden = !editable || active.length === 0;
+  queueStart.hidden = isManagedQueue(queue) || !editable || active.length === 0;
   const phaseLabel = managedPhaseLabel(readyForNextEvaluation ? 'terminal' : queue.managedPhase);
-  queueStatus.textContent = !activeProvider
-    ? `Open a supported chat page for ${queue.provider} to edit or run this queue.`
-    : readyForNextEvaluation
-    ? `${phaseLabel}.`
-    : !matchesCurrentAssignment && managed
-      ? `Assignment received for ${queue.provider}. Switch to a matching page to run it (${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} processed).`
-      : !matchesCurrentAssignment
-        ? `Switch to ${queue.provider} to edit or run this queue.`
+  const processedLabel = `${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} evaluations processed.`;
+  queueStatus.textContent =
+    queue.status === 'paused'
+      ? `Paused: ${queue.error?.message ?? 'Queue needs attention.'}`
+      : readyForNextEvaluation
+        ? `${phaseLabel}.`
         : managed && phaseLabel
           ? `${phaseLabel}${queue.managedPhase === 'waiting_ack' ? '.' : '...'}`
-          : queue.status === 'paused'
-            ? `Paused: ${queue.error?.message ?? 'Queue needs attention.'}`
-            : queue.status === 'completed'
-              ? 'Queue completed.'
-              : queue.status === 'stopped'
-                ? 'Queue stopped.'
+          : queue.status === 'running'
+            ? processedLabel
+            : !activeProvider
+              ? `Open a supported chat page for ${queue.provider} to edit or run this queue.`
+              : !matchesCurrentAssignment
+                ? `Switch to ${queue.provider} to edit or run this queue.`
                 : queue.items.length === 0
                   ? ''
-                  : `${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} evaluations processed.`;
+                  : processedLabel;
   queueStart.disabled =
     queue.items.length === 0 || queue.status === 'running' || queue.status === 'paused';
   queueRetry.hidden = queue.status !== 'paused';
@@ -669,7 +675,8 @@ function renderQueue(queue: RoverQueueState | null): void {
 
 async function refreshActiveProvider(retry = true): Promise<void> {
   provider.textContent = 'Checking this tab for a supported chat…';
-  activeProvider = undefined;
+  // Keep the last detection visible during rechecks, but disable queue edits until it completes.
+  activeProviderChecking = true;
   if (mode === 'queue' && currentQueue) renderQueue(currentQueue);
   try {
     const response = (await chrome.runtime.sendMessage({ type: 'ROVER_GET_ACTIVE_PROVIDER' })) as
@@ -682,6 +689,7 @@ async function refreshActiveProvider(retry = true): Promise<void> {
         }
       | undefined;
     activeProvider = response?.provider;
+    activeProviderChecking = false;
     activeProviderProfile = response?.profile;
     activeTabUrl = response?.url;
     const providerName =
@@ -707,7 +715,12 @@ async function refreshActiveProvider(retry = true): Promise<void> {
     // Provider detection can race popup startup while the content script is loading.
     // Retry once after the content script has had time to initialize.
     if (retry) window.setTimeout(() => void refreshActiveProvider(false), 500);
-    else provider.textContent = 'Could not check this tab. Try reopening Rover.';
+    else {
+      activeProvider = undefined;
+      activeProviderChecking = false;
+      provider.textContent = 'Could not check this tab. Try reopening Rover.';
+      if (mode === 'queue') renderQueue(currentQueue);
+    }
   }
 }
 

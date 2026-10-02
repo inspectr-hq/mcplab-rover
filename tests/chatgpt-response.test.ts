@@ -51,6 +51,86 @@ describe('ChatGPT current response markup', () => {
     expect(oldComposer.isConnected).toBe(false);
   });
 
+  it('accepts a cleared draft on an already empty chat', async () => {
+    vi.useFakeTimers();
+    const composer = chatgptAdapter.findComposer()!;
+    composer.textContent = 'Leftover draft';
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      '<button aria-label="New chat">New chat</button>'
+    );
+    document.querySelector('button')!.addEventListener('click', () => {
+      setTimeout(() => {
+        composer.textContent = '';
+      }, 100);
+    });
+    const pending = chatgptAdapter.startNewConversation!();
+    const outcome = pending.then(
+      () => 'ready',
+      (error: Error) => error.message
+    );
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(await outcome).toBe('ready');
+    await chatgptAdapter.setComposerText('MCPLab prompt');
+    expect(composer.textContent).toBe('MCPLab prompt');
+  });
+
+  it('captures every block of the latest answer as one candidate', () => {
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      response('old-answer', 'Old answer') +
+        `
+      <div data-chatgpt-selection-message-id="new-answer">
+        <div data-markdown-text-style="assistant-message"><p>First block</p><p>Second paragraph</p></div>
+        <button aria-label="Copy">Copy</button>
+        <div data-markdown-text-style="assistant-message">Last block</div>
+      </div>`
+    );
+    const candidates = chatgptAdapter.getAssistantCandidates();
+    expect(candidates).toHaveLength(2);
+    expect(candidates.at(-1)?.text).toContain('First block');
+    expect(candidates.at(-1)?.text).toContain('Second paragraph');
+    expect(candidates.at(-1)?.text).toContain('Last block');
+    expect(candidates.at(-1)?.text).not.toContain('Copy');
+    expect(selectResponseCandidate(candidates.slice(0, 1), candidates)?.text).toBe(
+      candidates.at(-1)?.text
+    );
+  });
+
+  it('does not accept clearing a draft while the old answer remains', async () => {
+    vi.useFakeTimers();
+    const composer = chatgptAdapter.findComposer()!;
+    composer.textContent = 'Draft';
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      response('old-answer') + '<button aria-label="New chat">New chat</button>'
+    );
+    document.querySelector('button')!.addEventListener('click', () => {
+      composer.textContent = '';
+    });
+    const outcome = chatgptAdapter.startNewConversation!().then(
+      () => 'ready',
+      (error: Error) => error.message
+    );
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(await outcome).toContain('new conversation did not become ready');
+  });
+
+  it('captures every legacy response block without nesting duplicates or hidden copies', () => {
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      `
+      <div data-message-author-role="assistant" data-message-id="legacy-answer">
+        <div data-markdown-text-style="assistant-message">First block</div>
+        <div data-markdown-text-style="assistant-message">Last block</div>
+        <div data-markdown-text-style="assistant-message" style="display:none">Hidden copy</div>
+      </div>`
+    );
+    expect(chatgptAdapter.getAssistantCandidates()).toEqual([
+      { key: 'legacy-answer', text: 'First block\n\nLast block', visible: true }
+    ]);
+  });
+
   it('captures answer content without user text, headings, or action controls', () => {
     document.body.insertAdjacentHTML(
       'beforeend',

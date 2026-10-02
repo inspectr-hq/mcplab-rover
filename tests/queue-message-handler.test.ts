@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  activeTab: vi.fn(),
+  detectProvider: vi.fn(),
+  resolveOrigin: vi.fn(),
   getQueue: vi.fn(),
   getState: vi.fn(),
   saveQueue: vi.fn(),
@@ -15,9 +18,13 @@ vi.mock('../src/background/store', () => ({
   getQueue: mocks.getQueue,
   getState: mocks.getState,
   saveQueue: mocks.saveQueue,
-  resolveOrigin: vi.fn(),
+  resolveOrigin: mocks.resolveOrigin,
   QUEUE_KEY: 'rover.queue',
   STATE_KEY: 'rover.run'
+}));
+vi.mock('../src/background/browser', () => ({
+  activeTab: mocks.activeTab,
+  detectProvider: mocks.detectProvider
 }));
 vi.mock('../src/background/socket', () => ({ waitingForMatching: mocks.waitingForMatching }));
 vi.mock('../src/background/queue-runner', () => ({
@@ -43,9 +50,125 @@ describe('queue message handler', () => {
     (globalThis as typeof globalThis & { chrome: unknown }).chrome = {
       storage: { session: { remove: vi.fn() } }
     } as unknown as typeof chrome;
+    mocks.activeTab.mockResolvedValue({ id: 7 });
+    mocks.detectProvider.mockResolvedValue('claude');
+    mocks.resolveOrigin.mockResolvedValue('http://localhost:8787');
     mocks.getState.mockResolvedValue(null);
     mocks.saveQueue.mockResolvedValue(undefined);
     mocks.persistLeaseRelease.mockImplementation((queue) => queue);
+  });
+
+  it.each(['ROVER_QUEUE_CREATE', 'ROVER_QUEUE_SET_NEW_CHAT'] as const)(
+    'serializes %s with concurrent Add',
+    async (type) => {
+      let persisted = createQueue('http://localhost:8787', 'claude', false, 'now');
+      mocks.getQueue.mockImplementation(async () => persisted);
+      let release!: () => void;
+      const blocked = serializeQueueOperation(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          })
+      );
+      await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+      const settingResponse = vi.fn();
+      const addResponse = vi.fn();
+      mocks.saveQueue.mockImplementation(async (queue) => {
+        persisted = queue;
+      });
+      handleQueueMessage(
+        type === 'ROVER_QUEUE_CREATE'
+          ? { type, newConversationBetweenItems: true }
+          : { type, enabled: true },
+        settingResponse
+      );
+      handleQueueMessage(
+        {
+          type: 'ROVER_QUEUE_ADD',
+          item: { id: 'new', name: 'New', prompt: '', assertionCount: 0 }
+        },
+        addResponse
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      try {
+        expect(mocks.saveQueue).not.toHaveBeenCalled();
+      } finally {
+        release();
+        await blocked;
+      }
+      await vi.waitFor(() =>
+        expect(addResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: true }))
+      );
+      expect(persisted.items.map((item) => item.name)).toEqual(['New']);
+      expect(persisted.newConversationBetweenItems).toBe(true);
+    }
+  );
+
+  it.each(['draft', 'stopped'] as const)(
+    'binds a %s local queue to the tab where Add was requested',
+    async (status) => {
+      mocks.getQueue.mockResolvedValue({
+        ...createQueue('http://localhost:8787', 'claude', false, 'now'),
+        status,
+        tabId: 1
+      });
+      mocks.activeTab.mockResolvedValue({ id: 2 });
+      const response = vi.fn();
+      handleQueueMessage(
+        {
+          type: 'ROVER_QUEUE_ADD',
+          item: { id: 'new', name: 'New', prompt: '', assertionCount: 0 }
+        },
+        response
+      );
+      await vi.waitFor(() =>
+        expect(response).toHaveBeenCalledWith(expect.objectContaining({ ok: true }))
+      );
+      expect(mocks.saveQueue).toHaveBeenCalledWith(expect.objectContaining({ tabId: 2 }));
+    }
+  );
+
+  it('does not add a local evaluation from a mismatched provider tab', async () => {
+    mocks.getQueue.mockResolvedValue(createQueue('http://localhost:8787', 'claude', false, 'now'));
+    mocks.detectProvider.mockResolvedValue('chatgpt-com');
+    const response = vi.fn();
+    handleQueueMessage(
+      { type: 'ROVER_QUEUE_ADD', item: { id: 'new', name: 'New', prompt: '', assertionCount: 0 } },
+      response
+    );
+    await vi.waitFor(() =>
+      expect(response).toHaveBeenCalledWith(expect.objectContaining({ ok: false }))
+    );
+    expect(mocks.saveQueue).not.toHaveBeenCalled();
+  });
+
+  it('rejects Start on a closed assignment without saving or executing it', async () => {
+    const running = startQueue(
+      addQueueItem(
+        addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), {
+          id: 'first',
+          name: 'First',
+          prompt: '',
+          assertionCount: 0
+        }),
+        { id: 'pending', name: 'Pending', prompt: '', assertionCount: 0 }
+      ),
+      'now'
+    );
+    mocks.getQueue.mockResolvedValue({
+      ...running,
+      status: 'stopped',
+      activeItemId: undefined,
+      evaluationRunId: 'closed-run',
+      managedPhase: 'terminal'
+    });
+    const sendResponse = vi.fn();
+    handleQueueMessage({ type: 'ROVER_QUEUE_START' }, sendResponse);
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: false }))
+    );
+    expect(mocks.saveQueue).not.toHaveBeenCalled();
+    expect(mocks.runQueueItem).not.toHaveBeenCalled();
   });
 
   it('returns the persisted queue for queue reads', async () => {
