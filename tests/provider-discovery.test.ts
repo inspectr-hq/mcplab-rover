@@ -5,6 +5,61 @@ import { createMcplabAdapter } from '../src/providers/mcplab';
 import { ask } from '../src/runtime/ask';
 
 describe('provider discovery recovery', { timeout: 10_000 }, () => {
+  it('reports the initial waiting state before the user interacts with the chat', () => {
+    const report = vi.fn();
+    const session = startProviderDiscovery(vi.fn(), report);
+    try {
+      expect(report).toHaveBeenCalledWith({
+        composerDetected: false,
+        submitDetected: false,
+        assistantDetected: false,
+        generatingObserved: false,
+        idleObserved: false
+      });
+    } finally {
+      session.stop();
+    }
+  });
+
+  it.each(['enter', 'click'])(
+    'observes %s submission from an open shadow-root chat',
+    (submission) => {
+      Object.defineProperty(globalThis, 'CSS', {
+        value: { escape: (value: string) => value },
+        configurable: true
+      });
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+        width: 10,
+        height: 10
+      } as DOMRect);
+      const host = document.createElement('polo-chat');
+      document.body.append(host);
+      const shadow = host.attachShadow({ mode: 'open' });
+      shadow.innerHTML = '<textarea></textarea><button aria-label="Send">Send</button>';
+      const report = vi.fn();
+      const session = startProviderDiscovery(vi.fn(), report);
+      try {
+        const composer = shadow.querySelector('textarea')!;
+        composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }));
+        expect(report.mock.calls.at(-1)?.[0].composerDetected).toBe(true);
+        composer.value = 'Hello';
+        composer.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true }));
+        if (submission === 'enter') {
+          composer.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true })
+          );
+        } else {
+          shadow.querySelector('button')!.click();
+        }
+        expect(report.mock.calls.at(-1)?.[0]).toMatchObject({
+          composerDetected: true,
+          submitDetected: true
+        });
+      } finally {
+        session.stop();
+      }
+    }
+  );
   it('does not capture during a brief gap in generation controls', async () => {
     vi.useFakeTimers();
     Object.defineProperty(globalThis, 'CSS', {

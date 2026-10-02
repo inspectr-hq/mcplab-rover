@@ -225,20 +225,8 @@ learnStart.addEventListener(
         learnStatus.textContent = 'Learning stopped. Start again when you are ready.';
         return;
       }
-      discoveryDraft = null;
-      learnCapabilities.replaceChildren();
-      learnProgress.replaceChildren();
-      learnProgress.hidden = true;
+      resetLearningDraft();
       learnEvidenceSection.hidden = false;
-      learnProposal.replaceChildren();
-      learnProposalSection.hidden = true;
-      learnValidation.replaceChildren();
-      learnValidation.hidden = true;
-      learnValidationSection.hidden = true;
-      learnName.hidden = true;
-      learnPropose.hidden = true;
-      learnSave.hidden = true;
-      learnCapture.hidden = true;
       learnStatus.textContent = 'Starting learning… Wait before sending a message.';
       await refreshActiveProvider();
       await refreshLearnTargets();
@@ -673,6 +661,37 @@ function renderQueue(queue: RoverQueueState | null): void {
   queueStop.hidden = !['running', 'paused'].includes(queue.status);
 }
 
+function draftMatchesActivePage(draft: BrowserProviderDiscoveryDraft): boolean {
+  if (!activeTabUrl) return false;
+  try {
+    // A saved draft belongs to its capture origin, even before that provider is supported.
+    const source = draft.sourceUrl ?? draft.profile.learned.sourceOrigin;
+    return new URL(source).origin === new URL(activeTabUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
+function resetLearningDraft(): void {
+  discoveryDraft = null;
+  learnCapabilities.replaceChildren();
+  learnProgress.replaceChildren();
+  learnProgress.hidden = true;
+  learnEvidenceSection.hidden = true;
+  learnProposal.replaceChildren();
+  learnProposalSection.hidden = true;
+  learnValidation.replaceChildren();
+  learnValidation.hidden = true;
+  learnValidationSection.hidden = true;
+  learnName.value = '';
+  learnName.hidden = true;
+  learnPropose.hidden = true;
+  learnSave.hidden = true;
+  learnCapture.hidden = true;
+  learnStart.textContent = 'Start learning';
+  learnStatus.textContent = 'Start learning, then send one message yourself in the active chat.';
+}
+
 async function refreshActiveProvider(retry = true): Promise<void> {
   provider.textContent = 'Checking this tab for a supported chat…';
   // Keep the last detection visible during rechecks, but disable queue edits until it completes.
@@ -692,6 +711,7 @@ async function refreshActiveProvider(retry = true): Promise<void> {
     activeProviderChecking = false;
     activeProviderProfile = response?.profile;
     activeTabUrl = response?.url;
+    if (discoveryDraft && !draftMatchesActivePage(discoveryDraft)) resetLearningDraft();
     const providerName =
       activeProviderProfile?.name ??
       (activeProvider === 'claude'
@@ -1350,28 +1370,34 @@ void chrome.runtime
     if (queue) void setMode('queue');
     else queueMode.click();
   });
-void refreshActiveProvider();
+const initialProviderCheck = refreshActiveProvider();
 void chrome.storage.local.get(DEBUG_LOGGING_KEY).then((stored) => {
   debugLogging.checked = stored[DEBUG_LOGGING_KEY] === true;
 });
-void chrome.storage.local.get([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]).then((stored) => {
-  const draft = (stored[DISCOVERY_DRAFT_KEY] ?? stored[LEGACY_LEARNING_DRAFT_KEY]) as
-    BrowserProviderDiscoveryDraft | undefined;
-  if (!draft) return;
-  discoveryDraft = draft;
-  learnName.value = draft.targetProviderId
-    ? (draft.targetProviderName ?? draft.profile.name)
-    : suggestedProviderName(draft.profile);
-  learnName.hidden = false;
-  learnCapture.hidden = true;
-  learnProgress.hidden = true;
-  learnPropose.hidden = !draft.trace;
-  learnSave.hidden = draft.readyToSave !== true;
-  learnStatus.textContent =
-    draft.readyToSave === true
-      ? 'A saved learning draft is ready to review.'
-      : 'This learning draft did not pass lifecycle validation. Capture a new active response.';
-  renderLearnCapabilities(draft.capabilities);
-  renderLearnProposal(draft);
-  renderLearnValidation(draft);
-});
+void chrome.storage.local
+  .get([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY])
+  .then(async (stored) => {
+    await initialProviderCheck;
+    // Do not replace a learning session that started while storage or detection was loading.
+    if (learnStart.disabled || learnStart.textContent === 'Stop learning' || discoveryDraft) return;
+    const draft = (stored[DISCOVERY_DRAFT_KEY] ?? stored[LEGACY_LEARNING_DRAFT_KEY]) as
+      | BrowserProviderDiscoveryDraft
+      | undefined;
+    if (!draft || !draftMatchesActivePage(draft)) return;
+    discoveryDraft = draft;
+    learnName.value = draft.targetProviderId
+      ? (draft.targetProviderName ?? draft.profile.name)
+      : suggestedProviderName(draft.profile);
+    learnName.hidden = false;
+    learnCapture.hidden = true;
+    learnProgress.hidden = true;
+    learnPropose.hidden = !draft.trace;
+    learnSave.hidden = draft.readyToSave !== true;
+    learnStatus.textContent =
+      draft.readyToSave === true
+        ? 'A saved learning draft is ready to review.'
+        : 'This learning draft did not pass lifecycle validation. Capture a new active response.';
+    renderLearnCapabilities(draft.capabilities);
+    renderLearnProposal(draft);
+    renderLearnValidation(draft);
+  });

@@ -676,7 +676,7 @@ export function startProviderDiscovery(
     }).length;
   };
   const onFocus = (event: FocusEvent) => {
-    const target = event.target;
+    const target = event.composedPath()[0] ?? event.target;
     if (
       target instanceof HTMLElement &&
       (target.isContentEditable ||
@@ -692,7 +692,7 @@ export function startProviderDiscovery(
     }
   };
   const onInput = (event: Event) => {
-    const target = event.target;
+    const target = event.composedPath()[0] ?? event.target;
     if (
       target instanceof HTMLElement &&
       (target.isContentEditable ||
@@ -713,7 +713,7 @@ export function startProviderDiscovery(
     }
   };
   const onClick = (event: MouseEvent) => {
-    const target = event.target;
+    const target = event.composedPath()[0] ?? event.target;
     if (!(target instanceof HTMLElement)) return;
     const control = target.closest('button,[role="button"]') as HTMLElement | null;
     if (control) {
@@ -743,14 +743,15 @@ export function startProviderDiscovery(
     }
   };
   const onKey = (event: KeyboardEvent) => {
+    const target = event.composedPath()[0] ?? event.target;
     if (event.key === 'Enter' && !event.shiftKey) {
       if (
-        event.target instanceof HTMLElement &&
-        (event.target.isContentEditable ||
-          event.target instanceof HTMLTextAreaElement ||
-          event.target instanceof HTMLInputElement)
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLInputElement)
       )
-        composer = event.target;
+        composer = target;
       submit = submit ?? composer;
       submittedAt = Date.now();
       captureSubmissionBaseline();
@@ -935,5 +936,7 @@ export function startProviderDiscovery(
     emit();
     return emitted;
   };
+  // Show the waiting checks as soon as the observer is installed, before any input.
+  reportProgress();
   return { stop, capture };
 }
