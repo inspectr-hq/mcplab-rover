@@ -571,7 +571,7 @@ export function startProviderDiscovery(
         : undefined;
       record('generating', candidates.length, 0, controls, selected ?? undefined);
     }
-    if (observedGeneration && controls.idleControl && !controls.generating) observedIdle = true;
+    if (observedGeneration && !controls.generating) observedIdle = true;
     idleControl = controls.idleControl;
     const topCandidates = candidates
       .map((candidate) => ({ element: candidate.element, descriptor: candidate.descriptor }))
@@ -624,8 +624,7 @@ export function startProviderDiscovery(
         ? true
         : !observedGeneration && workingLocator
           ? selectedStableSince !== null && Date.now() - selectedStableSince >= 500
-          : Boolean(controls.idleControl) &&
-            !controls.generating &&
+          : !controls.generating &&
             selectedStableSince !== null &&
             Date.now() - selectedStableSince >= 500);
     if (composer && assistant && responseIsReady) {
@@ -756,7 +755,8 @@ export function startProviderDiscovery(
   const emit = () => {
     if (!composer || !assistant) return;
     emitted = true;
-    const submitLocator = submit && submit !== composer ? locator(submit) : undefined;
+    const submitLocator = [...trace.events].reverse().find((event) => event.phase === 'submitted')
+      ?.selectedElements?.submit?.locator;
     const newConversation = findNewConversationControls();
     const newConversationProfile =
       newConversation.length > 0
@@ -793,7 +793,7 @@ export function startProviderDiscovery(
         ...(generatingLocator ? { generatingLocator } : {}),
         ...(idleControl
           ? { idleLocator: controlLocator(idleControl, 'idle') }
-          : submit && submit !== composer
+          : !observedGeneration && submit && submit !== composer
             ? { idleLocator: withFinalSelector(locator(submit), ':not([disabled])') }
             : {}),
         ...(workingLocator ? { workingLocator } : {})

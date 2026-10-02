@@ -40,13 +40,13 @@ describe('popup view model', () => {
 
     const saved = buildLearnedProviderSave(
       profile,
-      'TrendMiner Agent Lumen',
+      'Polo Agent Lumen',
       'copilot-cloud-microsoft-lumen',
       'https://copilot.cloud.microsoft/chat/agent/lumen'
     );
 
     expect(saved.profile.id).toBe('copilot-cloud-microsoft-lumen');
-    expect(saved.profile.name).toBe('TrendMiner Agent Lumen');
+    expect(saved.profile.name).toBe('Polo Agent Lumen');
     expect(saved.agent.url).toBe('https://copilot.cloud.microsoft/chat/agent/lumen');
   });
 

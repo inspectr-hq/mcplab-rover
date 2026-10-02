@@ -208,8 +208,8 @@ export function replayProviderProfile(
       reasons.push('Working selector remains active in the final state.');
   }
   if (!idle) {
-    const generatingStillPresent = snapshots('final').some((node) =>
-      matchesGeneratingState(generating, node)
+    const generatingStillPresent = snapshots('final').some(
+      (node) => node.visible !== false && matchesGeneratingState(generating, node)
     );
     if (generatingStillPresent)
       reasons.push('The generation control was still present in the final snapshot.');

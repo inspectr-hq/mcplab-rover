@@ -162,7 +162,7 @@ describe('queue state', () => {
   it('advances after evaluated outcomes and completes after the final item', () => {
     let queue = createQueue(
       'http://127.0.0.1:8787',
-      'trendminer',
+      'polo',
       true,
       '2026-09-09T10:00:00.000Z'
     );

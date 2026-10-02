@@ -125,7 +125,7 @@ describe('background message routing', () => {
     const queue = {
       queueId: 'queue-1',
       origin: 'http://127.0.0.1:8787',
-      provider: 'trendminer',
+      provider: 'polo',
       status: 'running',
       mode: 'queue',
       newConversationBetweenItems: false,

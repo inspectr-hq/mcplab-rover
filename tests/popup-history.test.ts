@@ -543,3 +543,54 @@ it('keeps a running local queue visible with Stop while hiding Add', () => {
   expect(document.querySelector('.queue-item-name')?.textContent).toBe('1. Working');
   expect(document.querySelector<HTMLButtonElement>('#queue-stop')!.hidden).toBe(false);
 });
+
+it('announces learning only after the page observer acknowledges startup', async () => {
+  const originalSend = sendMessage.getMockImplementation()! as (message: { type: string }) => Promise<unknown>;
+  let resolveDetection!: (value: unknown) => void;
+  let resolveStart!: (value: unknown) => void;
+  const detection = new Promise((resolve) => {
+    resolveDetection = resolve;
+  });
+  const started = new Promise((resolve) => {
+    resolveStart = resolve;
+  });
+  sendMessage.mockImplementation((message) => {
+    if (message.type === 'ROVER_GET_ACTIVE_PROVIDER') return detection;
+    if (message.type === 'ROVER_GET_LEARN_TARGETS') return Promise.resolve({ targets: [] });
+    if (message.type === 'ROVER_LEARN_START') return started;
+    return originalSend(message);
+  });
+  const start = document.querySelector<HTMLButtonElement>('#learn-start')!;
+  const status = document.querySelector<HTMLElement>('#learn-status')!;
+  const capture = document.querySelector<HTMLElement>('#learn-capture')!;
+  start.click();
+  expect(status.textContent).toBe('Starting learning… Wait before sending a message.');
+  expect(start.disabled).toBe(true);
+  expect(capture.hidden).toBe(true);
+  resolveDetection({ provider: undefined });
+  await vi.waitFor(() =>
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'ROVER_LEARN_START' }))
+  );
+  expect(status.textContent).not.toContain('Learning is active');
+  resolveStart({ ok: true });
+  await vi.waitFor(() => expect(start.disabled).toBe(false));
+  expect(status.textContent).toContain('Learning is active');
+  expect(capture.hidden).toBe(false);
+});
+
+it('keeps capture hidden when the page cannot start learning', async () => {
+  const originalSend = sendMessage.getMockImplementation()! as (message: { type: string }) => Promise<unknown>;
+  sendMessage.mockImplementation((message) => {
+    if (message.type === 'ROVER_GET_LEARN_TARGETS') return Promise.resolve({ targets: [] });
+    if (message.type === 'ROVER_LEARN_START')
+      return Promise.resolve({ ok: false, error: 'Could not reach the page' });
+    return originalSend(message);
+  });
+  const start = document.querySelector<HTMLButtonElement>('#learn-start')!;
+  start.click();
+  await vi.waitFor(() =>
+    expect(document.querySelector('#learn-status')?.textContent).toBe('Could not reach the page')
+  );
+  expect(start.textContent).toBe('Start learning');
+  expect(document.querySelector<HTMLElement>('#learn-capture')!.hidden).toBe(true);
+});

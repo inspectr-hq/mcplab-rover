@@ -235,10 +235,8 @@ learnStart.addEventListener(
       learnName.hidden = true;
       learnPropose.hidden = true;
       learnSave.hidden = true;
-      learnCapture.hidden = false;
-      learnStart.textContent = 'Stop learning';
-      learnStatus.textContent =
-        'Learning is active. Send one message in the chat, then wait for the response.';
+      learnCapture.hidden = true;
+      learnStatus.textContent = 'Starting learning… Wait before sending a message.';
       await refreshActiveProvider();
       await refreshLearnTargets();
       if (learnTargets.length > 1 && !selectedLearnTargetId) {
@@ -257,7 +255,12 @@ learnStart.addEventListener(
         learnStatus.textContent = response?.error ?? 'Could not start learning.';
         learnStart.textContent = 'Start learning';
         learnCapture.hidden = true;
+        return;
       }
+      learnCapture.hidden = false;
+      learnStart.textContent = 'Stop learning';
+      learnStatus.textContent =
+        'Learning is active. Send one message in the chat, then wait for the response.';
     })
 );
 learnCapture.addEventListener(

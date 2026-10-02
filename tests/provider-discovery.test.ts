@@ -812,6 +812,65 @@ describe('provider discovery recovery', () => {
     session.stop();
   });
 
+  it.each(['hidden', 'replaced', 'stop-hidden'])(
+    'learns idle after generation ends with a %s send control',
+    async (state) => {
+      Object.defineProperty(globalThis, 'CSS', {
+        value: { escape: (value: string) => value },
+        configurable: true
+      });
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+        width: 10,
+        height: 10
+      } as DOMRect);
+      document.body.innerHTML =
+        '<textarea aria-label="Enter a prompt for Gemini"></textarea><button aria-label="Send message"></button>';
+      const drafts: any[] = [];
+      const progress: any[] = [];
+      const session = startProviderDiscovery(
+        (draft) => drafts.push(draft),
+        (update) => progress.push(update)
+      );
+      try {
+        const composer = document.querySelector('textarea')!;
+        const send = document.querySelector('button')!;
+        composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+        send.click();
+        send.setAttribute('aria-label', 'Stop generating');
+        const response = document.createElement('div');
+        response.setAttribute('data-message-author-role', 'assistant');
+        response.textContent = 'Hey there! How can I help you today?';
+        Object.defineProperty(response, 'innerText', {
+          value: response.textContent,
+          configurable: true
+        });
+        document.body.append(response);
+        await vi.waitFor(() => expect(progress.at(-1)?.generatingObserved).toBe(true));
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        expect(drafts).toHaveLength(0);
+        if (state !== 'replaced') {
+          if (state === 'hidden') send.setAttribute('aria-label', 'Send message');
+          send.style.display = 'none';
+        } else {
+          send.remove();
+          document.body.insertAdjacentHTML('beforeend', '<button aria-label="Dictate"></button>');
+        }
+        await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
+        expect(progress.at(-1)?.idleObserved).toBe(true);
+        expect(drafts.at(-1)?.profile.completion.idleLocator).toBeUndefined();
+        expect(drafts.at(-1)?.profile.submit.locator.segments.at(-1)).toBe(
+          '[aria-label="Send message"]'
+        );
+        const adapter = createMcplabAdapter(drafts.at(-1).profile);
+        expect(
+          adapter.signalEvaluator.evaluate(adapter.getAssistantCandidates(), Date.now()).signals
+        ).toMatchObject({ generation_active: false, idle_visible: true });
+      } finally {
+        session.stop();
+      }
+    }
+  );
+
   it('learns an abort control as generation and submit as idle', async () => {
     Object.defineProperty(globalThis, 'CSS', {
       value: { escape: (value: string) => value },

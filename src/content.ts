@@ -170,11 +170,9 @@ if (runtime.__mcplabRoverInstalled) {
           });
         },
         (progress) => {
-          void chrome.runtime
-            .sendMessage({ type: 'ROVER_LEARN_PROGRESS', progress })
-            .catch((error) => {
-              console.warn('[Rover] provider discovery progress delivery failed', error);
-            });
+          void sendRuntimeMessage({ type: 'ROVER_LEARN_PROGRESS', progress }).catch((error) => {
+            console.warn('[Rover] provider discovery progress delivery failed', error);
+          });
         }
       );
       sendResponse({ ok: true });
