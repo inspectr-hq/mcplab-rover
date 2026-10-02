@@ -388,3 +388,97 @@ it('does not replay or reveal an AI proposal when the user has switched to anoth
   expect(document.querySelector<HTMLButtonElement>('#learn-save')!.hidden).toBe(true);
   expect(document.querySelector<HTMLElement>('#learn-propose-status')!.hidden).toBe(true);
 });
+
+it.each([11, 22])('shows the learning instructions for the active tab %i', async (tabId) => {
+  const popup = await openPopup('rover.provider-discovery-draft');
+  popup.resolveDetection({ url: 'https://polo.example/app', tabId, learningTabId: 11 });
+  await vi.waitFor(() =>
+    expect(document.querySelector('#learn-start')!.textContent).toBe('Stop learning')
+  );
+  expect(document.querySelector('#learn-status')!.textContent).toBe(
+    tabId === 11
+      ? 'Learning is active. Send one message in the chat, then wait for the response.'
+      : 'Learning is active. Return to the tab where learning started to continue, or stop learning here.'
+  );
+  const nextTabId = tabId === 11 ? 22 : 11;
+  popup.sendMessage.mockResolvedValueOnce({
+    url: 'https://polo.example/app',
+    tabId: nextTabId,
+    learningTabId: 11
+  });
+  popup.onMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+  await vi.waitFor(() =>
+    expect(document.querySelector('#learn-status')!.textContent).toBe(
+      nextTabId === 11
+        ? 'Learning is active. Send one message in the chat, then wait for the response.'
+        : 'Learning is active. Return to the tab where learning started to continue, or stop learning here.'
+    )
+  );
+});
+
+it.each(['returned', 'success'])(
+  'only removes the saved draft after a successful learning start (%s)',
+  async (outcome) => {
+    const popup = await openPopup('rover.provider-discovery-draft');
+    popup.resolveDetection({ url: 'https://claude.ai/new', tabId: 11 });
+    await vi.waitFor(() =>
+      expect(document.querySelector<HTMLInputElement>('#learn-name')!.hidden).toBe(false)
+    );
+    let resolve!: (value: unknown) => void;
+    const pending = new Promise((done) => {
+      resolve = done;
+    });
+    popup.sendMessage.mockImplementation(async (message) => {
+      if (message.type === 'ROVER_GET_ACTIVE_PROVIDER')
+        return { url: 'https://claude.ai/new', tabId: 11, learningTabId: null };
+      if (message.type === 'ROVER_GET_LEARN_TARGETS') return { targets: [] };
+      if (message.type === 'ROVER_LEARN_START') return pending;
+      return null;
+    });
+    const button = document.querySelector<HTMLButtonElement>('#learn-start')!;
+    button.click();
+    await vi.waitFor(() =>
+      expect(popup.sendMessage).toHaveBeenCalledWith({
+        type: 'ROVER_LEARN_START',
+        targetProviderId: undefined
+      })
+    );
+    const removedBeforeStart = popup.remove.mock.calls.length;
+    resolve({ ok: outcome === 'success', error: 'Could not start learning.' });
+    await vi.waitFor(() => expect(button.disabled).toBe(false));
+    expect(removedBeforeStart).toBe(0);
+    if (outcome === 'success') {
+      expect(popup.remove).toHaveBeenCalledExactlyOnceWith([
+        'rover.provider-discovery-draft',
+        'rover.learning-draft'
+      ]);
+      expect(button.textContent).toBe('Stop learning');
+    } else {
+      expect(popup.remove).not.toHaveBeenCalled();
+      expect(button.textContent).toBe('Start learning');
+    }
+  }
+);
+
+
+it.each([11, 22])('resets learning controls when the session is cleared from tab %i', async (tabId) => {
+  const popup = await openPopup('rover.provider-discovery-draft');
+  popup.resolveDetection({ url: 'https://polo.example/app', tabId, learningTabId: 11 });
+  const button = document.querySelector<HTMLButtonElement>('#learn-start')!;
+  const capture = document.querySelector<HTMLButtonElement>('#learn-capture')!;
+  await vi.waitFor(() => expect(button.textContent).toBe('Stop learning'));
+  expect(capture.hidden).toBe(false);
+
+  popup.sendMessage.mockResolvedValueOnce({
+    url: 'https://polo.example/app',
+    tabId,
+    learningTabId: null
+  });
+  popup.onMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+  await vi.waitFor(() => expect(button.textContent).toBe('Start learning'));
+  expect(capture.hidden).toBe(true);
+  expect(document.querySelector('#learn-status')!.textContent).toBe(
+    'Learning stopped. Start again when you are ready.'
+  );
+  expect(popup.remove).not.toHaveBeenCalled();
+});

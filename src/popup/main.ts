@@ -109,6 +109,10 @@ let mode: 'manual' | 'queue' | 'learn' | 'debug' = 'manual';
 let discoveryDraft: BrowserProviderDiscoveryDraft | null = null;
 const DISCOVERY_DRAFT_KEY = 'rover.provider-discovery-draft';
 const LEGACY_LEARNING_DRAFT_KEY = 'rover.learning-draft';
+const ACTIVE_LEARNING_STATUS =
+  'Learning is active. Send one message in the chat, then wait for the response.';
+const OTHER_TAB_LEARNING_STATUS =
+  'Learning is active. Return to the tab where learning started to continue, or stop learning here.';
 let lastDebugFingerprint = '';
 let debugRequestInFlight = false;
 let lastDebugSnapshot: DebugSnapshot | null = null;
@@ -232,7 +236,6 @@ learnStart.addEventListener(
       resetLearningDraft();
       learnEvidenceSection.hidden = false;
       learnStatus.textContent = 'Starting learning… Wait before sending a message.';
-      await chrome.storage.local.remove([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]);
       await refreshActiveProvider();
       await refreshLearnTargets();
       if (learnTargets.length > 1 && !selectedLearnTargetId) {
@@ -253,10 +256,10 @@ learnStart.addEventListener(
         learnCapture.hidden = true;
         return;
       }
+      await chrome.storage.local.remove([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]);
       learnCapture.hidden = false;
       learnStart.textContent = 'Stop learning';
-      learnStatus.textContent =
-        'Learning is active. Send one message in the chat, then wait for the response.';
+      learnStatus.textContent = ACTIVE_LEARNING_STATUS;
     })
 );
 learnCapture.addEventListener(
@@ -787,12 +790,22 @@ async function refreshActiveProvider(retry = true): Promise<void> {
     activeTabUrl = response?.url;
     activeTabId = response?.tabId;
     if (response && 'learningTabId' in response && !learnStart.disabled) {
-      if (response.learningTabId == null) learnStart.textContent = 'Start learning';
-      else if (learnStart.textContent !== 'Stop learning') {
+      if (response.learningTabId == null) {
+        if (learnStart.textContent === 'Stop learning')
+          learnStatus.textContent = 'Learning stopped. Start again when you are ready.';
+        learnStart.textContent = 'Start learning';
+        learnCapture.hidden = true;
+      } else if (
+        learnStart.textContent !== 'Stop learning' ||
+        learnStatus.textContent === ACTIVE_LEARNING_STATUS ||
+        learnStatus.textContent === OTHER_TAB_LEARNING_STATUS
+      ) {
         learnStart.textContent = 'Stop learning';
         learnCapture.hidden = false;
         learnStatus.textContent =
-          'Learning is active. Return to the tab where learning started to continue, or stop learning here.';
+          response.tabId === response.learningTabId
+            ? ACTIVE_LEARNING_STATUS
+            : OTHER_TAB_LEARNING_STATUS;
       }
     }
     if (discoveryDraft && !draftMatchesActivePage(discoveryDraft)) hideLearningDraft();
