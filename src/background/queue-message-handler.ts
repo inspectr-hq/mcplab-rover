@@ -105,18 +105,20 @@ export function handleQueueMessage(
     message.type === 'ROVER_QUEUE_REMOVE' ||
     message.type === 'ROVER_QUEUE_MOVE'
   ) {
-    return respond(sendResponse, async () => {
-      const queue = await getQueue();
-      if (!queue) throw new Error('No queue has been created.');
-      const next =
-        message.type === 'ROVER_QUEUE_ADD'
-          ? addQueueItem(queue, message.item)
-          : message.type === 'ROVER_QUEUE_REMOVE'
-            ? removeQueueItem(queue, message.queueItemId)
-            : moveQueueItem(queue, message.queueItemId, message.direction);
-      await saveQueue(next);
-      return { ok: true, queue: next };
-    });
+    return respond(sendResponse, () =>
+      serializeQueueOperation(async () => {
+        const queue = await getQueue();
+        if (!queue) throw new Error('No queue has been created.');
+        const next =
+          message.type === 'ROVER_QUEUE_ADD'
+            ? addQueueItem(queue, message.item)
+            : message.type === 'ROVER_QUEUE_REMOVE'
+              ? removeQueueItem(queue, message.queueItemId)
+              : moveQueueItem(queue, message.queueItemId, message.direction);
+        await saveQueue(next);
+        return { ok: true, queue: next };
+      })
+    );
   }
   if (message.type === 'ROVER_QUEUE_START') {
     void serializeQueueOperation(async () => {

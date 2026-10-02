@@ -447,3 +447,47 @@ it('numbers archived evaluations within the recent list and renumbers after remo
   expect(Array.from(document.querySelectorAll('.queue-item-name'), (node) => node.textContent))
     .toEqual(['1. What is the weather?', '2. What is the weather?']);
 });
+
+
+it('restores manual Add after MCPLab acknowledgement without changing the assignment', async () => {
+  const settled = {
+    ...createQueue('http://localhost:8787', 'claude', false, 'now'),
+    status: 'completed' as const,
+    evaluationRunId: 'run',
+    managedPhase: 'terminal' as const
+  };
+  const addRow = document.querySelector<HTMLElement>('.queue-add-row')!;
+  storageChanged(
+    {
+      'rover.queue': {
+        newValue: {
+          ...settled,
+          managedPhase: 'waiting_ack',
+          pendingLeaseActions: [{ type: 'release', leaseId: 'lease' }]
+        }
+      }
+    },
+    'session'
+  );
+  expect(addRow.hidden).toBe(true);
+  sendMessage.mockClear();
+  storageChanged({ 'rover.queue': { newValue: settled } }, 'session');
+  expect(addRow.hidden).toBe(false);
+  expect(document.querySelector<HTMLButtonElement>('#queue-start')!.hidden).toBe(true);
+  expect(sendMessage).not.toHaveBeenCalled();
+  const draft = addQueueItem(settled, {
+    id: 'case',
+    name: 'Search assets',
+    prompt: '',
+    assertionCount: 1
+  });
+  sendMessage.mockResolvedValueOnce({ ok: true, queue: draft });
+  document.querySelector<HTMLButtonElement>('#queue-add')!.click();
+  await vi.waitFor(() =>
+    expect(document.querySelector<HTMLButtonElement>('#queue-start')!.hidden).toBe(false)
+  );
+  expect(sendMessage).toHaveBeenCalledWith({
+    type: 'ROVER_QUEUE_ADD',
+    item: { id: 'case', name: 'Search assets', prompt: '', assertionCount: 1 }
+  });
+});

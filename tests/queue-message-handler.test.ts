@@ -29,6 +29,9 @@ vi.mock('../src/background/lease-transport', () => ({
   persistLeaseRelease: mocks.persistLeaseRelease
 }));
 
+import { createQueue, addQueueItem, startQueue, recordQueueItemOutcome } from '../src/queue/state';
+import { serializeQueueOperation } from '../src/queue/operations';
+
 import { handleQueueMessage } from '../src/background/queue-message-handler';
 
 describe('queue message handler', () => {
@@ -194,5 +197,77 @@ describe('queue message handler', () => {
       )
     );
     expect(sendResponse).toHaveBeenCalledWith({ ok: true });
+  });
+
+  it('adds to a fresh local draft after a settled MCPLab assignment without releasing it again', async () => {
+    const running = startQueue(
+      addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), {
+        id: 'old',
+        name: 'Old',
+        prompt: '',
+        assertionCount: 0
+      }),
+      'now'
+    );
+    const completed = recordQueueItemOutcome(
+      running,
+      running.activeItemId!,
+      'passed',
+      { runId: 'saved' },
+      'now'
+    );
+    mocks.getQueue.mockResolvedValue({
+      ...completed,
+      evaluationRunId: 'mcplab-run',
+      managedPhase: 'terminal'
+    });
+    const sendResponse = vi.fn();
+    handleQueueMessage(
+      { type: 'ROVER_QUEUE_ADD', item: { id: 'new', name: 'New', prompt: '', assertionCount: 1 } },
+      sendResponse
+    );
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: true }))
+    );
+    const saved = mocks.saveQueue.mock.calls[0][0];
+    expect(saved).toMatchObject({
+      status: 'draft',
+      items: [expect.objectContaining({ testCaseId: 'new' })],
+      recentHistory: { claude: [expect.objectContaining({ runId: 'saved' })] }
+    });
+    expect(saved.evaluationRunId).toBeUndefined();
+    expect(mocks.persistLeaseRelease).not.toHaveBeenCalled();
+    expect(mocks.cancelActiveQueueItem).not.toHaveBeenCalled();
+    expect(mocks.runQueueItem).not.toHaveBeenCalled();
+  });
+
+  it('serializes manual Add with assignment operations and reads the latest queue', async () => {
+    vi.clearAllMocks();
+    let finish!: () => void;
+    const operation = serializeQueueOperation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        })
+    );
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    const sendResponse = vi.fn();
+    handleQueueMessage(
+      { type: 'ROVER_QUEUE_ADD', item: { id: 'new', name: 'New', prompt: '', assertionCount: 1 } },
+      sendResponse
+    );
+    expect(mocks.getQueue).not.toHaveBeenCalled();
+    mocks.getQueue.mockResolvedValue({
+      ...createQueue('http://localhost:8787', 'claude', false, 'now'),
+      evaluationRunId: 'new-assignment',
+      leaseId: 'lease',
+      status: 'running'
+    });
+    finish();
+    await operation;
+    await vi.waitFor(() =>
+      expect(sendResponse).toHaveBeenCalledWith(expect.objectContaining({ ok: false }))
+    );
+    expect(mocks.saveQueue).not.toHaveBeenCalled();
   });
 });

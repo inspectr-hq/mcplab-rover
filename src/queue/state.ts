@@ -133,7 +133,31 @@ export function createQueue(
   };
 }
 
+export function isQueueSettled(queue: RoverQueueState): boolean {
+  return (
+    (queue.status === 'completed' || queue.status === 'stopped') &&
+    !queue.leaseId &&
+    !queue.pendingLeaseActions?.length &&
+    queue.managedPhase !== 'finalizing' &&
+    queue.managedPhase !== 'waiting_ack'
+  );
+}
+
 export function addQueueItem(queue: RoverQueueState, catalog: QueueCatalogItem): RoverQueueState {
+  if (isQueueSettled(queue)) {
+    queue = {
+      ...createQueue(
+        queue.origin,
+        queue.provider,
+        queue.newConversationBetweenItems,
+        new Date().toISOString()
+      ),
+      tabId: queue.tabId,
+      recentHistory: archiveCompletedQueueItems(queue).recentHistory
+    };
+  }
+  if (queue.evaluationRunId || queue.leaseId || queue.pendingLeaseActions?.length)
+    throw new Error('Wait for the MCPLab assignment to finish before adding evaluations.');
   if (queue.status !== 'draft') throw new Error('Queue can only be edited before it starts.');
   const item: RoverQueueItem = {
     ...clone(catalog),

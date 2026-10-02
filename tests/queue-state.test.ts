@@ -358,3 +358,76 @@ describe('queue state', () => {
     expect(stopped.items[0]?.status).toBe('stopped');
   });
 });
+
+
+describe('adding after a settled assignment', () => {
+  it.each(['completed', 'stopped'] as const)(
+    'creates a local draft after %s and preserves history',
+    (status) => {
+      const running = startQueue(
+        addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), alpha),
+        'now'
+      );
+      const completed = recordQueueItemOutcome(
+        running,
+        running.activeItemId!,
+        'passed',
+        { runId: 'saved' },
+        'now'
+      );
+      const previous = {
+        ...completed,
+        status,
+        evaluationRunId: 'mcplab-run',
+        sourceConfigPath: '/eval.yaml',
+        sourceConfigName: 'Evaluation',
+        sourceAgentName: 'Agent',
+        tabId: 42,
+        managedPhase: 'terminal' as const,
+        newConversationBeforeStart: true
+      };
+      const added = addQueueItem(previous, beta);
+      expect(added.queueId).not.toBe(previous.queueId);
+      expect(added).toMatchObject({
+        status: 'draft',
+        provider: 'claude',
+        tabId: 42,
+        newConversationBetweenItems: false
+      });
+      expect(added.items).toHaveLength(1);
+      expect(added.items[0]).toMatchObject({ testCaseId: 'beta', status: 'queued' });
+      expect(added.recentHistory?.claude[0]).toMatchObject({ testCaseId: 'alpha', runId: 'saved' });
+      for (const key of [
+        'evaluationRunId',
+        'sourceConfigPath',
+        'sourceConfigName',
+        'sourceAgentName',
+        'managedPhase',
+        'newConversationBeforeStart'
+      ])
+        expect(added).not.toHaveProperty(key);
+      expect(previous.items).toHaveLength(1);
+      expect(previous.evaluationRunId).toBe('mcplab-run');
+    }
+  );
+
+  it('does not replace an assignment while a lease or acknowledgement is outstanding', () => {
+    const queue = {
+      ...createQueue('http://localhost:8787', 'claude', false, 'now'),
+      status: 'completed' as const,
+      evaluationRunId: 'run'
+    };
+    for (const busy of [
+      { ...queue, leaseId: 'lease' },
+      {
+        ...queue,
+        pendingLeaseActions: [
+          { type: 'release' as const, leaseId: 'lease', reason: 'completed' as const }
+        ]
+      },
+      { ...queue, managedPhase: 'waiting_ack' as const },
+      { ...queue, status: 'running' as const }
+    ])
+      expect(() => addQueueItem(busy, beta)).toThrow();
+  });
+});

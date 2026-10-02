@@ -6,7 +6,7 @@ import type {
   RoverState
 } from '../contracts';
 import type { BrowserProviderProfile, LiveTestCatalogItem } from '../mcplab/types';
-import type { RoverQueueState } from '../queue/state';
+import { isQueueSettled, type RoverQueueState } from '../queue/state';
 import {
   debugFingerprint,
   buildLearnedProviderSave,
@@ -502,9 +502,12 @@ function renderQueue(queue: RoverQueueState | null): void {
     providerForView
   );
   const addRow = queueEvaluation.closest('.queue-add-row') as HTMLElement | null;
-  const editable = !managed && matchesCurrentAssignment;
+  const readyForNextEvaluation = isQueueSettled(queue);
+  const editable = (!managed || readyForNextEvaluation) && matchesCurrentAssignment;
   addRow?.toggleAttribute('hidden', !editable);
-  queueNewChat.closest('.checkbox-row')?.toggleAttribute('hidden', !editable);
+  queueNewChat
+    .closest('.checkbox-row')
+    ?.toggleAttribute('hidden', !editable || queue.status !== 'draft');
   queueNewChat.checked = queue.newConversationBetweenItems;
   const renderGroup = (
     title: string,
@@ -628,10 +631,6 @@ function renderQueue(queue: RoverQueueState | null): void {
   queueItems.replaceChildren(...groups);
   queueItems.parentElement?.classList.toggle('queue-managed', managed);
   queueStart.hidden = !editable || active.length === 0;
-  const readyForNextEvaluation =
-    (queue.status === 'completed' || queue.status === 'stopped') &&
-    !queue.leaseId &&
-    !queue.pendingLeaseActions?.length;
   const phaseLabel = managedPhaseLabel(readyForNextEvaluation ? 'terminal' : queue.managedPhase);
   queueStatus.textContent = readyForNextEvaluation
     ? `${phaseLabel}.`
