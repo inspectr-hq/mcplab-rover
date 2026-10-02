@@ -417,3 +417,33 @@ it('orders the evaluation dropdown alphabetically by name', async () => {
     'Alpha', 'beta', 'Zulu'
   ]);
 });
+
+
+it('numbers archived evaluations within the recent list and renumbers after removal', () => {
+  const running = startQueue(
+    addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), {
+      id: 'case',
+      name: 'What is the weather?',
+      prompt: '',
+      assertionCount: 1
+    }),
+    'now'
+  );
+  const completed = recordQueueItemOutcome(running, running.activeItemId!, 'passed', {}, 'now');
+  const latest = completed.items[0];
+  const history = [
+    latest,
+    { ...latest, queueItemId: 'older' },
+    { ...latest, queueItemId: 'oldest' }
+  ];
+  storageChanged({
+    'rover.queue': { newValue: { ...completed, recentHistory: { claude: history } } }
+  }, 'session');
+  expect(Array.from(document.querySelectorAll('.queue-item-name'), (node) => node.textContent))
+    .toEqual(['1. What is the weather?', '2. What is the weather?', '3. What is the weather?']);
+  storageChanged({
+    'rover.queue': { newValue: { ...completed, recentHistory: { claude: history.slice(1) } } }
+  }, 'session');
+  expect(Array.from(document.querySelectorAll('.queue-item-name'), (node) => node.textContent))
+    .toEqual(['1. What is the weather?', '2. What is the weather?']);
+});

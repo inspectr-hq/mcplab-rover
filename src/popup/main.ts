@@ -526,7 +526,7 @@ function renderQueue(queue: RoverQueueState | null): void {
       const queueIndex = queue.items.findIndex(
         (candidate) => candidate.queueItemId === item.queueItemId
       );
-      name.textContent = `${queueIndex + 1}. ${item.name}`;
+      name.textContent = `${(history ? index : queueIndex) + 1}. ${item.name}`;
       const itemStatus = document.createElement('span');
       itemStatus.className = 'queue-item-status';
       itemStatus.dataset.status = item.status;
