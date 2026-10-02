@@ -128,6 +128,12 @@ export async function syncDebugSubscription(tabId: number): Promise<void> {
 
 export function installMessageHandler(): void {
   chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
+    if (message.type === 'ROVER_LEARN_PROGRESS' || message.type === 'ROVER_LEARN_RESULT') {
+      debugLog('learning update received by background', {
+        type: message.type,
+        tabId: sender.tab?.id
+      });
+    }
     if (message.type === 'ROVER_PAGE_FOCUSED') {
       if (typeof sender.tab?.id === 'number')
         void updateRoverRegistration(sender.tab.id).catch(() => undefined);
@@ -187,9 +193,10 @@ export function installMessageHandler(): void {
         const origin = await resolveOrigin();
         let provider: ProviderId | undefined;
         if (typeof tab?.id === 'number') {
-          await detectProvider(tab.id);
+          // Panel checks must not wait for a supported provider on a page being learned.
+          await detectProvider(tab.id, false);
           await loadProfilesIntoTab(tab.id, origin);
-          provider = await detectProvider(tab.id);
+          provider = await detectProvider(tab.id, false);
         }
         return {
           provider,

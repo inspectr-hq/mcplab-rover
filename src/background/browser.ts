@@ -15,8 +15,8 @@ export function expectedProviderForUrl(url?: string): ProviderId | undefined {
   return undefined;
 }
 
-export async function detectProvider(tabId: number): Promise<ProviderId | undefined> {
-  const retryDelaysMs = [300, 600, 1_200, 2_000];
+export async function detectProvider(tabId: number, retry = true): Promise<ProviderId | undefined> {
+  const retryDelaysMs = retry ? [300, 600, 1_200, 2_000] : [];
   let lastError: string | undefined;
   for (let attempt = 0; attempt <= retryDelaysMs.length; attempt += 1) {
     try {

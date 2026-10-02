@@ -162,6 +162,30 @@ describe('provider discovery replay', () => {
     expect(result.reasons).toContain('New Chat context change was not observed during Learning.');
   });
 
+  it('revalidates the remaining lifecycle when unconfirmed New Chat support is omitted', () => {
+    const candidate = {
+      ...profile,
+      newConversation: {
+        action: 'click' as const,
+        locator: { segments: ['button[title="New chat"]'] },
+        confirmation: 'context-change' as const
+      }
+    };
+    expect(replayProviderProfile(candidate, trace).passed).toBe(false);
+    const { newConversation, ...withoutNewChat } = candidate;
+    expect(newConversation).toBeDefined();
+    expect(replayProviderProfile(withoutNewChat, trace).passed).toBe(true);
+    expect(
+      replayProviderProfile(
+        {
+          ...withoutNewChat,
+          assistantMessages: { locator: { segments: ['.unobserved-response'] } }
+        },
+        trace
+      ).passed
+    ).toBe(false);
+  });
+
   it('rejects a New Chat proposal that does not identify the confirmed control', () => {
     const result = replayProviderProfile(
       {

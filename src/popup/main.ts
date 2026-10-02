@@ -20,7 +20,10 @@ import {
   projectQueueForProvider,
   suggestedProviderName
 } from './view-model';
+import { debugLog, initializeDebugLogging } from '../content-debug-logging';
 import './style.css';
+
+initializeDebugLogging();
 
 const shell = document.querySelector<HTMLElement>('.shell')!;
 const provider = document.querySelector<HTMLParagraphElement>('#provider')!;
@@ -75,6 +78,8 @@ const learnPanel = document.querySelector<HTMLElement>('#learn-panel')!;
 const learnTarget = document.querySelector<HTMLElement>('#learn-target')!;
 const learnStatus = document.querySelector<HTMLParagraphElement>('#learn-status')!;
 const learnProgress = document.querySelector<HTMLElement>('#learn-progress')!;
+const learnGuide = document.querySelector<HTMLElement>('#learn-guide')!;
+let learningProgress: BrowserProviderDiscoveryProgress | undefined;
 const learnEvidenceSection = document.querySelector<HTMLElement>('#learn-evidence-section')!;
 const learnCapabilities = document.querySelector<HTMLElement>('#learn-capabilities')!;
 const learnProposalSection = document.querySelector<HTMLElement>('#learn-proposal-section')!;
@@ -87,6 +92,9 @@ const learnCapture = document.querySelector<HTMLButtonElement>('#learn-capture')
 const learnPropose = document.querySelector<HTMLButtonElement>('#learn-propose')!;
 const learnProposeStatus = document.querySelector<HTMLElement>('#learn-propose-status')!;
 const learnSave = document.querySelector<HTMLButtonElement>('#learn-save')!;
+const learnSaveWithoutNewChat = document.querySelector<HTMLButtonElement>(
+  '#learn-save-without-new-chat'
+)!;
 const learnSaveStatus = document.querySelector<HTMLElement>('#learn-save-status')!;
 const debugPanel = document.querySelector<HTMLElement>('#debug-panel')!;
 const debugRefresh = document.querySelector<HTMLButtonElement>('#debug-refresh')!;
@@ -109,8 +117,7 @@ let mode: 'manual' | 'queue' | 'learn' | 'debug' = 'manual';
 let discoveryDraft: BrowserProviderDiscoveryDraft | null = null;
 const DISCOVERY_DRAFT_KEY = 'rover.provider-discovery-draft';
 const LEGACY_LEARNING_DRAFT_KEY = 'rover.learning-draft';
-const ACTIVE_LEARNING_STATUS =
-  'Learning is active. Send one message in the chat, then wait for the response.';
+const ACTIVE_LEARNING_STATUS = 'Learning is active. Follow the steps below in the chat.';
 const OTHER_TAB_LEARNING_STATUS =
   'Learning is active. Return to the tab where learning started to continue, or stop learning here.';
 let lastDebugFingerprint = '';
@@ -228,6 +235,7 @@ learnStart.addEventListener(
         }
         learnStart.textContent = 'Start learning';
         learnCapture.hidden = true;
+        learnGuide.hidden = true;
         learnProgress.hidden = true;
         learnEvidenceSection.hidden = true;
         learnStatus.textContent = 'Learning stopped. Start again when you are ready.';
@@ -260,6 +268,7 @@ learnStart.addEventListener(
       learnCapture.hidden = false;
       learnStart.textContent = 'Stop learning';
       learnStatus.textContent = ACTIVE_LEARNING_STATUS;
+      renderLearningGuide();
     })
 );
 learnCapture.addEventListener(
@@ -343,44 +352,129 @@ learnSave.addEventListener(
   'click',
   () =>
     void runButtonAction(learnSave, async () => {
-      if (!discoveryDraft || discoveryDraft.readyToSave !== true) {
-        learnStatus.textContent =
-          'The provider must pass lifecycle validation before it can be saved.';
+      if (discoveryDraft) await saveLearningDraft(discoveryDraft);
+    })
+);
+learnSaveWithoutNewChat.addEventListener(
+  'click',
+  () =>
+    void runButtonAction(learnSaveWithoutNewChat, async () => {
+      const draft = discoveryDraft;
+      if (!draft || !canOmitUnconfirmedNewChat(draft) || !draftMatchesActivePage(draft)) return;
+      if (!learnName.value.trim()) {
+        setLearnSaveStatus('Enter a provider name first.');
         return;
       }
-      const name = learnName.value.trim();
-      if (!name) {
-        learnStatus.textContent = 'Enter a provider name first.';
-        return;
-      }
+      let reviewedDraft = draft;
       try {
-        const saved = buildLearnedProviderSave(
-          discoveryDraft.profile,
-          name,
-          discoveryDraft.targetProviderId,
-          discoveryDraft.sourceUrl ?? activeTabUrl
-        );
+        setLearnSaveStatus('Validating the message flow without New Chat support…');
+        // Excluding an unconfirmed capability is an explicit user choice, never a validation bypass.
+        const profile = { ...draft.profile };
+        delete profile.newConversation;
         const response = await chrome.runtime.sendMessage({
-          type: 'ROVER_LEARN_SAVE',
-          profile: saved.profile,
-          agent: saved.agent,
-          origin: origin.value,
-          trace: discoveryDraft.trace,
-          proposalDiagnostics: discoveryDraft.proposalDiagnostics
+          type: 'ROVER_LEARN_VALIDATE',
+          profile,
+          trace: draft.trace
         });
-        if (!response?.ok) throw new Error(response?.error ?? 'Could not save provider.');
-        learnStatus.textContent = `Saved ${name} to MCPLab.`;
-        learnSave.hidden = true;
-        learnSaveStatus.hidden = true;
-        learnPropose.hidden = true;
-        discoveryDraft = null;
-        await chrome.storage.local.remove([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]);
+        if (discoveryDraft !== draft || !draftMatchesActivePage(draft)) return;
+        if (!response?.ok || !response.validation?.passed) {
+          setLearnSaveStatus(
+            `Cannot save yet: ${
+              response?.validation?.reasons?.join(' ') ||
+              response?.error ||
+              'Could not validate the message flow.'
+            }`
+          );
+          return;
+        }
+        const validatedDraft: BrowserProviderDiscoveryDraft = {
+          ...draft,
+          profile,
+          readyToSave: true,
+          validationReasons: []
+        };
+        discoveryDraft = validatedDraft;
+        reviewedDraft = validatedDraft;
+        await chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: validatedDraft });
+        if (discoveryDraft !== validatedDraft || !draftMatchesActivePage(validatedDraft)) return;
+        renderLearnProposal(validatedDraft);
+        renderLearnValidation(validatedDraft);
+        await saveLearningDraft(validatedDraft, true);
       } catch (error) {
-        learnStatus.textContent =
-          error instanceof Error ? error.message : 'Could not save provider.';
+        if (discoveryDraft === reviewedDraft && draftMatchesActivePage(reviewedDraft)) {
+          setLearnSaveStatus(
+            error instanceof Error ? error.message : 'Could not validate provider.'
+          );
+        }
       }
     })
 );
+
+function setLearnSaveStatus(message: string): void {
+  learnSaveStatus.textContent = message;
+  learnSaveStatus.hidden = false;
+}
+
+function canOmitUnconfirmedNewChat(draft: BrowserProviderDiscoveryDraft): boolean {
+  return (
+    draft.readyToSave !== true &&
+    draft.profile.newConversation?.action === 'click' &&
+    draft.profile.newConversation.confirmation === 'context-change' &&
+    !draft.trace?.newConversationEvidence
+  );
+}
+
+async function saveLearningDraft(
+  draft: BrowserProviderDiscoveryDraft,
+  withoutNewChat = false
+): Promise<void> {
+  if (discoveryDraft !== draft || !draftMatchesActivePage(draft)) return;
+  if (draft.readyToSave !== true) {
+    setLearnSaveStatus('The provider must pass lifecycle validation before it can be saved.');
+    return;
+  }
+  const name = learnName.value.trim();
+  if (!name) {
+    setLearnSaveStatus('Enter a provider name first.');
+    return;
+  }
+  learnSave.disabled = true;
+  try {
+    const saved = buildLearnedProviderSave(
+      draft.profile,
+      name,
+      draft.targetProviderId,
+      draft.sourceUrl ?? activeTabUrl
+    );
+    const response = await chrome.runtime.sendMessage({
+      type: 'ROVER_LEARN_SAVE',
+      profile: saved.profile,
+      agent: saved.agent,
+      origin: origin.value,
+      trace: draft.trace,
+      proposalDiagnostics: draft.proposalDiagnostics
+    });
+    if (discoveryDraft !== draft || !draftMatchesActivePage(draft)) return;
+    if (!response?.ok) throw new Error(response?.error ?? 'Could not save provider.');
+    const message = withoutNewChat
+      ? `Saved ${name} to MCPLab without New Chat support.`
+      : `Saved ${name} to MCPLab.`;
+    learnStatus.textContent = message;
+    setLearnSaveStatus(message);
+    learnSave.hidden = true;
+    learnSaveWithoutNewChat.hidden = true;
+    learnPropose.hidden = true;
+    discoveryDraft = null;
+    await chrome.storage.local.remove([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]);
+  } catch (error) {
+    if (discoveryDraft === draft && draftMatchesActivePage(draft)) {
+      setLearnSaveStatus(error instanceof Error ? error.message : 'Could not save provider.');
+    }
+  } finally {
+    if (discoveryDraft === draft && draftMatchesActivePage(draft)) learnSave.disabled = false;
+  }
+}
+
 debugRefresh.addEventListener('click', () => void refreshDebug(true));
 queueAdd.addEventListener('click', async () => {
   await runButtonAction(queueAdd, async () => {
@@ -448,6 +542,7 @@ async function setMode(next: 'manual' | 'queue' | 'learn' | 'debug'): Promise<vo
   if (mode === 'learn' && next !== 'learn') {
     await chrome.runtime.sendMessage({ type: 'ROVER_LEARN_STOP' });
     learnStart.textContent = 'Start learning';
+    learnGuide.hidden = true;
   }
   if (mode === 'debug')
     void chrome.runtime.sendMessage({ type: 'ROVER_DEBUG_SUBSCRIBE', enabled: false });
@@ -700,6 +795,7 @@ function setLearnProposalStatus(message: string): void {
 }
 
 function hideLearningDraft(): void {
+  learnGuide.hidden = true;
   learnProposeStatus.textContent = '';
   learnProposeStatus.hidden = true;
   learnCapabilities.replaceChildren();
@@ -714,6 +810,7 @@ function hideLearningDraft(): void {
   learnName.hidden = true;
   learnPropose.hidden = true;
   learnSave.hidden = true;
+  learnSaveWithoutNewChat.hidden = true;
   learnSave.disabled = true;
   learnSaveStatus.hidden = true;
   learnSaveStatus.textContent = '';
@@ -721,6 +818,7 @@ function hideLearningDraft(): void {
 
 function resetLearningDraft(): void {
   discoveryDraft = null;
+  learningProgress = undefined;
   hideLearningDraft();
   learnName.value = '';
   learnCapture.hidden = true;
@@ -749,7 +847,7 @@ async function restoreLearningDraft(): Promise<void> {
   if (!draft || !draftMatchesActivePage(draft)) return;
   discoveryDraft = draft;
   learnName.value = draft.targetProviderId
-    ? (draft.targetProviderName ?? draft.profile.name)
+    ? draft.targetProviderName ?? draft.profile.name
     : suggestedProviderName(draft.profile);
   learnName.hidden = false;
   learnCapture.hidden = true;
@@ -795,6 +893,7 @@ async function refreshActiveProvider(retry = true): Promise<void> {
           learnStatus.textContent = 'Learning stopped. Start again when you are ready.';
         learnStart.textContent = 'Start learning';
         learnCapture.hidden = true;
+        learnGuide.hidden = true;
       } else if (
         learnStart.textContent !== 'Stop learning' ||
         learnStatus.textContent === ACTIVE_LEARNING_STATUS ||
@@ -806,6 +905,10 @@ async function refreshActiveProvider(retry = true): Promise<void> {
           response.tabId === response.learningTabId
             ? ACTIVE_LEARNING_STATUS
             : OTHER_TAB_LEARNING_STATUS;
+      }
+      if (response.learningTabId != null) {
+        if (response.tabId === response.learningTabId) renderLearningGuide();
+        else learnGuide.hidden = true;
       }
     }
     if (discoveryDraft && !draftMatchesActivePage(discoveryDraft)) hideLearningDraft();
@@ -1307,6 +1410,8 @@ function renderLearnCapabilities(
   capabilities: BrowserProviderDiscoveryDraft['capabilities']
 ): void {
   learnEvidenceSection.hidden = false;
+  renderLearningGuide();
+  learnProgress.hidden = true;
   renderIndicatorList(
     learnCapabilities,
     capabilities.map((capability) => ({
@@ -1331,6 +1436,29 @@ function renderLearnProposal(draft: BrowserProviderDiscoveryDraft): void {
     learnProposal,
     proposal.map((entry) => {
       const previous = captured.get(entry.label);
+      if (entry.label === 'New conversation') {
+        if (entry.value === 'not configured' && previous !== 'not configured') {
+          return {
+            label: 'New conversation, omitted',
+            state: 'unknown' as const,
+            detail: 'No New Chat control will be saved in this profile.'
+          };
+        }
+        if (
+          draft.profile.newConversation?.confirmation === 'context-change' &&
+          !draft.trace?.newConversationEvidence
+        ) {
+          return {
+            label:
+              previous === entry.value
+                ? 'New conversation, kept but unconfirmed'
+                : 'New conversation, changed but unconfirmed',
+            state: 'unknown' as const,
+            detail: `${entry.value}. The selector is configured, but Rover has not observed it start a new conversation.`
+          };
+        }
+      }
+
       if (previous === entry.value)
         return {
           label: `${entry.label}, kept`,
@@ -1357,6 +1485,7 @@ function renderLearnValidation(draft: BrowserProviderDiscoveryDraft): void {
   learnValidationSection.dataset.state = draft.readyToSave ? 'pass' : 'fail';
   const reasons = draft.validationReasons ?? [];
   learnSave.hidden = false;
+  learnSaveWithoutNewChat.hidden = !canOmitUnconfirmedNewChat(draft);
   learnSave.disabled = draft.readyToSave !== true;
   learnSaveStatus.hidden = !learnSave.disabled;
   learnSaveStatus.textContent = learnSave.disabled
@@ -1367,7 +1496,7 @@ function renderLearnValidation(draft: BrowserProviderDiscoveryDraft): void {
     draft.profile.newConversation?.confirmation === 'context-change' &&
     !draft.trace?.newConversationEvidence
   ) {
-    learnSaveStatus.textContent += ' Open a new conversation on the provider page to confirm it.';
+    learnSaveStatus.textContent += ' Open a new conversation on the provider page to confirm it, or save without New Chat support. Evaluations without this support continue in the current conversation.';
   }
   renderIndicatorList(learnValidation, [
     {
@@ -1387,7 +1516,66 @@ function renderLearnValidation(draft: BrowserProviderDiscoveryDraft): void {
   learnValidationSection.hidden = false;
 }
 
+function renderLearningGuide(progress?: BrowserProviderDiscoveryProgress): void {
+  if (progress) learningProgress = progress;
+  const captured = Boolean(discoveryDraft && draftMatchesActivePage(discoveryDraft));
+  const currentStep = captured
+    ? 3
+    : learningProgress?.submitDetected || learningProgress?.assistantDetected
+    ? 2
+    : learningProgress?.composerDetected
+    ? 1
+    : 0;
+  const heading = document.createElement('div');
+  heading.className = 'learning-guide-heading';
+  const title = document.createElement('strong');
+  title.textContent = 'Learning progress';
+  const count = document.createElement('span');
+  count.setAttribute('role', 'status');
+  count.textContent = captured ? 'Response captured' : `Step ${currentStep + 1} of 3`;
+  heading.append(title, count);
+  const steps = document.createElement('ol');
+  steps.className = 'learning-steps';
+  const instructions = [
+    [
+      'Type one message in the chat',
+      'Click the chat input and type a short message, such as “hi there”.'
+    ],
+    ['Send the message', 'Press Enter or click the chat’s Send button.'],
+    ['Wait for the response', 'Keep the chat open while Rover captures the finished response.']
+  ];
+  instructions.forEach(([label, detail], index) => {
+    const step = document.createElement('li');
+    const state = index < currentStep ? 'complete' : index === currentStep ? 'current' : 'upcoming';
+    step.dataset.state = state;
+    if (state === 'current') step.setAttribute('aria-current', 'step');
+    const marker = document.createElement('span');
+    marker.className = 'learning-step-marker';
+    marker.setAttribute('aria-hidden', 'true');
+    marker.textContent = state === 'complete' ? '✓' : String(index + 1);
+    const copy = document.createElement('div');
+    const name = document.createElement('strong');
+    name.textContent = label;
+    const status = document.createElement('span');
+    status.className = 'learning-step-state';
+    status.textContent = state === 'complete' ? 'Done' : state === 'current' ? 'Next' : 'Waiting';
+    copy.append(name, status);
+    if (state === 'current') {
+      const instruction = document.createElement('p');
+      instruction.textContent = detail;
+      copy.append(instruction);
+    }
+    step.append(marker, copy);
+    steps.append(step);
+  });
+  learnGuide.replaceChildren(heading, steps);
+  learnGuide.hidden = false;
+}
+
 function renderLearnProgress(progress: BrowserProviderDiscoveryProgress): void {
+  // The validated draft replaces live observations, including updates already in flight.
+  if (discoveryDraft && draftMatchesActivePage(discoveryDraft)) return;
+  renderLearningGuide(progress);
   learnEvidenceSection.hidden = false;
   learnProgress.hidden = false;
   renderIndicatorList(learnProgress, [
@@ -1432,7 +1620,13 @@ chrome.runtime.onMessage.addListener(
     if (message.type === 'ROVER_ACTIVE_PROVIDER_CHANGED') void refreshActiveProvider();
     if (message.type === 'ROVER_DEBUG_CHANGED' && mode === 'debug') void refreshDebug(false);
     if (message.type === 'ROVER_LEARN_PROGRESS') {
-      if (sender?.tab?.id !== undefined && sender.tab.id !== activeTabId) return;
+      const ignored = sender?.tab?.id !== undefined && sender.tab.id !== activeTabId;
+      debugLog('learning progress received by panel', {
+        senderTabId: sender?.tab?.id,
+        activeTabId,
+        ignored
+      });
+      if (ignored) return;
       const event = message as { progress?: BrowserProviderDiscoveryProgress };
       if (event.progress) renderLearnProgress(event.progress);
     }
@@ -1440,13 +1634,18 @@ chrome.runtime.onMessage.addListener(
       const event = message as { draft?: BrowserProviderDiscoveryDraft };
       if (!event.draft) return;
       const matchesPage = !activeTabUrl || draftMatchesActivePage(event.draft);
+      debugLog('learning result received by panel', {
+        senderTabId: sender?.tab?.id,
+        activeTabId,
+        matchesPage
+      });
       learnProposeStatus.textContent = '';
       learnProposeStatus.hidden = true;
       discoveryDraft = {
         ...event.draft,
         targetProviderId:
           event.draft.targetProviderId ??
-          (matchesPage ? (selectedLearnTargetId ?? activeProvider) : undefined),
+          (matchesPage ? selectedLearnTargetId ?? activeProvider : undefined),
         targetProviderName:
           event.draft.targetProviderName ??
           learnTargets.find(
@@ -1458,7 +1657,7 @@ chrome.runtime.onMessage.addListener(
         sourceUrl: event.draft.sourceUrl ?? activeTabUrl
       };
       learnName.value = discoveryDraft.targetProviderId
-        ? (discoveryDraft.targetProviderName ?? discoveryDraft.profile.name)
+        ? discoveryDraft.targetProviderName ?? discoveryDraft.profile.name
         : suggestedProviderName(discoveryDraft.profile);
       void chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: discoveryDraft });
       learnStart.textContent = 'Stop learning';

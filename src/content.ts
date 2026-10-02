@@ -158,6 +158,7 @@ if (runtime.__mcplabRoverInstalled) {
       discoverySession?.stop();
       discoverySession = startProviderDiscovery(
         (draft) => {
+          debugLog('learning result sending', { readyToSave: draft.readyToSave });
           void sendRuntimeMessage({
             type: 'ROVER_LEARN_RESULT',
             draft: {
@@ -170,6 +171,13 @@ if (runtime.__mcplabRoverInstalled) {
           });
         },
         (progress) => {
+          debugLog('learning progress sending', {
+            composerDetected: progress.composerDetected,
+            submitDetected: progress.submitDetected,
+            assistantDetected: progress.assistantDetected,
+            generatingObserved: progress.generatingObserved,
+            idleObserved: progress.idleObserved
+          });
           void sendRuntimeMessage({ type: 'ROVER_LEARN_PROGRESS', progress }).catch((error) => {
             console.warn('[Rover] provider discovery progress delivery failed', error);
           });

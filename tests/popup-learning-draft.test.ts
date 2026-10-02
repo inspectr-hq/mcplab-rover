@@ -397,7 +397,7 @@ it.each([11, 22])('shows the learning instructions for the active tab %i', async
   );
   expect(document.querySelector('#learn-status')!.textContent).toBe(
     tabId === 11
-      ? 'Learning is active. Send one message in the chat, then wait for the response.'
+      ? 'Learning is active. Follow the steps below in the chat.'
       : 'Learning is active. Return to the tab where learning started to continue, or stop learning here.'
   );
   const nextTabId = tabId === 11 ? 22 : 11;
@@ -410,7 +410,7 @@ it.each([11, 22])('shows the learning instructions for the active tab %i', async
   await vi.waitFor(() =>
     expect(document.querySelector('#learn-status')!.textContent).toBe(
       nextTabId === 11
-        ? 'Learning is active. Send one message in the chat, then wait for the response.'
+        ? 'Learning is active. Follow the steps below in the chat.'
         : 'Learning is active. Return to the tab where learning started to continue, or stop learning here.'
     )
   );
@@ -481,4 +481,199 @@ it.each([11, 22])('resets learning controls when the session is cleared from tab
     'Learning stopped. Start again when you are ready.'
   );
   expect(popup.remove).not.toHaveBeenCalled();
+});
+
+it('guides typing, sending and waiting using observed learning progress, then hides on Stop', async () => {
+  const popup = await openPopup('unrelated-draft');
+  popup.resolveDetection({ url: 'https://claude.ai/new', tabId: 11, learningTabId: 11 });
+  const guide = document.querySelector<HTMLElement>('#learn-guide');
+  await vi.waitFor(() => expect(guide?.hidden).toBe(false));
+  const states = () => [...guide!.querySelectorAll('li')].map((step) => step.dataset.state);
+  const progress = {
+    composerDetected: false,
+    submitDetected: false,
+    assistantDetected: false,
+    generatingObserved: false,
+    idleObserved: false
+  };
+  const report = () =>
+    popup.onMessage(Object.assign({ type: 'ROVER_LEARN_PROGRESS' }, { progress }), {
+      tab: { id: 11 } as chrome.tabs.Tab
+    });
+  expect(states()).toEqual(['current', 'upcoming', 'upcoming']);
+  expect(guide!.textContent).toContain('Step 1 of 3');
+  progress.composerDetected = true;
+  report();
+  expect(states()).toEqual(['complete', 'current', 'upcoming']);
+  expect(guide!.querySelector('[aria-current="step"]')?.textContent).toContain('Send the message');
+  progress.submitDetected = true;
+  report();
+  expect(states()).toEqual(['complete', 'complete', 'current']);
+  expect(guide!.textContent).toContain('Step 3 of 3');
+  progress.assistantDetected = true;
+  progress.idleObserved = true;
+  report();
+  expect(states()).toEqual(['complete', 'complete', 'current']);
+  popup.onMessage({ type: 'ROVER_LEARN_RESULT', draft });
+  expect(states()).toEqual(['complete', 'complete', 'complete']);
+  expect(guide!.textContent).toContain('Response captured');
+  expect(guide!.querySelector('[aria-current]')).toBeNull();
+  progress.assistantDetected = false;
+  progress.idleObserved = false;
+  report();
+  expect(document.querySelector<HTMLElement>('#learn-progress')!.hidden).toBe(true);
+  expect(document.querySelector('#learn-capabilities')!.textContent).toContain('Found input.');
+  expect(states()).toEqual(['complete', 'complete', 'complete']);
+  popup.sendMessage.mockResolvedValueOnce({ ok: true });
+  document.querySelector<HTMLButtonElement>('#learn-start')!.click();
+  await vi.waitFor(() => expect(guide!.hidden).toBe(true));
+});
+
+
+const unconfirmedNewChatDraft: BrowserProviderDiscoveryDraft = {
+  ...draft,
+  profile: {
+    ...draft.profile,
+    newConversation: {
+      action: 'click',
+      locator: { segments: ['button[title="New chat"]'] },
+      confirmation: 'context-change'
+    }
+  },
+  readyToSave: false,
+  validationReasons: ['New Chat context change was not observed during Learning.'],
+  trace: {
+    observedGeneration: true,
+    selectorValidation: {
+      composer: { valid: true, matchCount: 1, visible: true },
+      submit: { valid: true, matchCount: 1, visible: true },
+      assistant: { valid: true, matchCount: 1, visible: true }
+    },
+    events: []
+  }
+};
+
+it.each(['captured', 'AI proposal'])(
+  'revalidates and saves a %s without the unconfirmed New Chat control',
+  async (source) => {
+    const savedDraft =
+      source === 'captured'
+        ? unconfirmedNewChatDraft
+        : {
+            ...unconfirmedNewChatDraft,
+            capturedProfile: draft.profile,
+            proposalDiagnostics: { rationale: ['Suggested New Chat.'], warnings: [] }
+          };
+    const popup = await openPopup('rover.provider-discovery-draft', savedDraft);
+    popup.resolveDetection({ url: 'https://claude.ai/new' });
+    const button = document.querySelector<HTMLButtonElement>('#learn-save-without-new-chat')!;
+    await vi.waitFor(() => expect(button.hidden).toBe(false));
+    popup.sendMessage.mockImplementation(async (message) => {
+      if (message.type === 'ROVER_LEARN_VALIDATE')
+        return { ok: true, validation: { passed: true, reasons: [] } };
+      if (message.type === 'ROVER_LEARN_SAVE') return { ok: true };
+      return null;
+    });
+    button.click();
+    await vi.waitFor(() =>
+      expect(document.querySelector('#learn-save-status')!.textContent).toContain(
+        'Saved Claude to MCPLab without New Chat support.'
+      )
+    );
+    const messages = popup.sendMessage.mock.calls.map(([message]) => message);
+    const validation = messages.find((message) => message.type === 'ROVER_LEARN_VALIDATE');
+    const save = messages.find((message) => message.type === 'ROVER_LEARN_SAVE');
+    expect(validation.profile).not.toHaveProperty('newConversation');
+    expect(save.profile).not.toHaveProperty('newConversation');
+    expect(validation.trace).toEqual(savedDraft.trace);
+    expect(messages.indexOf(validation)).toBeLessThan(messages.indexOf(save));
+    expect(savedDraft.profile.newConversation).toBeDefined();
+    expect(button.hidden).toBe(true);
+    expect(popup.remove).toHaveBeenCalled();
+  }
+);
+
+it.each(['validation', 'transport'])(
+  'does not save without New Chat when %s fails and shows the error beside Save',
+  async (failure) => {
+    const popup = await openPopup('rover.provider-discovery-draft', unconfirmedNewChatDraft);
+    popup.resolveDetection({ url: 'https://claude.ai/new' });
+    const button = document.querySelector<HTMLButtonElement>('#learn-save-without-new-chat')!;
+    await vi.waitFor(() => expect(button.hidden).toBe(false));
+    popup.sendMessage.mockImplementation(async (message) => {
+      if (message.type === 'ROVER_LEARN_VALIDATE') {
+        if (failure === 'transport') throw new Error('Replay unavailable.');
+        return { ok: true, validation: { passed: false, reasons: ['Response locator missing.'] } };
+      }
+      return null;
+    });
+    button.click();
+    await vi.waitFor(() =>
+      expect(document.querySelector('#learn-save-status')!.textContent).toContain(
+        failure === 'transport' ? 'Replay unavailable.' : 'Response locator missing.'
+      )
+    );
+    expect(
+      popup.sendMessage.mock.calls.some(([message]) => message.type === 'ROVER_LEARN_SAVE')
+    ).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>('#learn-save')!.disabled).toBe(true);
+    expect(popup.remove).not.toHaveBeenCalled();
+  }
+);
+
+it('ignores a replay result after moving to a different website', async () => {
+  const popup = await openPopup('rover.provider-discovery-draft', unconfirmedNewChatDraft);
+  popup.resolveDetection({ url: 'https://claude.ai/new' });
+  const button = document.querySelector<HTMLButtonElement>('#learn-save-without-new-chat')!;
+  await vi.waitFor(() => expect(button.hidden).toBe(false));
+  let resolve!: (value: unknown) => void;
+  const pending = new Promise((done) => {
+    resolve = done;
+  });
+  popup.sendMessage.mockImplementation(async (message) => {
+    if (message.type === 'ROVER_LEARN_VALIDATE') return pending;
+    if (message.type === 'ROVER_GET_ACTIVE_PROVIDER') return { url: 'https://polo.example/app' };
+    return null;
+  });
+  button.click();
+  popup.onMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+  await vi.waitFor(() => expect(button.hidden).toBe(true));
+  resolve({ ok: true, validation: { passed: true, reasons: [] } });
+  await new Promise((done) => setTimeout(done, 0));
+  expect(
+    popup.sendMessage.mock.calls.some(([message]) => message.type === 'ROVER_LEARN_SAVE')
+  ).toBe(false);
+});
+
+it('retains the validated profile without New Chat for retry after a save failure', async () => {
+  const popup = await openPopup('rover.provider-discovery-draft', unconfirmedNewChatDraft);
+  popup.resolveDetection({ url: 'https://claude.ai/new' });
+  const button = document.querySelector<HTMLButtonElement>('#learn-save-without-new-chat')!;
+  await vi.waitFor(() => expect(button.hidden).toBe(false));
+  popup.sendMessage.mockImplementation(async (message) => {
+    if (message.type === 'ROVER_LEARN_VALIDATE')
+      return { ok: true, validation: { passed: true, reasons: [] } };
+    if (message.type === 'ROVER_LEARN_SAVE') return { ok: false, error: 'MCPLab disconnected.' };
+    return null;
+  });
+  button.click();
+  await vi.waitFor(() =>
+    expect(document.querySelector('#learn-save-status')!.textContent).toBe('MCPLab disconnected.')
+  );
+  const save = document.querySelector<HTMLButtonElement>('#learn-save')!;
+  expect(save.disabled).toBe(false);
+  expect(button.hidden).toBe(true);
+  expect(document.querySelector<HTMLElement>('#learn-proposal-section')!.hidden).toBe(true);
+  expect(popup.remove).not.toHaveBeenCalled();
+  popup.sendMessage.mockImplementation(async (message) => {
+    if (message.type === 'ROVER_LEARN_SAVE') return { ok: true };
+    return null;
+  });
+  save.click();
+  await vi.waitFor(() => expect(popup.remove).toHaveBeenCalled());
+  const saves = popup.sendMessage.mock.calls.filter(
+    ([message]) => message.type === 'ROVER_LEARN_SAVE'
+  );
+  expect(saves).toHaveLength(2);
+  expect(saves[1][0].profile).not.toHaveProperty('newConversation');
 });
