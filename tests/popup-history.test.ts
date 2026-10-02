@@ -774,5 +774,6 @@ it('reserves the red validation section for a draft that cannot be saved', () =>
   expect(document.querySelector('#learn-validation')?.textContent).toContain(
     'Response selector did not match the captured answer.'
   );
-  expect(document.querySelector<HTMLButtonElement>('#learn-save')!.hidden).toBe(true);
+  expect(document.querySelector<HTMLButtonElement>('#learn-save')!.hidden).toBe(false);
+  expect(document.querySelector<HTMLButtonElement>('#learn-save')!.disabled).toBe(true);
 });

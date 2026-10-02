@@ -173,6 +173,9 @@ button:disabled {
   cursor: wait;
   box-shadow: none;
 }
+#learn-save:disabled {
+  cursor: not-allowed;
+}
 .learn-reset-button {
   background: transparent;
   color: var(--text-muted);

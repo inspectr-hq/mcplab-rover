@@ -85,7 +85,9 @@ const learnName = document.querySelector<HTMLInputElement>('#learn-name')!;
 const learnStart = document.querySelector<HTMLButtonElement>('#learn-start')!;
 const learnCapture = document.querySelector<HTMLButtonElement>('#learn-capture')!;
 const learnPropose = document.querySelector<HTMLButtonElement>('#learn-propose')!;
+const learnProposeStatus = document.querySelector<HTMLElement>('#learn-propose-status')!;
 const learnSave = document.querySelector<HTMLButtonElement>('#learn-save')!;
+const learnSaveStatus = document.querySelector<HTMLElement>('#learn-save-status')!;
 const debugPanel = document.querySelector<HTMLElement>('#debug-panel')!;
 const debugRefresh = document.querySelector<HTMLButtonElement>('#debug-refresh')!;
 const debugUpdated = document.querySelector<HTMLParagraphElement>('#debug-updated')!;
@@ -271,51 +273,63 @@ learnPropose.addEventListener(
     void runButtonAction(learnPropose, async () => {
       const draft = discoveryDraft;
       if (!draft) return;
-      learnStatus.textContent = 'Asking MCPLab to review the provider lifecycle…';
-      const response = await chrome.runtime.sendMessage({
-        type: 'ROVER_LEARN_PROPOSE',
-        profile: draft.profile,
-        trace: draft.trace,
-        origin: origin.value
-      });
-      if (discoveryDraft !== draft) return;
-      if (!response?.ok) {
-        learnStatus.textContent = response?.error ?? 'Could not request an MCPLab proposal.';
-        return;
-      }
-      const replayResponse = await chrome.runtime.sendMessage({
-        type: 'ROVER_LEARN_VALIDATE',
-        profile: response.proposal.profile,
-        trace: draft.trace
-      });
-      if (discoveryDraft !== draft) return;
-      const replay = replayResponse?.ok
-        ? replayResponse.validation
-        : { passed: false, reasons: [replayResponse?.error ?? 'Could not replay the proposal.'] };
-      discoveryDraft = {
-        ...draft,
-        capturedProfile: draft.capturedProfile ?? draft.profile,
-        profile: response.proposal.profile,
-        readyToSave: replay.passed,
-        validationReasons: replay.reasons,
-        proposalDiagnostics: {
-          rationale: response.proposal.rationale ?? [],
-          warnings: response.proposal.warnings ?? []
+      let reviewedDraft = draft;
+      learnPropose.textContent = 'Reviewing with MCPLab AI…';
+      try {
+        setLearnProposalStatus('Asking MCPLab to review the provider lifecycle…');
+        const response = await chrome.runtime.sendMessage({
+          type: 'ROVER_LEARN_PROPOSE',
+          profile: draft.profile,
+          trace: draft.trace,
+          origin: origin.value
+        });
+        if (discoveryDraft !== draft) return;
+        if (!response?.ok) {
+          setLearnProposalStatus(response?.error ?? 'Could not request an MCPLab proposal.');
+          return;
         }
-      };
-      await chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: discoveryDraft });
-      learnSave.hidden = discoveryDraft.readyToSave !== true;
-      renderLearnCapabilities(discoveryDraft.capabilities);
-      renderLearnProposal(discoveryDraft);
-      renderLearnValidation(discoveryDraft);
-      const rationale = Array.isArray(response.proposal.rationale)
-        ? response.proposal.rationale[0]
-        : undefined;
-      learnStatus.textContent = replay.passed
-        ? rationale
-          ? `MCPLab proposal validated. ${rationale}`
-          : 'MCPLab proposal validated. Review and save the provider.'
-        : `MCPLab proposal rejected by browser replay. ${replay.reasons[0] ?? ''}`;
+        const replayResponse = await chrome.runtime.sendMessage({
+          type: 'ROVER_LEARN_VALIDATE',
+          profile: response.proposal.profile,
+          trace: draft.trace
+        });
+        if (discoveryDraft !== draft) return;
+        const replay = replayResponse?.ok
+          ? replayResponse.validation
+          : { passed: false, reasons: [replayResponse?.error ?? 'Could not replay the proposal.'] };
+        discoveryDraft = {
+          ...draft,
+          capturedProfile: draft.capturedProfile ?? draft.profile,
+          profile: response.proposal.profile,
+          readyToSave: replay.passed,
+          validationReasons: replay.reasons,
+          proposalDiagnostics: {
+            rationale: response.proposal.rationale ?? [],
+            warnings: response.proposal.warnings ?? []
+          }
+        };
+        reviewedDraft = discoveryDraft;
+        await chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: discoveryDraft });
+        renderLearnCapabilities(discoveryDraft.capabilities);
+        renderLearnProposal(discoveryDraft);
+        renderLearnValidation(discoveryDraft);
+        const rationale = Array.isArray(response.proposal.rationale)
+          ? response.proposal.rationale[0]
+          : undefined;
+        setLearnProposalStatus(
+          replay.passed
+            ? rationale
+              ? `MCPLab proposal validated. ${rationale}`
+              : 'MCPLab proposal validated. Review and save the provider.'
+            : `MCPLab proposal rejected by browser replay. ${replay.reasons[0] ?? ''}`
+        );
+      } catch (error) {
+        if (discoveryDraft === reviewedDraft) {
+          setLearnProposalStatus(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        learnPropose.textContent = 'Improve with MCPLab AI';
+      }
     })
 );
 learnSave.addEventListener(
@@ -350,6 +364,7 @@ learnSave.addEventListener(
         if (!response?.ok) throw new Error(response?.error ?? 'Could not save provider.');
         learnStatus.textContent = `Saved ${name} to MCPLab.`;
         learnSave.hidden = true;
+        learnSaveStatus.hidden = true;
         learnPropose.hidden = true;
         discoveryDraft = null;
         await chrome.storage.local.remove([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]);
@@ -672,8 +687,16 @@ function draftMatchesActivePage(draft: BrowserProviderDiscoveryDraft): boolean {
   }
 }
 
+function setLearnProposalStatus(message: string): void {
+  learnStatus.textContent = message;
+  learnProposeStatus.textContent = message;
+  learnProposeStatus.hidden = false;
+}
+
 function resetLearningDraft(): void {
   discoveryDraft = null;
+  learnProposeStatus.textContent = '';
+  learnProposeStatus.hidden = true;
   learnCapabilities.replaceChildren();
   learnProgress.replaceChildren();
   learnProgress.hidden = true;
@@ -687,6 +710,9 @@ function resetLearningDraft(): void {
   learnName.hidden = true;
   learnPropose.hidden = true;
   learnSave.hidden = true;
+  learnSave.disabled = true;
+  learnSaveStatus.hidden = true;
+  learnSaveStatus.textContent = '';
   learnCapture.hidden = true;
   learnStart.textContent = 'Start learning';
   learnStatus.textContent = 'Start learning, then send one message yourself in the active chat.';
@@ -1256,6 +1282,19 @@ function renderLearnProposal(draft: BrowserProviderDiscoveryDraft): void {
 function renderLearnValidation(draft: BrowserProviderDiscoveryDraft): void {
   learnValidationSection.dataset.state = draft.readyToSave ? 'pass' : 'fail';
   const reasons = draft.validationReasons ?? [];
+  learnSave.hidden = false;
+  learnSave.disabled = draft.readyToSave !== true;
+  learnSaveStatus.hidden = !learnSave.disabled;
+  learnSaveStatus.textContent = learnSave.disabled
+    ? `Cannot save yet: ${reasons.join(' ') || 'The provider must pass lifecycle validation.'}`
+    : '';
+  if (
+    learnSave.disabled &&
+    draft.profile.newConversation?.confirmation === 'context-change' &&
+    !draft.trace?.newConversationEvidence
+  ) {
+    learnSaveStatus.textContent += ' Open a new conversation on the provider page to confirm it.';
+  }
   renderIndicatorList(learnValidation, [
     {
       label: 'Save readiness',
@@ -1324,6 +1363,8 @@ chrome.runtime.onMessage.addListener((message: { type?: string }) => {
   if (message.type === 'ROVER_LEARN_RESULT') {
     const event = message as { draft?: BrowserProviderDiscoveryDraft };
     if (!event.draft) return;
+    learnProposeStatus.textContent = '';
+    learnProposeStatus.hidden = true;
     discoveryDraft = {
       ...event.draft,
       targetProviderId: event.draft.targetProviderId ?? selectedLearnTargetId ?? activeProvider,
@@ -1351,7 +1392,6 @@ chrome.runtime.onMessage.addListener((message: { type?: string }) => {
     });
     learnName.hidden = false;
     learnPropose.hidden = !discoveryDraft.trace;
-    learnSave.hidden = discoveryDraft.readyToSave !== true;
     renderLearnCapabilities(discoveryDraft.capabilities);
     renderLearnProposal(discoveryDraft);
     renderLearnValidation(discoveryDraft);
@@ -1392,7 +1432,6 @@ void chrome.storage.local
     learnCapture.hidden = true;
     learnProgress.hidden = true;
     learnPropose.hidden = !draft.trace;
-    learnSave.hidden = draft.readyToSave !== true;
     learnStatus.textContent =
       draft.readyToSave === true
         ? 'A saved learning draft is ready to review.'

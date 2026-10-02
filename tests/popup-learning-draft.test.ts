@@ -34,7 +34,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 async function openPopup(key: string, savedDraft = draft) {
   let resolveDetection!: (value: { url?: string }) => void;
-  let onMessage!: (message: { type: string }) => void;
+  let onMessage!: (message: { type: string; draft?: BrowserProviderDiscoveryDraft }) => void;
   const detection = new Promise((resolve) => {
     resolveDetection = resolve;
   });
@@ -113,4 +113,139 @@ it('hides a displayed draft when the active page changes to a different website'
   expect(document.querySelector<HTMLButtonElement>('#learn-save')!.hidden).toBe(true);
   expect(document.querySelector<HTMLElement>('#learn-evidence-section')!.hidden).toBe(true);
   expect(popup.remove).not.toHaveBeenCalled();
+});
+
+it.each(['returned', 'thrown'])(
+  'shows %s proposal errors beside Improve and restores the button',
+  async (failure) => {
+    const popup = await openPopup('rover.provider-discovery-draft', {
+      ...draft,
+      readyToSave: false,
+      trace: {
+        observedGeneration: true,
+        selectorValidation: {
+          composer: { valid: true, matchCount: 1, visible: true },
+          submit: { valid: true, matchCount: 1, visible: true },
+          assistant: { valid: true, matchCount: 1, visible: true }
+        },
+        events: []
+      }
+    });
+    popup.resolveDetection({ url: 'https://claude.ai/new' });
+    const button = document.querySelector<HTMLButtonElement>('#learn-propose')!;
+    await vi.waitFor(() => expect(button.hidden).toBe(false));
+    let reject!: (reason: Error) => void;
+    let resolve!: (value: unknown) => void;
+    const pending = new Promise((done, fail) => {
+      resolve = done;
+      reject = fail;
+    });
+    popup.sendMessage.mockImplementation(async (message) => {
+      if (message.type === 'ROVER_LEARN_PROPOSE') return pending;
+      return null;
+    });
+    button.click();
+    button.click();
+    const status = document.querySelector<HTMLElement>('#learn-propose-status');
+    expect(status).not.toBeNull();
+    expect(status!.hidden).toBe(false);
+    expect(status!.textContent).toContain('Asking MCPLab');
+    expect(button.textContent).toContain('Reviewing');
+    expect(button.disabled).toBe(true);
+    expect(
+      popup.sendMessage.mock.calls.filter(([message]) => message.type === 'ROVER_LEARN_PROPOSE')
+    ).toHaveLength(1);
+    const error = 'Unexpected token in the proposal JSON';
+    if (failure === 'returned') resolve({ ok: false, error });
+    else reject(new Error(error));
+    await vi.waitFor(() => expect(status!.textContent).toBe(error));
+    expect(status!.getAttribute('role')).toBe('status');
+    expect(button.nextElementSibling).toBe(status);
+    expect(button.disabled).toBe(false);
+    expect(button.textContent).toBe('Improve with MCPLab AI');
+    expect(document.querySelector<HTMLButtonElement>('#learn-save')!.hidden).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>('#learn-save')!.disabled).toBe(true);
+  }
+);
+
+it.each([true, false])(
+  'shows replay feedback and gates saving on its result (%s)',
+  async (passed) => {
+    const popup = await openPopup('rover.provider-discovery-draft', {
+      ...draft,
+      readyToSave: false,
+      trace: {
+        observedGeneration: true,
+        selectorValidation: {
+          composer: { valid: true, matchCount: 1, visible: true },
+          submit: { valid: true, matchCount: 1, visible: true },
+          assistant: { valid: true, matchCount: 1, visible: true }
+        },
+        events: []
+      }
+    });
+    popup.resolveDetection({ url: 'https://claude.ai/new' });
+    const button = document.querySelector<HTMLButtonElement>('#learn-propose')!;
+    await vi.waitFor(() => expect(button.hidden).toBe(false));
+    popup.sendMessage.mockImplementation(async (message) => {
+      if (message.type === 'ROVER_LEARN_PROPOSE')
+        return { ok: true, proposal: { profile: draft.profile, rationale: [], warnings: [] } };
+      if (message.type === 'ROVER_LEARN_VALIDATE')
+        return {
+          ok: true,
+          validation: { passed, reasons: passed ? [] : ['Response locator missing.'] }
+        };
+      return null;
+    });
+    button.click();
+    await vi.waitFor(() =>
+      expect(document.querySelector('#learn-propose-status')?.textContent).toBe(
+        passed
+          ? 'MCPLab proposal validated. Review and save the provider.'
+          : 'MCPLab proposal rejected by browser replay. Response locator missing.'
+      )
+    );
+    expect(document.querySelector<HTMLButtonElement>('#learn-save')!.hidden).toBe(false);
+    expect(document.querySelector<HTMLButtonElement>('#learn-save')!.disabled).toBe(!passed);
+  }
+);
+
+
+it('keeps Save visible with the validation reason and enables it when learning passes', async () => {
+  const reason = 'New Chat context change was not observed during learning.';
+  const blockedDraft: BrowserProviderDiscoveryDraft = {
+    ...draft,
+    profile: {
+      ...draft.profile,
+      newConversation: {
+        action: 'click',
+        locator: { segments: ['button[title="New chat"]'] },
+        confirmation: 'context-change'
+      }
+    },
+    readyToSave: false,
+    validationReasons: [reason]
+  };
+  const popup = await openPopup('rover.provider-discovery-draft', blockedDraft);
+  popup.resolveDetection({ url: 'https://claude.ai/new' });
+  await vi.waitFor(() =>
+    expect(document.querySelector<HTMLInputElement>('#learn-name')!.hidden).toBe(false)
+  );
+  const save = document.querySelector<HTMLButtonElement>('#learn-save')!;
+  const explanation = document.querySelector<HTMLElement>('#learn-save-status');
+  expect(save.hidden).toBe(false);
+  expect(save.disabled).toBe(true);
+  expect(explanation).not.toBeNull();
+  expect(explanation!.hidden).toBe(false);
+  expect(explanation!.textContent).toContain(reason);
+  expect(explanation!.textContent).toContain('Open a new conversation on the provider page');
+  expect(save.getAttribute('aria-describedby')).toBe(explanation!.id);
+  save.click();
+  expect(
+    popup.sendMessage.mock.calls.some(([message]) => message.type === 'ROVER_LEARN_SAVE')
+  ).toBe(false);
+  popup.onMessage({ type: 'ROVER_LEARN_RESULT', draft });
+  expect(save.hidden).toBe(false);
+  expect(save.disabled).toBe(false);
+  expect(explanation!.hidden).toBe(true);
 });
