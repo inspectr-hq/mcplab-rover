@@ -43,6 +43,8 @@ import { currentSocket } from './lease-transport';
 import {
   getQueue,
   getState,
+  getLearningTabId,
+  setLearningTabId,
   QUEUE_KEY,
   resolveOrigin,
   saveQueue,
@@ -53,15 +55,64 @@ import { serializeQueueOperation } from '../queue/operations';
 import { debugLog } from './debug-logging';
 
 let debugSubscribed = false;
+let learningOperation: Promise<unknown> = Promise.resolve();
+
+async function handleLearningMessage(message: ExtensionMessage): Promise<unknown> {
+  const learningTabId = await getLearningTabId();
+  if (message.type === 'ROVER_LEARN_START') {
+    if (learningTabId !== undefined) {
+      throw new Error('Learning is already active. Stop learning before starting another session.');
+    }
+    const tab = await activeTab();
+    if (typeof tab?.id !== 'number') throw new Error('No active browser tab is available.');
+    const response = (await sendToTab(tab.id, message)) as { ok?: boolean } | null;
+    if (response?.ok !== true) return response ?? { ok: false, error: 'Could not start learning.' };
+    await setLearningTabId(tab.id);
+    return { ...response, tabId: tab.id };
+  }
+  if (learningTabId === undefined) {
+    if (message.type === 'ROVER_LEARN_STOP') return { ok: true };
+    throw new Error('No active learning session. Start learning first.');
+  }
+  try {
+    await chrome.tabs.get(learningTabId);
+  } catch {
+    await setLearningTabId();
+    if (message.type === 'ROVER_LEARN_STOP') return { ok: true };
+    throw new Error('The learning tab has closed. Start learning again.');
+  }
+  // Learning belongs to its original tab, even when another tab becomes active.
+  try {
+    const response = (await chrome.tabs.sendMessage(learningTabId, message)) as {
+      ok?: boolean;
+    } | null;
+    if (message.type === 'ROVER_LEARN_STOP' && response?.ok === true) await setLearningTabId();
+    return response ?? { ok: false, error: 'Could not reach the learning tab.' };
+  } catch (error) {
+    // A missing receiver means navigation already destroyed the content script and its session.
+    if (
+      message.type === 'ROVER_LEARN_STOP' &&
+      errorMessage(error).includes('Receiving end does not exist')
+    ) {
+      await setLearningTabId();
+      return { ok: true };
+    }
+    throw error;
+  }
+}
 
 async function sendToActiveTab(message: ExtensionMessage): Promise<unknown> {
   const tab = await activeTab();
   if (typeof tab?.id !== 'number') throw new Error('No active browser tab is available.');
+  return sendToTab(tab.id, message);
+}
+
+async function sendToTab(tabId: number, message: ExtensionMessage): Promise<unknown> {
   try {
-    return await chrome.tabs.sendMessage(tab.id, message);
+    return await chrome.tabs.sendMessage(tabId, message);
   } catch {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-    return chrome.tabs.sendMessage(tab.id, message);
+    await chrome.scripting.executeScript({ target: { tabId }, files: ['content.js'] });
+    return chrome.tabs.sendMessage(tabId, message);
   }
 }
 
@@ -87,14 +138,9 @@ export function installMessageHandler(): void {
       message.type === 'ROVER_LEARN_STOP' ||
       message.type === 'ROVER_LEARN_CAPTURE'
     ) {
-      return respond(sendResponse, async () => {
-        const response = (await sendToActiveTab(message)) as {
-          ok?: boolean;
-          validation?: { passed: boolean; reasons: string[] };
-          error?: string;
-        } | null;
-        return response ?? { ok: true };
-      });
+      const operation = learningOperation.then(() => handleLearningMessage(message));
+      learningOperation = operation.catch(() => undefined);
+      return respond(sendResponse, () => operation);
     }
     if (message.type === 'ROVER_LEARN_SAVE') {
       return respond(sendResponse, async () => {
@@ -149,6 +195,7 @@ export function installMessageHandler(): void {
           provider,
           profile: provider ? loadedProvider(provider) : undefined,
           tabId: tab?.id,
+          learningTabId: (await getLearningTabId()) ?? null,
           url: tab?.url,
           supportsNewConversation: await supportsNewConversation(provider, origin)
         };

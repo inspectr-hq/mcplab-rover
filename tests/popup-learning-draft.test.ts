@@ -33,10 +33,19 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 async function openPopup(key: string, savedDraft = draft) {
-  let resolveDetection!: (value: { url?: string }) => void;
-  let onMessage!: (message: { type: string; draft?: BrowserProviderDiscoveryDraft }) => void;
-  const detection = new Promise((resolve) => {
+  let resolveDetection!: (value: {
+    url?: string;
+    learningTabId?: number | null;
+    tabId?: number;
+  }) => void;
+  let rejectDetection!: (reason: Error) => void;
+  let onMessage!: (
+    message: { type: string; draft?: BrowserProviderDiscoveryDraft },
+    sender?: chrome.runtime.MessageSender
+  ) => void;
+  const detection = new Promise((resolve, reject) => {
     resolveDetection = resolve;
+    rejectDetection = reject;
   });
   const sendMessage = vi.fn(async (message) => {
     if (message.type === 'ROVER_GET_ACTIVE_PROVIDER') return detection;
@@ -59,9 +68,8 @@ async function openPopup(key: string, savedDraft = draft) {
     }
   });
   await import('../src/popup/main');
-  return { resolveDetection, sendMessage, onMessage, remove };
+  return { resolveDetection, rejectDetection, sendMessage, onMessage, remove };
 }
-
 it.each(['rover.provider-discovery-draft', 'rover.learning-draft'])(
   'does not restore %s on a different website or before the page is known',
   async (key) => {
@@ -159,6 +167,7 @@ it.each(['returned', 'thrown'])(
     if (failure === 'returned') resolve({ ok: false, error });
     else reject(new Error(error));
     await vi.waitFor(() => expect(status!.textContent).toBe(error));
+    expect(document.querySelector('#learn-status')!.textContent).not.toBe(error);
     expect(status!.getAttribute('role')).toBe('status');
     expect(button.nextElementSibling).toBe(status);
     expect(button.disabled).toBe(false);
@@ -248,4 +257,134 @@ it('keeps Save visible with the validation reason and enables it when learning p
   expect(save.hidden).toBe(false);
   expect(save.disabled).toBe(false);
   expect(explanation!.hidden).toBe(true);
+});
+
+
+it('preserves Stop learning when switching sites and restores the draft on return', async () => {
+  const popup = await openPopup('rover.provider-discovery-draft');
+  popup.resolveDetection({ url: 'https://claude.ai/new' });
+  await vi.waitFor(() =>
+    expect(document.querySelector<HTMLInputElement>('#learn-name')!.hidden).toBe(false)
+  );
+  popup.onMessage({ type: 'ROVER_LEARN_RESULT', draft });
+  const status = document.querySelector('#learn-status')!.textContent;
+  popup.sendMessage.mockResolvedValueOnce({ url: 'https://polo.example/app' });
+  popup.onMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+  await vi.waitFor(() =>
+    expect(document.querySelector<HTMLInputElement>('#learn-name')!.hidden).toBe(true)
+  );
+  expect(document.querySelector('#learn-start')!.textContent).toBe('Stop learning');
+  expect(document.querySelector('#learn-status')!.textContent).toBe(status);
+  popup.sendMessage.mockResolvedValueOnce({ url: 'https://claude.ai/new' });
+  popup.onMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+  await vi.waitFor(() =>
+    expect(document.querySelector<HTMLInputElement>('#learn-name')!.hidden).toBe(false)
+  );
+  expect(document.querySelector('#learn-start')!.textContent).toBe('Stop learning');
+  expect(document.querySelector<HTMLInputElement>('#learn-name')!.value).toBe('Claude');
+});
+
+it('restores a draft after an initial detection failure succeeds on retry', async () => {
+  vi.useFakeTimers();
+  try {
+    const popup = await openPopup('rover.provider-discovery-draft');
+    popup.rejectDetection(new Error('Content script loading'));
+    await Promise.resolve();
+    popup.sendMessage.mockResolvedValueOnce({ url: 'https://claude.ai/new' });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(document.querySelector<HTMLInputElement>('#learn-name')!.hidden).toBe(false);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('shows Stop learning when reopening Rover during a session in another tab', async () => {
+  const popup = await openPopup('rover.provider-discovery-draft');
+  popup.resolveDetection({ url: 'https://polo.example/app', learningTabId: 11 });
+  await vi.waitFor(() =>
+    expect(document.querySelector('#learn-start')!.textContent).toBe('Stop learning')
+  );
+  popup.sendMessage.mockResolvedValueOnce({ ok: true });
+  document.querySelector<HTMLButtonElement>('#learn-start')!.click();
+  await vi.waitFor(() =>
+    expect(popup.sendMessage).toHaveBeenCalledWith({ type: 'ROVER_LEARN_STOP' })
+  );
+  expect(
+    popup.sendMessage.mock.calls.some(([message]) => message.type === 'ROVER_LEARN_START')
+  ).toBe(false);
+});
+
+it('keeps a late learning result from another site hidden until returning to that site', async () => {
+  const popup = await openPopup('rover.provider-discovery-draft');
+  popup.resolveDetection({ url: 'https://polo.example/app', tabId: 22 });
+  await vi.waitFor(() =>
+    expect(document.querySelector('#provider')!.textContent).toBe(
+      'No supported chat detected on this tab'
+    )
+  );
+  popup.onMessage(
+    Object.assign(
+      { type: 'ROVER_LEARN_PROGRESS' },
+      {
+        progress: {
+          composerDetected: true,
+          submitDetected: true,
+          assistantDetected: true,
+          generatingObserved: true,
+          idleObserved: true
+        }
+      }
+    ),
+    { tab: { id: 11 } as chrome.tabs.Tab }
+  );
+  expect(document.querySelector<HTMLElement>('#learn-evidence-section')!.hidden).toBe(true);
+  popup.onMessage({ type: 'ROVER_LEARN_RESULT', draft });
+  expect(document.querySelector<HTMLInputElement>('#learn-name')!.hidden).toBe(true);
+  expect(document.querySelector<HTMLButtonElement>('#learn-save')!.hidden).toBe(true);
+  popup.sendMessage.mockResolvedValueOnce({ url: 'https://claude.ai/new' });
+  popup.onMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+  await vi.waitFor(() =>
+    expect(document.querySelector<HTMLInputElement>('#learn-name')!.hidden).toBe(false)
+  );
+});
+
+
+it('does not replay or reveal an AI proposal when the user has switched to another site', async () => {
+  const popup = await openPopup('rover.provider-discovery-draft', {
+    ...draft,
+    readyToSave: false,
+    trace: {
+      observedGeneration: true,
+      selectorValidation: {
+        composer: { valid: true, matchCount: 1, visible: true },
+        submit: { valid: true, matchCount: 1, visible: true },
+        assistant: { valid: true, matchCount: 1, visible: true }
+      },
+      events: []
+    }
+  });
+  popup.resolveDetection({ url: 'https://claude.ai/new' });
+  const button = document.querySelector<HTMLButtonElement>('#learn-propose')!;
+  await vi.waitFor(() => expect(button.hidden).toBe(false));
+  let resolve!: (value: unknown) => void;
+  const pending = new Promise((done) => {
+    resolve = done;
+  });
+  popup.sendMessage.mockImplementation(async (message) => {
+    if (message.type === 'ROVER_LEARN_PROPOSE') return pending;
+    if (message.type === 'ROVER_GET_ACTIVE_PROVIDER') return { url: 'https://polo.example/app' };
+    return null;
+  });
+  button.click();
+  popup.onMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+  await vi.waitFor(() =>
+    expect(document.querySelector<HTMLInputElement>('#learn-name')!.hidden).toBe(true)
+  );
+  resolve({ ok: true, proposal: { profile: draft.profile, rationale: [], warnings: [] } });
+  await vi.waitFor(() => expect(button.disabled).toBe(false));
+  expect(
+    popup.sendMessage.mock.calls.some(([message]) => message.type === 'ROVER_LEARN_VALIDATE')
+  ).toBe(false);
+  expect(document.querySelector<HTMLButtonElement>('#learn-save')!.hidden).toBe(true);
+  expect(document.querySelector<HTMLElement>('#learn-propose-status')!.hidden).toBe(true);
 });

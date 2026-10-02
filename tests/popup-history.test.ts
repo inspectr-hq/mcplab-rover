@@ -54,7 +54,7 @@ beforeEach(async () => {
       }
     },
     storage: {
-      local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined) },
+      local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) },
       onChanged: {
         addListener: vi.fn((listener) => {
           storageChanged = listener;
