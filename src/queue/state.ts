@@ -158,7 +158,8 @@ export function addQueueItem(queue: RoverQueueState, catalog: QueueCatalogItem):
   }
   if (queue.evaluationRunId || queue.leaseId || queue.pendingLeaseActions?.length)
     throw new Error('Wait for the MCPLab assignment to finish before adding evaluations.');
-  if (queue.status !== 'draft') throw new Error('Queue can only be edited before it starts.');
+  if (queue.status !== 'draft')
+    throw new Error('Finish or stop the current queue before adding evaluations.');
   const item: RoverQueueItem = {
     ...clone(catalog),
     testCaseId: catalog.id,

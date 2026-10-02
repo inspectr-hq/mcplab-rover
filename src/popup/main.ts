@@ -474,7 +474,10 @@ async function setMode(next: 'manual' | 'queue' | 'learn' | 'debug'): Promise<vo
 
 function renderQueue(queue: RoverQueueState | null): void {
   currentQueue = queue;
+  const addRow = queueEvaluation.closest('.queue-add-row') as HTMLElement | null;
   if (!queue) {
+    addRow?.toggleAttribute('hidden', true);
+    queueNewChat.closest('.checkbox-row')?.toggleAttribute('hidden', true);
     queueItems.replaceChildren();
     queueStatus.textContent = 'Queue mode requires a supported or learned browser provider page.';
     void chrome.runtime
@@ -501,9 +504,12 @@ function renderQueue(queue: RoverQueueState | null): void {
     queue,
     providerForView
   );
-  const addRow = queueEvaluation.closest('.queue-add-row') as HTMLElement | null;
   const readyForNextEvaluation = isQueueSettled(queue);
-  const editable = (!managed || readyForNextEvaluation) && matchesCurrentAssignment;
+  const editable =
+    Boolean(activeProvider) &&
+    matchesCurrentAssignment &&
+    (queue.status === 'draft' || readyForNextEvaluation) &&
+    (!managed || readyForNextEvaluation);
   addRow?.toggleAttribute('hidden', !editable);
   queueNewChat
     .closest('.checkbox-row')
@@ -632,7 +638,9 @@ function renderQueue(queue: RoverQueueState | null): void {
   queueItems.parentElement?.classList.toggle('queue-managed', managed);
   queueStart.hidden = !editable || active.length === 0;
   const phaseLabel = managedPhaseLabel(readyForNextEvaluation ? 'terminal' : queue.managedPhase);
-  queueStatus.textContent = readyForNextEvaluation
+  queueStatus.textContent = !activeProvider
+    ? `Open a supported chat page for ${queue.provider} to edit or run this queue.`
+    : readyForNextEvaluation
     ? `${phaseLabel}.`
     : !matchesCurrentAssignment && managed
       ? `Assignment received for ${queue.provider}. Switch to a matching page to run it (${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} processed).`
@@ -658,6 +666,8 @@ function renderQueue(queue: RoverQueueState | null): void {
 
 async function refreshActiveProvider(retry = true): Promise<void> {
   provider.textContent = 'Checking this tab for a supported chat…';
+  activeProvider = undefined;
+  if (mode === 'queue' && currentQueue) renderQueue(currentQueue);
   try {
     const response = (await chrome.runtime.sendMessage({ type: 'ROVER_GET_ACTIVE_PROVIDER' })) as
       | {

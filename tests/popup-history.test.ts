@@ -491,3 +491,55 @@ it('restores manual Add after MCPLab acknowledgement without changing the assign
     item: { id: 'case', name: 'Search assets', prompt: '', assertionCount: 1 }
   });
 });
+
+
+it('hides stale Add controls when no queue exists', () => {
+  storageChanged({ 'rover.queue': { newValue: null } }, 'session');
+  expect(document.querySelector<HTMLElement>('.queue-add-row')!.hidden).toBe(true);
+  expect(
+    document
+      .querySelector<HTMLInputElement>('#queue-new-chat')!
+      .closest<HTMLElement>('.checkbox-row')!.hidden
+  ).toBe(true);
+  expect(document.querySelector('#queue-status')?.textContent).toContain(
+    'supported or learned browser provider page'
+  );
+});
+
+it('requires a detected matching provider before showing Add', async () => {
+  const draft = createQueue('http://localhost:8787', 'claude', false, 'now');
+  storageChanged({ 'rover.queue': { newValue: draft } }, 'session');
+  const row = document.querySelector<HTMLElement>('.queue-add-row')!;
+  expect(row.hidden).toBe(false);
+  sendMessage.mockResolvedValueOnce({});
+  runtimeMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+  expect(row.hidden).toBe(true);
+  await vi.waitFor(() =>
+    expect(document.querySelector('#provider')?.textContent).toBe(
+      'No supported chat detected on this tab'
+    )
+  );
+  expect(row.hidden).toBe(true);
+  expect(document.querySelector('#queue-status')?.textContent).toContain(
+    'Open a supported chat page'
+  );
+  sendMessage.mockResolvedValueOnce({ provider: 'claude' });
+  runtimeMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+  await vi.waitFor(() => expect(row.hidden).toBe(false));
+});
+
+it('keeps a running local queue visible with Stop while hiding Add', () => {
+  const running = startQueue(
+    addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), {
+      id: 'case',
+      name: 'Working',
+      prompt: '',
+      assertionCount: 1
+    }),
+    'now'
+  );
+  storageChanged({ 'rover.queue': { newValue: running } }, 'session');
+  expect(document.querySelector<HTMLElement>('.queue-add-row')!.hidden).toBe(true);
+  expect(document.querySelector('.queue-item-name')?.textContent).toBe('1. Working');
+  expect(document.querySelector<HTMLButtonElement>('#queue-stop')!.hidden).toBe(false);
+});
