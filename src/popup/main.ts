@@ -493,7 +493,7 @@ function renderQueue(queue: RoverQueueState | null): void {
     queueRetry.hidden = true;
     queueSkip.hidden = true;
     queueStop.hidden = true;
-    queueStart.hidden = false;
+    queueStart.hidden = true;
     return;
   }
   const providerForView = activeProvider ?? queue.provider;
@@ -627,7 +627,7 @@ function renderQueue(queue: RoverQueueState | null): void {
     groups.push(renderGroup(`Recent ${providerForView} evaluations`, completed, false, true));
   queueItems.replaceChildren(...groups);
   queueItems.parentElement?.classList.toggle('queue-managed', managed);
-  queueStart.hidden = !editable;
+  queueStart.hidden = !editable || active.length === 0;
   const readyForNextEvaluation =
     (queue.status === 'completed' || queue.status === 'stopped') &&
     !queue.leaseId &&
@@ -647,7 +647,9 @@ function renderQueue(queue: RoverQueueState | null): void {
               ? 'Queue completed.'
               : queue.status === 'stopped'
                 ? 'Queue stopped.'
-                : `${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} evaluations processed.`;
+                : queue.items.length === 0
+                  ? ''
+                  : `${queue.items.filter((item) => item.status !== 'queued').length}/${queue.items.length} evaluations processed.`;
   queueStart.disabled =
     queue.items.length === 0 || queue.status === 'running' || queue.status === 'paused';
   queueRetry.hidden = queue.status !== 'paused';

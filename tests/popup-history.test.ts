@@ -347,3 +347,54 @@ it.each(['response', 'exception'])(
     expect(document.querySelector<HTMLButtonElement>('#queue-add')!.disabled).toBe(false);
   }
 );
+
+
+it('only shows Run queue while there are unfinished local evaluations', () => {
+  const run = document.querySelector<HTMLButtonElement>('#queue-start')!;
+  expect(run.hidden).toBe(true);
+  const empty = createQueue('http://localhost:8787', 'claude', false, 'now');
+  storageChanged({ 'rover.queue': { newValue: empty } }, 'session');
+  expect(run.hidden).toBe(true);
+  const queued = addQueueItem(empty, {
+    id: 'case', name: 'Search assets', prompt: '', assertionCount: 1
+  });
+  storageChanged({ 'rover.queue': { newValue: queued } }, 'session');
+  expect(run.hidden).toBe(false);
+  expect(run.disabled).toBe(false);
+  const running = startQueue(queued, 'now');
+  storageChanged({ 'rover.queue': { newValue: running } }, 'session');
+  expect(run.disabled).toBe(true);
+  const completed = recordQueueItemOutcome(running, running.activeItemId!, 'passed', {}, 'now');
+  storageChanged({ 'rover.queue': { newValue: completed } }, 'session');
+  expect(run.hidden).toBe(true);
+  storageChanged({ 'rover.queue': { newValue: null } }, 'session');
+  expect(run.hidden).toBe(true);
+});
+
+
+it('hides the empty queue status but shows errors and progress', async () => {
+  const style = document.createElement('style');
+  style.textContent = readFileSync('src/popup/style.css', 'utf8');
+  document.head.append(style);
+  const empty = createQueue('http://localhost:8787', 'claude', false, 'now');
+  storageChanged({ 'rover.queue': { newValue: empty } }, 'session');
+  const status = document.querySelector<HTMLElement>('#queue-status')!;
+  expect(status.textContent).toBe('');
+  expect(getComputedStyle(status).display).toBe('none');
+  sendMessage.mockResolvedValueOnce({ ok: false, error: 'Could not add evaluation' });
+  document.querySelector<HTMLButtonElement>('#queue-add')!.click();
+  await vi.waitFor(() => expect(status.textContent).toBe('Could not add evaluation'));
+  expect(getComputedStyle(status).display).not.toBe('none');
+  const queued = addQueueItem(empty, {
+    id: 'case',
+    name: 'Search assets',
+    prompt: '',
+    assertionCount: 1
+  });
+  storageChanged({ 'rover.queue': { newValue: queued } }, 'session');
+  expect(status.textContent).toBe('0/1 evaluations processed.');
+  expect(getComputedStyle(status).display).not.toBe('none');
+  storageChanged({ 'rover.queue': { newValue: null } }, 'session');
+  expect(getComputedStyle(status).display).not.toBe('none');
+  expect(status.textContent).toContain('requires a supported or learned browser provider');
+});
