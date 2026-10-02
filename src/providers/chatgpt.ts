@@ -5,7 +5,8 @@ import { observationFromCandidates } from '../runtime/provider-signals';
 import type { ProviderSignalEvaluator } from '../runtime/provider-state-engine';
 
 const composerSelectors = ['[aria-label="Chat with ChatGPT"]', '[contenteditable="true"]'];
-const assistantSelector = '[data-message-author-role="assistant"]';
+const assistantSelector =
+  '[data-message-author-role="assistant"], [data-markdown-text-style="assistant-message"]';
 const newConversationSelectors = [
   'a[href="/"], a[href="/new"]',
   'button[aria-label*="New chat"]',
@@ -80,12 +81,17 @@ export const chatgptAdapter: ChatProviderAdapter = {
     location.assign('https://chatgpt.com/');
   },
   getAssistantCandidates: () =>
-    Array.from(document.querySelectorAll<HTMLElement>(assistantSelector)).map((element, index) => ({
-      key:
-        element.getAttribute('data-message-id') ||
-        element.getAttribute('data-testid') ||
-        `chatgpt-${index}`,
-      text: textFrom(element),
-      visible: isVisible(element)
-    }))
+    Array.from(document.querySelectorAll<HTMLElement>(assistantSelector))
+      .filter((element) => !element.querySelector(assistantSelector))
+      .map((element, index) => ({
+        key:
+          element.closest('[data-message-id]')?.getAttribute('data-message-id') ||
+          element
+            .closest('[data-chatgpt-selection-message-id]')
+            ?.getAttribute('data-chatgpt-selection-message-id') ||
+          element.getAttribute('data-testid') ||
+          `chatgpt-${index}`,
+        text: textFrom(element),
+        visible: isVisible(element)
+      }))
 };
