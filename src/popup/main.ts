@@ -958,6 +958,11 @@ async function refreshLearnTargets(): Promise<void> {
 }
 
 function renderLearnTarget(): void {
+  learnTarget.hidden = learnTargets.length === 0;
+  if (learnTarget.hidden) {
+    learnTarget.replaceChildren();
+    return;
+  }
   if (learnTargets.length > 1) {
     learnTarget.replaceChildren();
     const title = document.createElement('strong');
@@ -985,17 +990,7 @@ function renderLearnTarget(): void {
     learnTarget.append(title, document.createElement('br'), select);
     return;
   }
-  if (learnTargets.length === 0) {
-    learnTarget.textContent = 'Learning target: create a new provider profile.';
-    return;
-  }
-  learnTarget.replaceChildren();
-  const title = document.createElement('strong');
-  title.textContent = 'Learning target';
-  const detail = document.createElement('span');
-  const target = learnTargets[0];
-  detail.textContent = `Updating ${target?.name ?? activeProviderProfile?.name ?? activeProvider} (${target?.id ?? activeProvider}).`;
-  learnTarget.append(title, document.createElement('br'), detail);
+  learnTarget.textContent = `Updating: ${learnTargets[0].name}`;
 }
 
 function renderCatalog(emptyLabel = 'No evaluations found'): void {

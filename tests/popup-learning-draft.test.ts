@@ -677,3 +677,31 @@ it('retains the validated profile without New Chat for retry after a save failur
   expect(saves).toHaveLength(2);
   expect(saves[1][0].profile).not.toHaveProperty('newConversation');
 });
+
+
+it.each([0, 1, 2])('only shows the learning target when choosing or updating a provider (%s)', async (count) => {
+  const targets = [{ id: 'claude', name: 'Claude' }, { id: 'other', name: 'Other' }].slice(0, count);
+  const popup = await openPopup('rover.provider-discovery-draft');
+  popup.resolveDetection({ url: 'https://claude.ai/new' });
+  await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>('#learn-name')!.hidden).toBe(false));
+  popup.sendMessage.mockImplementation(async (message) => {
+    if (message.type === 'ROVER_GET_LEARN_TARGETS') return { targets };
+    if (message.type === 'ROVER_GET_ACTIVE_PROVIDER') return { url: 'https://claude.ai/new' };
+    return null;
+  });
+  document.querySelector<HTMLButtonElement>('#learn-mode')!.click();
+  await vi.waitFor(() => expect(popup.sendMessage).toHaveBeenCalledWith({ type: 'ROVER_GET_LEARN_TARGETS' }));
+  const target = document.querySelector<HTMLElement>('#learn-target')!;
+  await vi.waitFor(() => {
+    if (!targets.length) {
+      expect(target.hidden).toBe(true);
+      expect(target.textContent).toBe('');
+    } else if (targets.length === 1) {
+      expect(target.hidden).toBe(false);
+      expect(target.textContent).toBe('Updating: Claude');
+    } else {
+      expect(target.hidden).toBe(false);
+      expect(target.querySelectorAll('option')).toHaveLength(3);
+    }
+  });
+});

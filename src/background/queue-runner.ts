@@ -6,7 +6,7 @@ import {
   type RoverQueueState
 } from '../queue/state';
 import { activeTab, detectProvider } from './browser';
-import { errorMessage } from './errors';
+import { errorCode, errorMessage } from './errors';
 import { getQueue, saveQueue } from './store';
 import { clearLease, currentSocket, persistLeaseRelease } from './lease-transport';
 import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover-protocol';
@@ -16,12 +16,6 @@ import { enqueueLeaseActions } from '../queue/lease-outbox';
 import { isBuiltInProvider } from '../providers/catalog';
 import { sendStage } from './queue-message-helpers';
 import { debugLog } from './debug-logging';
-
-function errorCode(error: unknown): string | undefined {
-  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
-    ? error.code
-    : undefined;
-}
 
 function isIncompleteError(error: unknown): boolean {
   return errorCode(error) === 'incomplete';
@@ -441,8 +435,14 @@ export async function startQueueConversation(queue: RoverQueueState): Promise<vo
     const profile = (await new McplabClient(queue.origin).listBrowserProviders()).find(
       (candidate) => candidate.id === queue.provider
     );
-    if (!profile?.newConversation)
-      throw new Error(`${queue.provider} does not have a learned new-conversation action.`);
+    if (!profile) throw new Error(`Provider profile '${queue.provider}' is unavailable.`);
+    if (!profile.newConversation)
+      throw Object.assign(
+        new Error(
+          `${profile.name} has no New Chat support. Choose Continue the same conversation or learn a New Chat action.`
+        ),
+        { code: 'new_conversation_unsupported' }
+      );
     const response = await chrome.tabs.sendMessage(queue.tabId, {
       type: 'ROVER_NEW_CHAT',
       requestId: crypto.randomUUID(),

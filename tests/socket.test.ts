@@ -381,8 +381,58 @@ describe('socket assignment lifecycle', () => {
     expect(messages.some((message) => message.type === 'assignment_accept')).toBe(false);
     expect(messages.find((message) => message.type === 'assignment_reject')).toMatchObject({
       reason: 'provider_unavailable',
-      retryable: true
+      retryable: true,
+      message: 'tm-pipeline new conversation did not become ready'
     });
+  });
+
+  it('reports unsupported New Chat as non-retryable with an actionable explanation', async () => {
+    const explanation = 'Polo has no New Chat support. Choose Continue the same conversation or learn a New Chat action.';
+    mocks.startQueueConversation.mockRejectedValue(Object.assign(new Error(explanation), {
+      code: 'new_conversation_unsupported'
+    }));
+    const socket = await connectedSocket();
+    socket.message(assignment);
+    await vi.waitFor(() => expect(socket.sent.map((value) => JSON.parse(value).type)).toContain('assignment_reject'));
+    const messages = socket.sent.map((value) => JSON.parse(value));
+    expect(messages.find((message) => message.type === 'assignment_reject')).toMatchObject({
+      reason: 'new_conversation_unsupported', retryable: false, message: explanation
+    });
+    expect(messages.some((message) => message.type === 'assignment_accept')).toBe(false);
+    expect(messages.some((message) => message.type === 'lease_release')).toBe(false);
+    expect(mocks.runQueueItem).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { count: 2, between: true, rejected: true },
+    { count: 1, between: true, rejected: false },
+    { count: 2, between: false, rejected: false }
+  ])('checks learned New Chat support between scenarios (%j)', async ({ count, between, rejected }) => {
+    const socket = await connectedSocket();
+    socket.message({
+      type: 'provider_updated',
+      provider: { id: 'polo', name: 'Polo', source: 'workspace', learned: { updatedAt: 'now' } }
+    });
+    mocks.detectProvider.mockResolvedValue('polo');
+    socket.message({
+      ...assignment,
+      agent: { provider: 'polo' },
+      newConversationBeforeStart: false,
+      newConversationBetweenScenarios: between,
+      scenarios: Array.from({ length: count }, (_, i) => ({ id: `s${i}`, prompt: 'hello' }))
+    });
+    await vi.waitFor(() => expect(socket.sent.map((value) => JSON.parse(value).type)).toContain(
+      rejected ? 'assignment_reject' : 'assignment_accept'
+    ));
+    if (rejected) {
+      expect(socket.sent.map((value) => JSON.parse(value)).find((message) => message.type === 'assignment_reject')).toMatchObject({
+        reason: 'new_conversation_unsupported', retryable: false,
+        message: 'Polo has no New Chat support. Choose Continue the same conversation or learn a New Chat action.'
+      });
+      expect(mocks.runQueueItem).not.toHaveBeenCalled();
+      expect(mocks.saveQueue).not.toHaveBeenCalled();
+    } else expect(mocks.runQueueItem).toHaveBeenCalledOnce();
+    expect(mocks.startQueueConversation).not.toHaveBeenCalled();
   });
 
   it('ignores a duplicate delivery of the same leased assignment', async () => {

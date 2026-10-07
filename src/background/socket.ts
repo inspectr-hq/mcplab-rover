@@ -32,6 +32,7 @@ import { serializeQueueOperation } from '../queue/operations';
 import { configureLeaseTransport, persistLeaseRelease } from './lease-transport';
 import type { RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
 import { debugLog } from './debug-logging';
+import { errorCode, errorMessage } from './errors';
 import { isBuiltInProviderProfile } from '../providers/catalog';
 
 let roverSocket: WebSocket | null = null;
@@ -602,8 +603,12 @@ export async function connectToMcplab(): Promise<void> {
         return;
       }
       const leaseId = message.leaseId;
-      const rejectAssignment = (reason: string) => {
-        lastAssignmentDecision = { decision: 'rejected', reason, at: new Date().toISOString() };
+      const rejectAssignment = (reason: string, detail?: string, retryable = true) => {
+        lastAssignmentDecision = {
+          decision: 'rejected',
+          reason: detail ? `${reason}: ${detail}` : reason,
+          at: new Date().toISOString()
+        };
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(
             JSON.stringify({
@@ -611,7 +616,8 @@ export async function connectToMcplab(): Promise<void> {
               jobId: message.jobId,
               leaseId,
               reason,
-              retryable: true
+              retryable,
+              ...(detail ? { message: detail } : {})
             })
           );
         }
@@ -741,9 +747,16 @@ export async function connectToMcplab(): Promise<void> {
         await runQueueItem(started);
       }).catch(async (error) => {
         if (!accepted && socket.readyState === WebSocket.OPEN) {
-          rejectAssignment('provider_unavailable');
+          // Missing capabilities require a changed profile or conversation setting.
+          // Retrying the same assignment cannot make them available.
+          const unsupported = errorCode(error) === 'new_conversation_unsupported';
+          rejectAssignment(
+            unsupported ? 'new_conversation_unsupported' : 'provider_unavailable',
+            errorMessage(error),
+            !unsupported
+          );
         } else {
-          reportAssignmentError(error instanceof Error ? error.message : String(error));
+          reportAssignmentError(errorMessage(error));
         }
         try {
           // Before acceptance, assignment_reject is the protocol-owned cleanup.
