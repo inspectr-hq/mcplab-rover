@@ -7,3 +7,12 @@ export function errorCode(error: unknown): string | undefined {
     ? error.code
     : undefined;
 }
+
+export function unsupportedNewConversationError(providerName: string): Error & { code: string } {
+  return Object.assign(
+    new Error(
+      `${providerName} has no New Chat support. Choose Continue the same conversation or learn a New Chat action.`
+    ),
+    { code: 'new_conversation_unsupported' }
+  );
+}

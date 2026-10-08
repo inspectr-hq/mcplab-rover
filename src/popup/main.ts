@@ -1514,24 +1514,16 @@ function renderLearnValidation(draft: BrowserProviderDiscoveryDraft): void {
 function renderLearningGuide(progress?: BrowserProviderDiscoveryProgress): void {
   if (progress) learningProgress = progress;
   const captured = Boolean(discoveryDraft && draftMatchesActivePage(discoveryDraft));
-  const currentStep = captured
-    ? 3
-    : learningProgress?.submitDetected || learningProgress?.assistantDetected
-    ? 2
-    : learningProgress?.composerDetected
-    ? 1
-    : 0;
-  const heading = document.createElement('div');
-  heading.className = 'learning-guide-heading';
-  const title = document.createElement('strong');
-  title.textContent = 'Learning progress';
-  const count = document.createElement('span');
-  count.setAttribute('role', 'status');
-  count.textContent = captured ? 'Response captured' : `Step ${currentStep + 1} of 3`;
-  heading.append(title, count);
-  const steps = document.createElement('ol');
-  steps.className = 'learning-steps';
-  const instructions = [
+  const hasNewConversationCandidate = Boolean(
+    captured && discoveryDraft?.profile.newConversation
+  );
+  const newConversationConfirmed = Boolean(
+    hasNewConversationCandidate && discoveryDraft?.trace?.newConversationEvidence
+  );
+  const newConversationClickPending = Boolean(
+    hasNewConversationCandidate && learningProgress?.newConversationClicked
+  );
+  const instructions: Array<[string, string]> = [
     [
       'Type one message in the chat',
       'Click the chat input and type a short message, such as “hi there”.'
@@ -1539,9 +1531,45 @@ function renderLearningGuide(progress?: BrowserProviderDiscoveryProgress): void 
     ['Send the message', 'Press Enter or click the chat’s Send button.'],
     ['Wait for the response', 'Keep the chat open while Rover captures the finished response.']
   ];
+  if (hasNewConversationCandidate) {
+    instructions.push([
+      'Start a new chat',
+      'Click the chat’s New Chat control and leave the page open while Rover confirms the conversation changed.'
+    ]);
+  }
+  const currentStep = captured
+    ? hasNewConversationCandidate && !newConversationConfirmed
+      ? 3
+      : instructions.length
+    : learningProgress?.submitDetected || learningProgress?.assistantDetected
+      ? 2
+      : learningProgress?.composerDetected
+        ? 1
+        : 0;
+  const heading = document.createElement('div');
+  heading.className = 'learning-guide-heading';
+  const title = document.createElement('strong');
+  title.textContent = 'Learning progress';
+  const count = document.createElement('span');
+  count.setAttribute('role', 'status');
+  count.textContent = newConversationConfirmed
+    ? 'New Chat confirmed'
+    : newConversationClickPending
+      ? 'Checking new chat…'
+    : captured && !hasNewConversationCandidate
+      ? 'Response captured'
+      : `Step ${Math.min(currentStep + 1, instructions.length)} of ${instructions.length}`;
+  heading.append(title, count);
+  const steps = document.createElement('ol');
+  steps.className = 'learning-steps';
   instructions.forEach(([label, detail], index) => {
     const step = document.createElement('li');
-    const state = index < currentStep ? 'complete' : index === currentStep ? 'current' : 'upcoming';
+    const state =
+      index < currentStep
+        ? 'complete'
+        : index === currentStep && currentStep < instructions.length
+          ? 'current'
+          : 'upcoming';
     step.dataset.state = state;
     if (state === 'current') step.setAttribute('aria-current', 'step');
     const marker = document.createElement('span');
@@ -1553,11 +1581,21 @@ function renderLearningGuide(progress?: BrowserProviderDiscoveryProgress): void 
     name.textContent = label;
     const status = document.createElement('span');
     status.className = 'learning-step-state';
-    status.textContent = state === 'complete' ? 'Done' : state === 'current' ? 'Next' : 'Waiting';
+    status.textContent =
+      state === 'complete'
+        ? 'Done'
+        : state === 'current' && newConversationClickPending
+          ? 'Checking'
+          : state === 'current'
+            ? 'Next'
+            : 'Waiting';
     copy.append(name, status);
     if (state === 'current') {
       const instruction = document.createElement('p');
-      instruction.textContent = detail;
+      instruction.textContent =
+        newConversationClickPending && index === 3
+          ? 'Rover detected the click. Waiting to confirm the old response disappeared or the page changed.'
+          : detail;
       copy.append(instruction);
     }
     step.append(marker, copy);
@@ -1569,7 +1607,10 @@ function renderLearningGuide(progress?: BrowserProviderDiscoveryProgress): void 
 
 function renderLearnProgress(progress: BrowserProviderDiscoveryProgress): void {
   // The validated draft replaces live observations, including updates already in flight.
-  if (discoveryDraft && draftMatchesActivePage(discoveryDraft)) return;
+  if (discoveryDraft && draftMatchesActivePage(discoveryDraft)) {
+    renderLearningGuide(progress);
+    return;
+  }
   renderLearningGuide(progress);
   learnEvidenceSection.hidden = false;
   learnProgress.hidden = false;

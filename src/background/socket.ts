@@ -32,8 +32,8 @@ import { serializeQueueOperation } from '../queue/operations';
 import { configureLeaseTransport, persistLeaseRelease } from './lease-transport';
 import type { RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
 import { debugLog } from './debug-logging';
-import { errorCode, errorMessage } from './errors';
-import { isBuiltInProviderProfile } from '../providers/catalog';
+import { errorCode, errorMessage, unsupportedNewConversationError } from './errors';
+import { isBuiltInProvider, isBuiltInProviderProfile } from '../providers/catalog';
 
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
@@ -655,6 +655,15 @@ export async function connectToMcplab(): Promise<void> {
             rejectAssignment('stale_provider');
             return;
           }
+        }
+        const profile = loadedProviders.get(message.agent!.provider!);
+        const needsNewChat =
+          message.newConversationBeforeStart === true ||
+          (message.scenarios!.length > 1 && message.newConversationBetweenScenarios !== false);
+        // Check learned transitions before sending a prompt or replacing a local queue.
+        // Built-in providers use their native New Chat actions regardless of saved profiles.
+        if (needsNewChat && profile && !isBuiltInProvider(profile.id) && !profile.newConversation) {
+          throw unsupportedNewConversationError(profile.name);
         }
         const scenarioIds = message.scenarios!.map((scenario) => scenario.id);
         if (new Set(scenarioIds).size !== scenarioIds.length) {

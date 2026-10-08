@@ -6,7 +6,7 @@ import {
   type RoverQueueState
 } from '../queue/state';
 import { activeTab, detectProvider } from './browser';
-import { errorCode, errorMessage } from './errors';
+import { errorCode, errorMessage, unsupportedNewConversationError } from './errors';
 import { getQueue, saveQueue } from './store';
 import { clearLease, currentSocket, persistLeaseRelease } from './lease-transport';
 import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover-protocol';
@@ -436,13 +436,7 @@ export async function startQueueConversation(queue: RoverQueueState): Promise<vo
       (candidate) => candidate.id === queue.provider
     );
     if (!profile) throw new Error(`Provider profile '${queue.provider}' is unavailable.`);
-    if (!profile.newConversation)
-      throw Object.assign(
-        new Error(
-          `${profile.name} has no New Chat support. Choose Continue the same conversation or learn a New Chat action.`
-        ),
-        { code: 'new_conversation_unsupported' }
-      );
+    if (!profile.newConversation) throw unsupportedNewConversationError(profile.name);
     const response = await chrome.tabs.sendMessage(queue.tabId, {
       type: 'ROVER_NEW_CHAT',
       requestId: crypto.randomUUID(),

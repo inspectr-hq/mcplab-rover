@@ -87,6 +87,7 @@ export interface BrowserProviderDiscoveryProgress {
   assistantPreview?: string;
   generatingObserved: boolean;
   idleObserved: boolean;
+  newConversationClicked?: boolean;
 }
 export type RoverStage =
   'prompt_sent' | 'waiting_for_response' | 'response_captured' | 'evaluating' | 'persisted';

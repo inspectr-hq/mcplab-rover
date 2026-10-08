@@ -119,6 +119,18 @@ function allElements(selectorText: string): HTMLElement[] {
   );
 }
 
+function visibleMatchCount(selectorText: string | undefined): number {
+  return selectorText ? allElements(selectorText).filter(visible).length : 0;
+}
+
+function composerIsEmpty(element: HTMLElement): boolean {
+  const value =
+    element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
+      ? element.value
+      : (element.innerText ?? element.textContent ?? '');
+  return value.trim().length === 0;
+}
+
 function findNewConversationControls(): HTMLElement[] {
   return allElements(
     'button,[role="button"],a,[tabindex]:not([tabindex="-1"]),[aria-label],[title],[data-test],[data-testid],[trackingtest]'
@@ -336,7 +348,10 @@ export function startProviderDiscovery(
         ? { assistantPreview: assistant.innerText.trim().slice(0, 160) }
         : {}),
       generatingObserved: observedGeneration,
-      idleObserved: observedIdle
+      idleObserved: observedIdle,
+      ...(lastDraft?.profile.newConversation
+        ? { newConversationClicked: Boolean(pendingNewConversation) }
+        : {})
     };
     const signature = JSON.stringify(progress);
     if (signature === lastProgressSignature) return;
@@ -502,18 +517,18 @@ export function startProviderDiscovery(
     if (pendingNewConversation && lastDraft) {
       const pending = pendingNewConversation;
       const assistantSelector = lastDraft.profile.assistantMessages.locator.segments.at(-1);
-      const assistantCount = assistantSelector ? allElements(assistantSelector).length : 0;
+      const assistantCount = visibleMatchCount(assistantSelector);
       const signal =
         location.href !== pending.beforeUrl
           ? 'url-changed'
           : assistantCount < pending.beforeAssistantCount
             ? 'assistant-count-reduced'
             : null;
-      const readyComposer =
-        composer &&
-        !(composer instanceof HTMLInputElement || composer instanceof HTMLTextAreaElement
-          ? composer.value.trim()
-          : composer.textContent?.trim());
+      const composerSelector = lastDraft.profile.composer.locator.segments.at(-1);
+      const currentComposer = composerSelector
+        ? allElements(composerSelector).find(visible)
+        : undefined;
+      const readyComposer = Boolean(currentComposer && composerIsEmpty(currentComposer));
       if (signal && readyComposer) {
         const updatedTrace: BrowserProviderDiscoveryTrace = {
           ...trace,
@@ -544,6 +559,7 @@ export function startProviderDiscovery(
         };
         pendingNewConversation = null;
         onDraft(lastDraft);
+        reportProgress();
       }
     }
     if (stopped || lastDraftReady || !submittedAt) return;
@@ -713,19 +729,33 @@ export function startProviderDiscovery(
     }
   };
   const onClick = (event: MouseEvent) => {
-    const target = event.composedPath()[0] ?? event.target;
-    if (!(target instanceof HTMLElement)) return;
-    const control = target.closest('button,[role="button"]') as HTMLElement | null;
+    const path = event.composedPath();
+    const newConversationControls = findNewConversationControls();
+    const newConversationControl = path.find(
+      (target): target is HTMLElement =>
+        target instanceof HTMLElement && newConversationControls.includes(target)
+    );
+    if (lastDraft && newConversationControl) {
+      const assistantSelector = lastDraft.profile.assistantMessages.locator.segments.at(-1);
+      pendingNewConversation = {
+        control: newConversationControl,
+        beforeUrl: location.href,
+        beforeAssistantCount: visibleMatchCount(assistantSelector)
+      };
+      discoveryLog('new conversation control clicked', {
+        tag: newConversationControl.tagName,
+        href:
+          newConversationControl instanceof HTMLAnchorElement
+            ? newConversationControl.href
+            : undefined,
+        beforeAssistantCount: pendingNewConversation.beforeAssistantCount
+      });
+      reportProgress();
+      return;
+    }
+    const target = path.find((entry): entry is HTMLElement => entry instanceof HTMLElement);
+    const control = target?.closest('button,[role="button"]') as HTMLElement | null;
     if (control) {
-      if (lastDraft && findNewConversationControls().includes(control)) {
-        const assistantSelector = lastDraft.profile.assistantMessages.locator.segments.at(-1);
-        pendingNewConversation = {
-          control,
-          beforeUrl: location.href,
-          beforeAssistantCount: assistantSelector ? allElements(assistantSelector).length : 0
-        };
-        return;
-      }
       const label =
         `${control.getAttribute('aria-label') ?? ''} ${control.textContent ?? ''} ${control.getAttribute('data-testid') ?? ''}`.toLowerCase();
       if (/send|submit|enter|ask|run/.test(label)) {
