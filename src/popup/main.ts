@@ -845,22 +845,51 @@ async function restoreLearningDraft(): Promise<void> {
     | BrowserProviderDiscoveryDraft
     | undefined;
   if (!draft || !draftMatchesActivePage(draft)) return;
-  discoveryDraft = draft;
-  learnName.value = draft.targetProviderId
-    ? draft.targetProviderName ?? draft.profile.name
-    : suggestedProviderName(draft.profile);
+  let restoredDraft = draft;
+  if (draft.trace) {
+    try {
+      const response = (await chrome.runtime.sendMessage({
+        type: 'ROVER_LEARN_VALIDATE',
+        profile: draft.profile,
+        trace: draft.trace
+      })) as
+        | { ok?: boolean; validation?: { passed: boolean; reasons: string[] } }
+        | undefined;
+      if (
+        discoveryDraft ||
+        learnStart.disabled ||
+        activeTabUrl !== pageUrl ||
+        !draftMatchesActivePage(draft)
+      )
+        return;
+      if (response?.ok && response.validation) {
+        restoredDraft = {
+          ...draft,
+          readyToSave: response.validation.passed,
+          validationReasons: response.validation.reasons
+        };
+        await chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: restoredDraft });
+      }
+    } catch {
+      // Keep the previously saved validation result if the page cannot replay the trace.
+    }
+  }
+  discoveryDraft = restoredDraft;
+  learnName.value = restoredDraft.targetProviderId
+    ? restoredDraft.targetProviderName ?? restoredDraft.profile.name
+    : suggestedProviderName(restoredDraft.profile);
   learnName.hidden = false;
   learnCapture.hidden = true;
   learnProgress.hidden = true;
-  learnPropose.hidden = !draft.trace;
+  learnPropose.hidden = !restoredDraft.trace;
   if (learnStart.textContent !== 'Stop learning')
     learnStatus.textContent =
-      draft.readyToSave === true
+      restoredDraft.readyToSave === true
         ? 'A saved learning draft is ready to review.'
         : 'This learning draft did not pass lifecycle validation. Capture a new active response.';
-  renderLearnCapabilities(draft.capabilities);
-  renderLearnProposal(draft);
-  renderLearnValidation(draft);
+  renderLearnCapabilities(restoredDraft.capabilities);
+  renderLearnProposal(restoredDraft);
+  renderLearnValidation(restoredDraft);
 }
 
 async function refreshActiveProvider(retry = true): Promise<void> {

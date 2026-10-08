@@ -123,12 +123,12 @@ function visibleMatchCount(selectorText: string | undefined): number {
   return selectorText ? allElements(selectorText).filter(visible).length : 0;
 }
 
-function composerIsEmpty(element: HTMLElement): boolean {
-  const value =
-    element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement
-      ? element.value
-      : (element.innerText ?? element.textContent ?? '');
-  return value.trim().length === 0;
+function isNewConversationControl(element: HTMLElement): boolean {
+  const label =
+    `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.getAttribute('data-test') ?? ''} ${element.getAttribute('data-testid') ?? ''} ${element.getAttribute('trackingtest') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
+  return /new[\s_-]*(chat|conversation)|new[\s_-]*thread|start[\s_-]*(a[\s_-]*)?new/.test(
+    label
+  );
 }
 
 function findNewConversationControls(): HTMLElement[] {
@@ -148,9 +148,7 @@ function findNewConversationControls(): HTMLElement[] {
       element.querySelector('button,a,[role="button"]')
     )
       return false;
-    const label =
-      `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.getAttribute('data-test') ?? ''} ${element.getAttribute('data-testid') ?? ''} ${element.getAttribute('trackingtest') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
-    return /new[\s_-]*(chat|conversation)|new[\s_-]*thread|start[\s_-]*(a[\s_-]*)?new/.test(label);
+    return isNewConversationControl(element);
   });
 }
 
@@ -524,12 +522,12 @@ export function startProviderDiscovery(
           : assistantCount < pending.beforeAssistantCount
             ? 'assistant-count-reduced'
             : null;
-      const composerSelector = lastDraft.profile.composer.locator.segments.at(-1);
-      const currentComposer = composerSelector
-        ? allElements(composerSelector).find(visible)
-        : undefined;
-      const readyComposer = Boolean(currentComposer && composerIsEmpty(currentComposer));
-      if (signal && readyComposer) {
+      if (signal) {
+        discoveryLog('new conversation transition observed', {
+          signal,
+          beforeAssistantCount: pending.beforeAssistantCount,
+          afterAssistantCount: assistantCount
+        });
         const updatedTrace: BrowserProviderDiscoveryTrace = {
           ...trace,
           newConversationEvidence: {
@@ -733,8 +731,24 @@ export function startProviderDiscovery(
     const newConversationControls = findNewConversationControls();
     const newConversationControl = path.find(
       (target): target is HTMLElement =>
-        target instanceof HTMLElement && newConversationControls.includes(target)
+        target instanceof HTMLElement &&
+        (newConversationControls.includes(target) || isNewConversationControl(target))
     );
+    if (lastDraft?.profile.newConversation) {
+      discoveryLog('click checked for new conversation', {
+        matched: Boolean(newConversationControl),
+        path: path
+          .filter((target): target is HTMLElement => target instanceof HTMLElement)
+          .map((element) => ({
+            tag: element.tagName,
+            title: element.getAttribute('title'),
+            ariaLabel: element.getAttribute('aria-label'),
+            dataTest: element.getAttribute('data-test'),
+            trackingTest: element.getAttribute('trackingtest')
+          }))
+          .slice(0, 8)
+      });
+    }
     if (lastDraft && newConversationControl) {
       const assistantSelector = lastDraft.profile.assistantMessages.locator.segments.at(-1);
       pendingNewConversation = {

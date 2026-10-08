@@ -73,6 +73,27 @@ function matchesSelectedLocator(
   return matchesObservedSelector(last, selected);
 }
 
+function matchesConfirmedNewConversationLocator(
+  profileLocator: ShadowLocator | undefined,
+  selected: NonNullable<SelectionRole[keyof SelectionRole]>
+): boolean {
+  if (matchesSelectedLocator(profileLocator, selected)) return true;
+  if (!profileLocator?.segments.length) return false;
+
+  // A closed Shadow DOM can expose only the custom-element host in the click
+  // path, while the captured profile points to its nested New Chat button.
+  const selectedSegments = selected.locator.segments;
+  const configuredSegments = profileLocator.segments;
+  const isClickedHostPrefix =
+    selectedSegments.length < configuredSegments.length &&
+    selectedSegments.every((segment, index) => segment === configuredSegments[index]);
+  if (!isClickedHostPrefix) return false;
+
+  return [...configuredSegments.slice(selectedSegments.length), ...selected.selectors].some(
+    (selector) => /new[\s_-]*(chat|conversation)|new[\s_-]*thread/i.test(selector)
+  );
+}
+
 export function replayProviderProfile(
   profile: BrowserProviderProfile,
   trace: BrowserProviderDiscoveryTrace | undefined
@@ -242,7 +263,7 @@ export function replayProviderProfile(
       configured?.action === 'click' ? [configured.locator, ...(configured.locators ?? [])] : [];
     if (
       !locators.some((value) =>
-        matchesSelectedLocator(value, {
+        matchesConfirmedNewConversationLocator(value, {
           locator: evidence.controlLocator,
           selectors: evidence.controlSelectors,
           visible: true,
