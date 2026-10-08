@@ -80,6 +80,17 @@ function matchesConfirmedNewConversationLocator(
   if (matchesSelectedLocator(profileLocator, selected)) return true;
   if (!profileLocator?.segments.length) return false;
 
+  // Shadow DOM hosts can add or remove ancestor segments as the page updates.
+  // A stable selector for the actual control is enough to associate the paths.
+  if (
+    profileLocator.segments.some(
+      (segment) =>
+        /\[(?:data-(?:test|testid)|aria-label|title|id|name)=|#[\w-]/i.test(segment) &&
+        selected.selectors.some((candidate) => matchesSelector(segment, candidate))
+    )
+  )
+    return true;
+
   // A closed Shadow DOM can expose only the custom-element host in the click
   // path, while the captured profile points to its nested New Chat button.
   const selectedSegments = selected.locator.segments;

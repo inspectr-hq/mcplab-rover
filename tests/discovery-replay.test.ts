@@ -206,6 +206,37 @@ describe('provider discovery replay', () => {
     expect(result.reasons).toContain('New Chat selector does not identify the confirmed control.');
   });
 
+  it('matches a confirmed New Chat control when Shadow DOM ancestor paths differ', () => {
+    const result = replayProviderProfile(
+      {
+        ...profile,
+        newConversation: {
+          action: 'click',
+          locator: {
+            segments: ['[data-app-shell="chat"]', '[data-test="ai-agent_chat_new-chat"]']
+          },
+          confirmation: 'context-change'
+        }
+      },
+      {
+        ...trace,
+        newConversationEvidence: {
+          controlLocator: { segments: ['[data-test="ai-agent_chat_new-chat"]'] },
+          controlSelectors: [
+            '[data-test="ai-agent_chat_new-chat"]',
+            '[trackingtest="ai-agent_chat_new-chat"]',
+            'tm-icon-button'
+          ],
+          signal: 'assistant-count-reduced',
+          beforeAssistantCount: 1,
+          afterAssistantCount: 0
+        }
+      }
+    );
+
+    expect(result.passed).toBe(true);
+  });
+
   it('rejects generation evidence that predates the submitted request', () => {
     const reordered = [trace.events[0], trace.events[2], trace.events[1], trace.events[3]];
     const result = replayProviderProfile(profile, {
