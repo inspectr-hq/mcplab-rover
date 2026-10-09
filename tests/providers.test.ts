@@ -289,6 +289,24 @@ describe('Learned provider adapter', () => {
     expect(submitClicks).toBe(0);
   });
 
+  it('supports stored and proposed profiles with ancestor and descendant segments', async () => {
+    document.body.innerHTML =
+      '<main id="chat"><textarea data-test="ai-agent_input"></textarea><div data-test="chat-messages_message">Inside</div><a aria-label="New chat" href="/new">New chat</a></main><div data-test="chat-messages_message">Outside</div>';
+    const adapter = createMcplabAdapter({
+      ...testProviderProfile,
+      composer: { ...testProviderProfile.composer, locator: { segments: ['#chat', 'textarea'] } },
+      assistantMessages: {
+        locator: { segments: ['#chat', '[data-test="chat-messages_message"]'] }
+      },
+      newConversation: { action: 'click', locator: { segments: ['#chat', 'a'] } }
+    });
+    expect(adapter.findComposer()).toBe(document.querySelector('textarea'));
+    expect(adapter.getAssistantCandidates().map((candidate) => candidate.text)).toEqual(['Inside']);
+    expect(adapter.getNewConversationUrl?.()).toBe(new URL('/new', location.href).href);
+    await adapter.setComposerText('Prompt');
+    expect(document.querySelector('textarea')!.value).toBe('Prompt');
+  });
+
   it('ignores a hidden generation control the same way Learning does', () => {
     document.body.innerHTML = `
       <textarea data-test="ai-agent_input"></textarea>
@@ -412,6 +430,58 @@ describe('Learned provider adapter', () => {
       );
       await vi.advanceTimersByTimeAsync(15_100);
       expect(await outcome).toContain('new conversation did not become ready');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('confirms a learned click when previous responses become hidden cached elements', async () => {
+    vi.useFakeTimers();
+    try {
+      document.body.innerHTML =
+        '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div><div data-test="chat-messages_message" style="display:none">Cached answer</div>';
+      const adapter = createMcplabAdapter({
+        ...testProviderProfile,
+        newConversation: {
+          action: 'click',
+          locator: { segments: ['button[aria-label="New chat"]'] },
+          confirmation: 'context-change'
+        }
+      });
+      document.querySelector('button')!.addEventListener('click', () => {
+        document.querySelector<HTMLElement>('[data-test="chat-messages_message"]')!.style.display =
+          'none';
+      });
+      const outcome = adapter.startNewConversation!().then(
+        () => 'resolved',
+        (error: Error) => error.message
+      );
+      await vi.advanceTimersByTimeAsync(15_100);
+      expect(await outcome).toBe('resolved');
+      expect(adapter.getAssistantCandidates()).toHaveLength(2);
+      expect(
+        adapter.getAssistantCandidates().every((candidate) => candidate.visible === false)
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses a blank learned view with hidden cached responses without clicking New chat', async () => {
+    vi.useFakeTimers();
+    try {
+      document.body.innerHTML =
+        '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button><div data-test="chat-messages_message" style="display:none">Cached answer</div>';
+      const click = vi.fn();
+      document.querySelector('button')!.addEventListener('click', click);
+      const adapter = createMcplabAdapter(testProviderProfile);
+      const outcome = adapter.startNewConversation!().then(
+        () => 'resolved',
+        (error: Error) => error.message
+      );
+      await vi.advanceTimersByTimeAsync(15_100);
+      expect(await outcome).toBe('resolved');
+      expect(click).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

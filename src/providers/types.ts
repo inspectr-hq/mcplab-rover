@@ -14,6 +14,8 @@ export interface ChatProviderAdapter {
   submit(): Promise<void>;
   stopGeneration?(): Promise<void>;
   startNewConversation?(): Promise<void>;
+  /** Navigation is performed by the background so the content script can unload safely. */
+  getNewConversationUrl?(): string | undefined;
   getAssistantCandidates(): ResponseCandidate[];
   signalEvaluator: ProviderSignalEvaluator;
   completionStabilityMs?: number;

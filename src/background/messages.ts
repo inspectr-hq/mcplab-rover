@@ -174,7 +174,7 @@ export function installMessageHandler(): void {
       return respond(sendResponse, async () => {
         const response = (await sendToActiveTab(message)) as {
           ok?: boolean;
-          validation?: { passed: boolean; reasons: string[] };
+          validation?: import('../contracts').DiscoveryReplayResult;
           error?: string;
         } | null;
         if (!response?.ok || !response.validation)

@@ -219,9 +219,8 @@ it.each([true, false])(
   }
 );
 
-
 it('keeps Save visible with the validation reason and enables it when learning passes', async () => {
-  const reason = 'New Chat context change was not observed during learning.';
+  const reason = 'Assistant response evidence is missing.';
   const blockedDraft: BrowserProviderDiscoveryDraft = {
     ...draft,
     profile: {
@@ -247,7 +246,7 @@ it('keeps Save visible with the validation reason and enables it when learning p
   expect(explanation).not.toBeNull();
   expect(explanation!.hidden).toBe(false);
   expect(explanation!.textContent).toContain(reason);
-  expect(explanation!.textContent).toContain('Open a new conversation on the provider page');
+  expect(explanation!.textContent).not.toContain('Open a new conversation on the provider page');
   expect(save.getAttribute('aria-describedby')).toBe(explanation!.id);
   save.click();
   expect(
@@ -258,7 +257,6 @@ it('keeps Save visible with the validation reason and enables it when learning p
   expect(save.disabled).toBe(false);
   expect(explanation!.hidden).toBe(true);
 });
-
 
 it('preserves Stop learning when switching sites and restores the draft on return', async () => {
   const popup = await openPopup('rover.provider-discovery-draft');
@@ -348,7 +346,6 @@ it('keeps a late learning result from another site hidden until returning to tha
   );
 });
 
-
 it('does not replay or reveal an AI proposal when the user has switched to another site', async () => {
   const popup = await openPopup('rover.provider-discovery-draft', {
     ...draft,
@@ -375,6 +372,9 @@ it('does not replay or reveal an AI proposal when the user has switched to anoth
     if (message.type === 'ROVER_GET_ACTIVE_PROVIDER') return { url: 'https://polo.example/app' };
     return null;
   });
+  const validationCallsBeforeProposal = popup.sendMessage.mock.calls.filter(
+    ([message]) => message.type === 'ROVER_LEARN_VALIDATE'
+  ).length;
   button.click();
   popup.onMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
   await vi.waitFor(() =>
@@ -383,8 +383,9 @@ it('does not replay or reveal an AI proposal when the user has switched to anoth
   resolve({ ok: true, proposal: { profile: draft.profile, rationale: [], warnings: [] } });
   await vi.waitFor(() => expect(button.disabled).toBe(false));
   expect(
-    popup.sendMessage.mock.calls.some(([message]) => message.type === 'ROVER_LEARN_VALIDATE')
-  ).toBe(false);
+    popup.sendMessage.mock.calls.filter(([message]) => message.type === 'ROVER_LEARN_VALIDATE')
+      .length
+  ).toBe(validationCallsBeforeProposal);
   expect(document.querySelector<HTMLButtonElement>('#learn-save')!.hidden).toBe(true);
   expect(document.querySelector<HTMLElement>('#learn-propose-status')!.hidden).toBe(true);
 });
@@ -460,28 +461,30 @@ it.each(['returned', 'success'])(
   }
 );
 
+it.each([11, 22])(
+  'resets learning controls when the session is cleared from tab %i',
+  async (tabId) => {
+    const popup = await openPopup('rover.provider-discovery-draft');
+    popup.resolveDetection({ url: 'https://polo.example/app', tabId, learningTabId: 11 });
+    const button = document.querySelector<HTMLButtonElement>('#learn-start')!;
+    const capture = document.querySelector<HTMLButtonElement>('#learn-capture')!;
+    await vi.waitFor(() => expect(button.textContent).toBe('Stop learning'));
+    expect(capture.hidden).toBe(false);
 
-it.each([11, 22])('resets learning controls when the session is cleared from tab %i', async (tabId) => {
-  const popup = await openPopup('rover.provider-discovery-draft');
-  popup.resolveDetection({ url: 'https://polo.example/app', tabId, learningTabId: 11 });
-  const button = document.querySelector<HTMLButtonElement>('#learn-start')!;
-  const capture = document.querySelector<HTMLButtonElement>('#learn-capture')!;
-  await vi.waitFor(() => expect(button.textContent).toBe('Stop learning'));
-  expect(capture.hidden).toBe(false);
-
-  popup.sendMessage.mockResolvedValueOnce({
-    url: 'https://polo.example/app',
-    tabId,
-    learningTabId: null
-  });
-  popup.onMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
-  await vi.waitFor(() => expect(button.textContent).toBe('Start learning'));
-  expect(capture.hidden).toBe(true);
-  expect(document.querySelector('#learn-status')!.textContent).toBe(
-    'Learning stopped. Start again when you are ready.'
-  );
-  expect(popup.remove).not.toHaveBeenCalled();
-});
+    popup.sendMessage.mockResolvedValueOnce({
+      url: 'https://polo.example/app',
+      tabId,
+      learningTabId: null
+    });
+    popup.onMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+    await vi.waitFor(() => expect(button.textContent).toBe('Start learning'));
+    expect(capture.hidden).toBe(true);
+    expect(document.querySelector('#learn-status')!.textContent).toBe(
+      'Learning stopped. Start again when you are ready.'
+    );
+    expect(popup.remove).not.toHaveBeenCalled();
+  }
+);
 
 it('guides typing, sending and waiting using observed learning progress, then hides on Stop', async () => {
   const popup = await openPopup('unrelated-draft');
@@ -529,7 +532,6 @@ it('guides typing, sending and waiting using observed learning progress, then hi
   await vi.waitFor(() => expect(guide!.hidden).toBe(true));
 });
 
-
 const unconfirmedNewChatDraft: BrowserProviderDiscoveryDraft = {
   ...draft,
   profile: {
@@ -540,8 +542,15 @@ const unconfirmedNewChatDraft: BrowserProviderDiscoveryDraft = {
       confirmation: 'context-change'
     }
   },
-  readyToSave: false,
-  validationReasons: ['New Chat context change was not observed during Learning.'],
+  readyToSave: true,
+  validationReasons: [],
+  validationIssues: [
+    {
+      code: 'new-chat-unconfirmed',
+      blocking: false,
+      message: 'Optional control has not been checked.'
+    }
+  ],
   trace: {
     observedGeneration: true,
     selectorValidation: {
@@ -581,7 +590,9 @@ it.each(['captured', 'AI proposal'])(
       )
     );
     const messages = popup.sendMessage.mock.calls.map(([message]) => message);
-    const validation = messages.find((message) => message.type === 'ROVER_LEARN_VALIDATE');
+    const validation = messages.find(
+      (message) => message.type === 'ROVER_LEARN_VALIDATE' && !message.profile.newConversation
+    );
     const save = messages.find((message) => message.type === 'ROVER_LEARN_SAVE');
     expect(validation.profile).not.toHaveProperty('newConversation');
     expect(save.profile).not.toHaveProperty('newConversation');
@@ -592,6 +603,61 @@ it.each(['captured', 'AI proposal'])(
     expect(popup.remove).toHaveBeenCalled();
   }
 );
+
+it('offers saving without New Chat when only its confirmed selector fails validation', async () => {
+  const confirmedButUnmatchedDraft: BrowserProviderDiscoveryDraft = {
+    ...unconfirmedNewChatDraft,
+    profile: {
+      ...unconfirmedNewChatDraft.profile,
+      newConversation: {
+        action: 'click',
+        locator: { segments: ['button[title="New chat"]'] }
+      }
+    },
+    validationReasons: [],
+    validationIssues: [
+      {
+        code: 'new-chat-control-mismatch',
+        blocking: false,
+        message: 'Different control was observed.'
+      }
+    ],
+    trace: {
+      ...unconfirmedNewChatDraft.trace!,
+      newConversationEvidence: {
+        controlLocator: { segments: ['tm-icon-button'] },
+        controlSelectors: ['[data-test="ai-agent_chat_new-chat"]'],
+        signal: 'assistant-count-reduced',
+        beforeAssistantCount: 1,
+        afterAssistantCount: 0
+      }
+    }
+  };
+  const popup = await openPopup('rover.provider-discovery-draft', confirmedButUnmatchedDraft);
+  popup.resolveDetection({ url: 'https://claude.ai/new' });
+  const button = document.querySelector<HTMLButtonElement>('#learn-save-without-new-chat')!;
+  await vi.waitFor(() => expect(button.hidden).toBe(false));
+
+  popup.sendMessage.mockImplementation(async (message) => {
+    if (message.type === 'ROVER_LEARN_VALIDATE')
+      return { ok: true, validation: { passed: true, reasons: [] } };
+    if (message.type === 'ROVER_LEARN_SAVE') return { ok: true };
+    return null;
+  });
+  button.click();
+  await vi.waitFor(() =>
+    expect(document.querySelector('#learn-save-status')!.textContent).toContain(
+      'Saved Claude to MCPLab without New Chat support.'
+    )
+  );
+  const validation = popup.sendMessage.mock.calls.find(
+    ([message]) => message.type === 'ROVER_LEARN_VALIDATE' && !message.profile.newConversation
+  )?.[0];
+  expect(validation?.profile).not.toHaveProperty('newConversation');
+  expect(validation?.trace.newConversationEvidence).toEqual(
+    confirmedButUnmatchedDraft.trace?.newConversationEvidence
+  );
+});
 
 it.each(['validation', 'transport'])(
   'does not save without New Chat when %s fails and shows the error beside Save',
@@ -616,7 +682,7 @@ it.each(['validation', 'transport'])(
     expect(
       popup.sendMessage.mock.calls.some(([message]) => message.type === 'ROVER_LEARN_SAVE')
     ).toBe(false);
-    expect(document.querySelector<HTMLButtonElement>('#learn-save')!.disabled).toBe(true);
+    expect(document.querySelector<HTMLButtonElement>('#learn-save')!.disabled).toBe(false);
     expect(popup.remove).not.toHaveBeenCalled();
   }
 );
@@ -678,30 +744,181 @@ it('retains the validated profile without New Chat for retry after a save failur
   expect(saves[1][0].profile).not.toHaveProperty('newConversation');
 });
 
+it.each([0, 1, 2])(
+  'only shows the learning target when choosing or updating a provider (%s)',
+  async (count) => {
+    const targets = [
+      { id: 'claude', name: 'Claude' },
+      { id: 'other', name: 'Other' }
+    ].slice(0, count);
+    const popup = await openPopup('rover.provider-discovery-draft');
+    popup.resolveDetection({ url: 'https://claude.ai/new' });
+    await vi.waitFor(() =>
+      expect(document.querySelector<HTMLInputElement>('#learn-name')!.hidden).toBe(false)
+    );
+    popup.sendMessage.mockImplementation(async (message) => {
+      if (message.type === 'ROVER_GET_LEARN_TARGETS') return { targets };
+      if (message.type === 'ROVER_GET_ACTIVE_PROVIDER') return { url: 'https://claude.ai/new' };
+      return null;
+    });
+    document.querySelector<HTMLButtonElement>('#learn-mode')!.click();
+    await vi.waitFor(() =>
+      expect(popup.sendMessage).toHaveBeenCalledWith({ type: 'ROVER_GET_LEARN_TARGETS' })
+    );
+    const target = document.querySelector<HTMLElement>('#learn-target')!;
+    await vi.waitFor(() => {
+      if (!targets.length) {
+        expect(target.hidden).toBe(true);
+        expect(target.textContent).toBe('');
+      } else if (targets.length === 1) {
+        expect(target.hidden).toBe(false);
+        expect(target.textContent).toBe('Updating: Claude');
+      } else {
+        expect(target.hidden).toBe(false);
+        expect(target.querySelectorAll('option')).toHaveLength(3);
+      }
+    });
+  }
+);
 
-it.each([0, 1, 2])('only shows the learning target when choosing or updating a provider (%s)', async (count) => {
-  const targets = [{ id: 'claude', name: 'Claude' }, { id: 'other', name: 'Other' }].slice(0, count);
-  const popup = await openPopup('rover.provider-discovery-draft');
+it('saves normally with the optional New Chat capability and renders a warning by code', async () => {
+  const popup = await openPopup('rover.provider-discovery-draft', unconfirmedNewChatDraft);
   popup.resolveDetection({ url: 'https://claude.ai/new' });
-  await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>('#learn-name')!.hidden).toBe(false));
+  const save = document.querySelector<HTMLButtonElement>('#learn-save')!;
+  await vi.waitFor(() => expect(save.hidden).toBe(false));
+  expect(save.disabled).toBe(false);
+  expect(document.querySelector('#learn-validation')!.textContent).toContain(
+    'Optional control has not been checked.'
+  );
+  expect(document.querySelector('#learn-guide')!.textContent).toContain('optional');
+  popup.sendMessage.mockImplementation(async (message) =>
+    message.type === 'ROVER_LEARN_SAVE' ? { ok: true } : null
+  );
+  save.click();
+  await vi.waitFor(() => expect(popup.remove).toHaveBeenCalled());
+  const message = popup.sendMessage.mock.calls.find(
+    ([message]) => message.type === 'ROVER_LEARN_SAVE'
+  )![0];
+  expect(message.profile.newConversation).toEqual(unconfirmedNewChatDraft.profile.newConversation);
+});
+
+it('replays a legacy blocked draft into a saveable draft with structured warnings', async () => {
+  const legacyDraft = {
+    ...unconfirmedNewChatDraft,
+    readyToSave: false,
+    validationIssues: undefined,
+    validationReasons: ['New Chat context change was not observed during Learning.']
+  };
+  const popup = await openPopup('rover.provider-discovery-draft', legacyDraft);
   popup.sendMessage.mockImplementation(async (message) => {
-    if (message.type === 'ROVER_GET_LEARN_TARGETS') return { targets };
-    if (message.type === 'ROVER_GET_ACTIVE_PROVIDER') return { url: 'https://claude.ai/new' };
+    if (message.type === 'ROVER_LEARN_VALIDATE')
+      return {
+        ok: true,
+        validation: { passed: true, reasons: [], issues: unconfirmedNewChatDraft.validationIssues }
+      };
     return null;
   });
-  document.querySelector<HTMLButtonElement>('#learn-mode')!.click();
-  await vi.waitFor(() => expect(popup.sendMessage).toHaveBeenCalledWith({ type: 'ROVER_GET_LEARN_TARGETS' }));
-  const target = document.querySelector<HTMLElement>('#learn-target')!;
-  await vi.waitFor(() => {
-    if (!targets.length) {
-      expect(target.hidden).toBe(true);
-      expect(target.textContent).toBe('');
-    } else if (targets.length === 1) {
-      expect(target.hidden).toBe(false);
-      expect(target.textContent).toBe('Updating: Claude');
-    } else {
-      expect(target.hidden).toBe(false);
-      expect(target.querySelectorAll('option')).toHaveLength(3);
-    }
-  });
+  popup.resolveDetection({ url: 'https://claude.ai/new' });
+  const save = document.querySelector<HTMLButtonElement>('#learn-save')!;
+  await vi.waitFor(() => expect(save.hidden).toBe(false));
+  expect(save.disabled).toBe(false);
+  expect(document.querySelector('#learn-validation')!.textContent).toContain(
+    'Optional control has not been checked.'
+  );
+  expect(document.querySelector<HTMLButtonElement>('#learn-save-without-new-chat')!.hidden).toBe(
+    false
+  );
 });
+
+it('replaces legacy New Chat confidence with a description of the validated evidence', async () => {
+  const legacyDraft: BrowserProviderDiscoveryDraft = {
+    ...unconfirmedNewChatDraft,
+    capabilities: [
+      {
+        id: 'newConversation',
+        label: 'New conversation',
+        confidence: 'medium',
+        detail: 'The previous response disappearing proved New Chat.'
+      }
+    ],
+    trace: {
+      ...unconfirmedNewChatDraft.trace!,
+      newConversationEvidence: {
+        controlLocator: unconfirmedNewChatDraft.profile.newConversation!.locator!,
+        controlSelectors: ['[title="New chat"]'],
+        signal: 'url-changed',
+        beforeAssistantCount: 1,
+        afterAssistantCount: 1
+      }
+    }
+  };
+  const popup = await openPopup('rover.provider-discovery-draft', legacyDraft);
+  popup.resolveDetection({ url: 'https://claude.ai/new' });
+  await vi.waitFor(() =>
+    expect(document.querySelector<HTMLButtonElement>('#learn-save')!.hidden).toBe(false)
+  );
+  const capabilities = document.querySelector('#learn-capabilities')!;
+  expect(capabilities.textContent).not.toContain('previous response disappearing proved');
+  expect(capabilities.textContent).toContain('not yet confirmed');
+  expect(capabilities.textContent).toContain('low');
+});
+
+it.each(['confirmed', 'unconfirmed', 'mismatched'] as const)(
+  'renders the %s New Chat capability consistently with the guide and proposal',
+  async (state) => {
+    const current: BrowserProviderDiscoveryDraft = {
+      ...unconfirmedNewChatDraft,
+      capturedProfile: unconfirmedNewChatDraft.profile,
+      capabilities: [
+        { id: 'composer', label: 'Composer', confidence: 'medium', detail: 'Suggested input.' },
+        {
+          id: 'newConversation',
+          label: 'New conversation',
+          confidence: 'medium',
+          detail: 'Stale detail.'
+        }
+      ],
+      validationIssues:
+        state === 'mismatched'
+          ? [{ code: 'new-chat-control-mismatch', blocking: false, message: 'Different control.' }]
+          : [],
+      trace: {
+        ...unconfirmedNewChatDraft.trace!,
+        newConversationEvidence:
+          state === 'unconfirmed'
+            ? undefined
+            : {
+                controlLocator: unconfirmedNewChatDraft.profile.newConversation!.locator!,
+                controlSelectors: ['[title="New chat"]'],
+                signal: 'assistant-count-reduced',
+                beforeAssistantCount: 1,
+                afterAssistantCount: 0,
+                composerEmpty: true,
+                emptyChatStableMs: 500,
+                elapsedMs: 1234
+              }
+      }
+    };
+    const popup = await openPopup('rover.provider-discovery-draft', current);
+    popup.resolveDetection({ url: 'https://claude.ai/new' });
+    await vi.waitFor(() =>
+      expect(document.querySelector<HTMLButtonElement>('#learn-save')!.hidden).toBe(false)
+    );
+    const rows = [
+      ...document.querySelectorAll<HTMLElement>('#learn-capabilities .debug-indicator')
+    ];
+    const newChat = rows.find((row) => row.textContent?.includes('New conversation'))!;
+    expect(newChat.dataset.state).toBe(state === 'confirmed' ? 'pass' : 'unknown');
+    expect(rows.find((row) => row.textContent?.includes('Composer'))!.dataset.state).toBe(
+      'unknown'
+    );
+    expect(
+      document.querySelector('#learn-guide')?.textContent ??
+        document.querySelector('.learning-guide-heading')!.textContent
+    ).toContain(state === 'confirmed' ? 'New Chat confirmed' : 'Step 4 of 4');
+    const proposal = [
+      ...document.querySelectorAll<HTMLElement>('#learn-proposal .debug-indicator')
+    ].find((row) => row.textContent?.includes('New conversation'))!;
+    expect(proposal.dataset.state).toBe(state === 'confirmed' ? 'pass' : 'unknown');
+  }
+);

@@ -746,7 +746,7 @@ it('labels uncertain learned capabilities without showing a validation failure',
   expect(rows[0]?.textContent).toContain('Confidence: high.');
   expect(rows[1]?.textContent).toContain('Confidence: medium.');
   expect(rows[2]?.textContent).toContain('Observed a new response element. Confidence: low.');
-  expect(rows[3]?.textContent).toContain('not yet confirmed. Confidence: low.');
+  expect(rows[3]?.textContent).toContain('Not available for this provider. Confidence: low.');
   expect(document.querySelector('#learn-validation [data-state="pass"]')?.textContent).toContain(
     'All required lifecycle checks passed.'
   );

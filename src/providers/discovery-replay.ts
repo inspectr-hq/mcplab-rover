@@ -1,13 +1,16 @@
 import type {
   BrowserProviderDiscoveryTrace,
-  BrowserProviderDiscoveryTraceEvent
+  BrowserProviderDiscoveryTraceEvent,
+  BrowserProviderDiscoveryValidationIssue,
+  DiscoveryReplayResult
 } from '../contracts';
 import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
+import {
+  hasConfirmedNewConversationEvidence,
+  matchesNewConversationDestination
+} from './new-conversation-evidence';
 
-export interface DiscoveryReplayResult {
-  passed: boolean;
-  reasons: string[];
-}
+export type { DiscoveryReplayResult } from '../contracts';
 
 function lastSelector(locator: ShadowLocator | undefined): string | undefined {
   return locator?.segments.at(-1);
@@ -73,44 +76,24 @@ function matchesSelectedLocator(
   return matchesObservedSelector(last, selected);
 }
 
-function matchesConfirmedNewConversationLocator(
-  profileLocator: ShadowLocator | undefined,
-  selected: NonNullable<SelectionRole[keyof SelectionRole]>
-): boolean {
-  if (matchesSelectedLocator(profileLocator, selected)) return true;
-  if (!profileLocator?.segments.length) return false;
-
-  // Shadow DOM hosts can add or remove ancestor segments as the page updates.
-  // A stable selector for the actual control is enough to associate the paths.
-  if (
-    profileLocator.segments.some(
-      (segment) =>
-        /\[(?:data-(?:test|testid)|aria-label|title|id|name)=|#[\w-]/i.test(segment) &&
-        selected.selectors.some((candidate) => matchesSelector(segment, candidate))
-    )
-  )
-    return true;
-
-  // A closed Shadow DOM can expose only the custom-element host in the click
-  // path, while the captured profile points to its nested New Chat button.
-  const selectedSegments = selected.locator.segments;
-  const configuredSegments = profileLocator.segments;
-  const isClickedHostPrefix =
-    selectedSegments.length < configuredSegments.length &&
-    selectedSegments.every((segment, index) => segment === configuredSegments[index]);
-  if (!isClickedHostPrefix) return false;
-
-  return [...configuredSegments.slice(selectedSegments.length), ...selected.selectors].some(
-    (selector) => /new[\s_-]*(chat|conversation)|new[\s_-]*thread/i.test(selector)
-  );
-}
-
 export function replayProviderProfile(
   profile: BrowserProviderProfile,
   trace: BrowserProviderDiscoveryTrace | undefined
 ): DiscoveryReplayResult {
-  const reasons: string[] = [];
-  if (!trace) return { passed: false, reasons: ['Learning trace is missing.'] };
+  const issues: BrowserProviderDiscoveryValidationIssue[] = [];
+  const addIssue = (
+    code: BrowserProviderDiscoveryValidationIssue['code'],
+    message: string,
+    blocking = true
+  ) => {
+    issues.push({ code, message, blocking });
+  };
+  if (!trace)
+    return {
+      passed: false,
+      reasons: ['Learning trace is missing.'],
+      issues: [{ code: 'trace-missing', message: 'Learning trace is missing.', blocking: true }]
+    };
   const events = trace.events ?? [];
   const snapshots = (phase: string) =>
     events.filter((event) => event.phase === phase).flatMap((event) => event.snapshot ?? []);
@@ -124,15 +107,21 @@ export function replayProviderProfile(
         matchesSelectedLocator(profile.composer.locator, element)
       )
     )
-      reasons.push('Composer selector does not identify the selected composer.');
+      addIssue(
+        'composer-selector-mismatch',
+        'Composer selector does not identify the selected composer.'
+      );
   } else if (trace.evidenceVersion === 1) {
-    reasons.push('Selected composer evidence is missing from the Learning trace.');
+    addIssue(
+      'composer-evidence-missing',
+      'Selected composer evidence is missing from the Learning trace.'
+    );
   } else if (
     !snapshots('baseline')
       .concat(snapshots('submitted'))
       .some((node) => matchesSelector(composer, node.selector))
   )
-    reasons.push('Composer selector was not observed in the baseline snapshot.');
+    addIssue('composer-unobserved', 'Composer selector was not observed in the baseline snapshot.');
   if (profile.submit.action === 'click') {
     const submitSelections = selectedEvidence(events, 'submit', ['submitted']);
     if (submitSelections.length > 0) {
@@ -141,11 +130,17 @@ export function replayProviderProfile(
           matchesSelectedLocator(profile.submit.locator, element)
         )
       )
-        reasons.push('Submit selector does not identify the selected send control.');
+        addIssue(
+          'submit-selector-mismatch',
+          'Submit selector does not identify the selected send control.'
+        );
     } else if (trace.evidenceVersion === 1)
-      reasons.push('Selected send-control evidence is missing from the Learning trace.');
+      addIssue(
+        'submit-evidence-missing',
+        'Selected send-control evidence is missing from the Learning trace.'
+      );
     else if (!snapshots('submitted').some((node) => matchesSelector(submit, node.selector)))
-      reasons.push('Submit selector was not observed in the submitted snapshot.');
+      addIssue('submit-unobserved', 'Submit selector was not observed in the submitted snapshot.');
   }
   const assistantSelections = selectedEvidence(events, 'assistant', ['candidate', 'final']);
   if (assistantSelections.length > 0) {
@@ -153,7 +148,10 @@ export function replayProviderProfile(
       matchesSelectedLocator(profile.assistantMessages.locator, element)
     );
     if (matchingSelections.length === 0)
-      reasons.push('Assistant selector does not identify the selected response.');
+      addIssue(
+        'assistant-selector-mismatch',
+        'Assistant selector does not identify the selected response.'
+      );
     else if (
       matchingSelections.every(({ element }) => {
         const selector = lastSelector(profile.assistantMessages.locator);
@@ -161,7 +159,10 @@ export function replayProviderProfile(
         return evaluation !== undefined && evaluation.nonAssistantCount > 0;
       })
     )
-      reasons.push('Assistant selector also matched non-assistant elements.');
+      addIssue(
+        'assistant-selector-too-broad',
+        'Assistant selector also matched non-assistant elements.'
+      );
     const submittedIndex = events.findIndex((event) => event.phase === 'submitted');
     if (
       submittedIndex < 0 ||
@@ -173,22 +174,31 @@ export function replayProviderProfile(
             : element.changedFromBaseline === true)
       )
     )
-      reasons.push('Selected assistant response was not observed changing after submission.');
+      addIssue(
+        'assistant-change-unobserved',
+        'Selected assistant response was not observed changing after submission.'
+      );
     if (
       trace.evidenceVersion === 1 &&
       !matchingSelections.some(
         ({ index, element }) => index > submittedIndex && element.absentAtSubmission === true
       )
     )
-      reasons.push('Selected assistant response was not a new turn after submission.');
+      addIssue(
+        'assistant-turn-unconfirmed',
+        'Selected assistant response was not a new turn after submission.'
+      );
   } else if (trace.evidenceVersion === 1) {
-    reasons.push('Selected assistant evidence is missing from the Learning trace.');
+    addIssue(
+      'assistant-evidence-missing',
+      'Selected assistant evidence is missing from the Learning trace.'
+    );
   } else if (
     !snapshots('candidate')
       .concat(snapshots('final'))
       .some((node) => matchesSelector(assistant, node.selector))
   )
-    reasons.push('Assistant selector was not observed in a response snapshot.');
+    addIssue('assistant-unobserved', 'Assistant selector was not observed in a response snapshot.');
   const generating = lastSelector(profile.completion.generatingLocator);
   const submittedIndex = events.findIndex((event) => event.phase === 'submitted');
   const workingSelections = selectedEvidence(events, 'working', ['working']);
@@ -199,25 +209,40 @@ export function replayProviderProfile(
     events[finalIndex].workingActive === false &&
     workingSelections.some(({ index }) => index < finalIndex);
   if ((!generating || !trace.observedGeneration) && !observedWorkingEnd)
-    reasons.push('No observed generation or working-to-ready transition supports completion.');
+    addIssue(
+      'completion-unobserved',
+      'No observed generation or working-to-ready transition supports completion.'
+    );
   else if (generating && trace.observedGeneration) {
     const generatingSelections = selectedEvidence(events, 'generating', ['generating']);
     if (
       trace.evidenceVersion === 1 &&
       !generatingSelections.some(({ index }) => index > submittedIndex && index < finalIndex)
     )
-      reasons.push('Generation signal was not observed after submission and before final.');
+      addIssue(
+        'generation-out-of-order',
+        'Generation signal was not observed after submission and before final.'
+      );
     if (generatingSelections.length > 0) {
       if (
         !generatingSelections.some(({ element }) =>
           matchesSelectedLocator(profile.completion.generatingLocator, element)
         )
       )
-        reasons.push('Generation selector does not identify the observed generation control.');
+        addIssue(
+          'generation-selector-mismatch',
+          'Generation selector does not identify the observed generation control.'
+        );
     } else if (trace.evidenceVersion === 1)
-      reasons.push('Selected generation-control evidence is missing from the Learning trace.');
+      addIssue(
+        'generation-evidence-missing',
+        'Selected generation-control evidence is missing from the Learning trace.'
+      );
     else if (!snapshots('generating').some((node) => matchesSelector(generating, node.selector)))
-      reasons.push('Generation selector was not observed in the generating snapshot.');
+      addIssue(
+        'generation-unobserved',
+        'Generation selector was not observed in the generating snapshot.'
+      );
   }
   const idle = lastSelector(profile.completion.idleLocator);
   if (profile.completion.workingLocator) {
@@ -225,26 +250,35 @@ export function replayProviderProfile(
       trace.evidenceVersion === 1 &&
       !workingSelections.some(({ index }) => index > submittedIndex && index < finalIndex)
     )
-      reasons.push('Working signal was not observed after submission and before final.');
+      addIssue(
+        'working-out-of-order',
+        'Working signal was not observed after submission and before final.'
+      );
     if (
       !workingSelections.some(({ element }) =>
         matchesSelectedLocator(profile.completion.workingLocator, element)
       )
     )
-      reasons.push('Working selector does not identify an observed working indicator.');
+      addIssue(
+        'working-selector-mismatch',
+        'Working selector does not identify an observed working indicator.'
+      );
     if (
       finalWorkingSelections.some(({ element }) =>
         matchesSelectedLocator(profile.completion.workingLocator, element)
       )
     )
-      reasons.push('Working selector remains active in the final state.');
+      addIssue('working-still-active', 'Working selector remains active in the final state.');
   }
   if (!idle) {
     const generatingStillPresent = snapshots('final').some(
       (node) => node.visible !== false && matchesGeneratingState(generating, node)
     );
     if (generatingStillPresent)
-      reasons.push('The generation control was still present in the final snapshot.');
+      addIssue(
+        'generation-still-active',
+        'The generation control was still present in the final snapshot.'
+      );
   } else {
     const idleSelections = selectedEvidence(events, 'idle', ['final']);
     if (idleSelections.length > 0) {
@@ -253,28 +287,47 @@ export function replayProviderProfile(
           matchesSelectedLocator(profile.completion.idleLocator, element)
         )
       )
-        reasons.push('Idle selector does not identify the observed ready control.');
+        addIssue(
+          'idle-selector-mismatch',
+          'Idle selector does not identify the observed ready control.'
+        );
     } else if (trace.evidenceVersion === 1)
-      reasons.push('Selected idle-control evidence is missing from the Learning trace.');
+      addIssue(
+        'idle-evidence-missing',
+        'Selected idle-control evidence is missing from the Learning trace.'
+      );
     else if (
       !snapshots('final').some((node) => matchesSelector(idle, node.selector) && !node.disabled)
     )
-      reasons.push('Idle selector was not observed in an enabled final snapshot.');
+      addIssue('idle-unobserved', 'Idle selector was not observed in an enabled final snapshot.');
   }
   if (
-    profile.newConversation?.action === 'click' &&
-    profile.newConversation.confirmation === 'context-change' &&
-    !trace.newConversationEvidence
+    profile.newConversation &&
+    !hasConfirmedNewConversationEvidence(trace.newConversationEvidence)
   )
-    reasons.push('New Chat context change was not observed during Learning.');
-  if (trace.newConversationEvidence) {
+    addIssue(
+      'new-chat-unconfirmed',
+      'New Chat context change was not observed during Learning.',
+      false
+    );
+  if (
+    profile.newConversation?.action === 'navigate' &&
+    trace.newConversationEvidence &&
+    !matchesNewConversationDestination(profile.newConversation, trace.newConversationEvidence)
+  ) {
+    addIssue(
+      'new-chat-navigation-mismatch',
+      'New Chat navigation URL does not match the observed destination.',
+      false
+    );
+  }
+  if (trace.newConversationEvidence && profile.newConversation?.action === 'click') {
     const evidence = trace.newConversationEvidence;
     const configured = profile.newConversation;
-    const locators =
-      configured?.action === 'click' ? [configured.locator, ...(configured.locators ?? [])] : [];
+    const locators = [configured.locator, ...(configured.locators ?? [])];
     if (
       !locators.some((value) =>
-        matchesConfirmedNewConversationLocator(value, {
+        matchesSelectedLocator(value, {
           locator: evidence.controlLocator,
           selectors: evidence.controlSelectors,
           visible: true,
@@ -282,7 +335,12 @@ export function replayProviderProfile(
         })
       )
     )
-      reasons.push('New Chat selector does not identify the confirmed control.');
+      addIssue(
+        'new-chat-control-mismatch',
+        'New Chat selector does not identify the confirmed control.',
+        false
+      );
   }
-  return { passed: reasons.length === 0, reasons };
+  const reasons = issues.filter((issue) => issue.blocking).map((issue) => issue.message);
+  return { passed: reasons.length === 0, reasons, issues };
 }

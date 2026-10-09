@@ -1,4 +1,5 @@
 import type { DebugElementCheck } from '../contracts';
+import type { ResponseCandidate } from '../runtime/candidate-selection';
 import { composerValue, isVisible } from './dom';
 
 export function first<T extends Element>(selectors: string[]): T | null {
@@ -27,6 +28,23 @@ export function debugCheck(
 
 export function pageAlertText(): string | null {
   return document.querySelector('[role="alert"]')?.textContent?.trim() || null;
+}
+
+export function visibleResponseCount(candidates: readonly ResponseCandidate[]): number {
+  return candidates.filter((candidate) => candidate.visible).length;
+}
+
+export function isEmptyConversation(options: {
+  findComposer: () => HTMLElement | null;
+  messageCount: () => number;
+}): boolean {
+  const composer = options.findComposer();
+  return Boolean(
+    composer &&
+    isVisible(composer) &&
+    !composerValue(composer).trim() &&
+    options.messageCount() === 0
+  );
 }
 
 export async function waitForNewConversation(options: {

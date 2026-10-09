@@ -10,6 +10,7 @@ import { replayProviderProfile } from './providers/discovery-replay';
 import { roverResultMessage } from './content-result';
 import { debugLog, initializeDebugLogging } from './content-debug-logging';
 import { sendRuntimeMessage } from './content-runtime';
+import { isEmptyConversation, visibleResponseCount } from './providers/adapter-helpers';
 
 initializeDebugLogging();
 
@@ -252,11 +253,31 @@ if (runtime.__mcplabRoverInstalled) {
       sendResponse({ ok: true });
       return true;
     }
+    if (message.type === 'ROVER_NEW_CHAT_READY') {
+      const adapter = findAdapter();
+      sendResponse({
+        ok: true,
+        provider: adapter?.id,
+        ready: Boolean(
+          adapter &&
+          isEmptyConversation({
+            findComposer: () => adapter.findComposer(),
+            messageCount: () => visibleResponseCount(adapter.getAssistantCandidates())
+          })
+        )
+      });
+      return true;
+    }
     if (message.type === 'ROVER_NEW_CHAT') {
       void (async () => {
         const adapter = findAdapter();
         if (!adapter?.startNewConversation)
           throw new Error('New conversations are not supported on this page');
+        const navigationUrl = adapter.getNewConversationUrl?.();
+        if (navigationUrl) {
+          sendResponse({ ok: true, navigationUrl });
+          return;
+        }
         await adapter.startNewConversation();
         sendResponse({ ok: true });
       })().catch((error) =>

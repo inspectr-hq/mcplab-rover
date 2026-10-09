@@ -1,3 +1,7 @@
+import {
+  isNewConversationConfirmed,
+  newConversationCapability
+} from '../providers/new-conversation-evidence';
 import type {
   BrowserProviderDiscoveryDraft,
   BrowserProviderDiscoveryProgress,
@@ -64,8 +68,7 @@ const queueAdd = document.querySelector<HTMLButtonElement>('#queue-add')!;
 const queueNewChat = document.querySelector<HTMLInputElement>('#queue-new-chat')!;
 const queueItems = document.querySelector<HTMLElement>('#queue-items')!;
 const queueStatus = document.querySelector<HTMLParagraphElement>('#queue-status')!;
-const queueTakeoverNotice =
-  document.querySelector<HTMLParagraphElement>('#queue-takeover-notice')!;
+const queueTakeoverNotice = document.querySelector<HTMLParagraphElement>('#queue-takeover-notice')!;
 const queueStart = document.querySelector<HTMLButtonElement>('#queue-start')!;
 const queueRetry = document.querySelector<HTMLButtonElement>('#queue-retry')!;
 const queueSkip = document.querySelector<HTMLButtonElement>('#queue-skip')!;
@@ -318,6 +321,7 @@ learnPropose.addEventListener(
           profile: response.proposal.profile,
           readyToSave: replay.passed,
           validationReasons: replay.reasons,
+          validationIssues: replay.issues ?? [],
           proposalDiagnostics: {
             rationale: response.proposal.rationale ?? [],
             warnings: response.proposal.warnings ?? []
@@ -326,7 +330,7 @@ learnPropose.addEventListener(
         reviewedDraft = discoveryDraft;
         await chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: discoveryDraft });
         if (discoveryDraft !== reviewedDraft || !draftMatchesActivePage(reviewedDraft)) return;
-        renderLearnCapabilities(discoveryDraft.capabilities);
+        renderLearnCapabilities(discoveryDraft);
         renderLearnProposal(discoveryDraft);
         renderLearnValidation(discoveryDraft);
         const rationale = Array.isArray(response.proposal.rationale)
@@ -360,7 +364,7 @@ learnSaveWithoutNewChat.addEventListener(
   () =>
     void runButtonAction(learnSaveWithoutNewChat, async () => {
       const draft = discoveryDraft;
-      if (!draft || !canOmitUnconfirmedNewChat(draft) || !draftMatchesActivePage(draft)) return;
+      if (!draft || !canOmitNewChatSupport(draft) || !draftMatchesActivePage(draft)) return;
       if (!learnName.value.trim()) {
         setLearnSaveStatus('Enter a provider name first.');
         return;
@@ -391,7 +395,8 @@ learnSaveWithoutNewChat.addEventListener(
           ...draft,
           profile,
           readyToSave: true,
-          validationReasons: []
+          validationReasons: [],
+          validationIssues: []
         };
         discoveryDraft = validatedDraft;
         reviewedDraft = validatedDraft;
@@ -415,12 +420,16 @@ function setLearnSaveStatus(message: string): void {
   learnSaveStatus.hidden = false;
 }
 
-function canOmitUnconfirmedNewChat(draft: BrowserProviderDiscoveryDraft): boolean {
+function canOmitNewChatSupport(draft: BrowserProviderDiscoveryDraft): boolean {
   return (
-    draft.readyToSave !== true &&
-    draft.profile.newConversation?.action === 'click' &&
-    draft.profile.newConversation.confirmation === 'context-change' &&
-    !draft.trace?.newConversationEvidence
+    draft.readyToSave === true &&
+    Boolean(draft.profile.newConversation) &&
+    (draft.validationIssues ?? []).some(
+      (issue) =>
+        issue.code === 'new-chat-unconfirmed' ||
+        issue.code === 'new-chat-control-mismatch' ||
+        issue.code === 'new-chat-navigation-mismatch'
+    )
   );
 }
 
@@ -832,7 +841,7 @@ async function restoreLearningDraft(): Promise<void> {
     if (draftMatchesActivePage(discoveryDraft)) {
       learnName.hidden = false;
       learnPropose.hidden = !discoveryDraft.trace;
-      renderLearnCapabilities(discoveryDraft.capabilities);
+      renderLearnCapabilities(discoveryDraft);
       renderLearnProposal(discoveryDraft);
       renderLearnValidation(discoveryDraft);
     }
@@ -842,8 +851,7 @@ async function restoreLearningDraft(): Promise<void> {
   const stored = await chrome.storage.local.get([DISCOVERY_DRAFT_KEY, LEGACY_LEARNING_DRAFT_KEY]);
   if (learnStart.disabled || discoveryDraft || activeTabUrl !== pageUrl) return;
   const draft = (stored[DISCOVERY_DRAFT_KEY] ?? stored[LEGACY_LEARNING_DRAFT_KEY]) as
-    | BrowserProviderDiscoveryDraft
-    | undefined;
+    BrowserProviderDiscoveryDraft | undefined;
   if (!draft || !draftMatchesActivePage(draft)) return;
   let restoredDraft = draft;
   if (draft.trace) {
@@ -853,8 +861,7 @@ async function restoreLearningDraft(): Promise<void> {
         profile: draft.profile,
         trace: draft.trace
       })) as
-        | { ok?: boolean; validation?: { passed: boolean; reasons: string[] } }
-        | undefined;
+        { ok?: boolean; validation?: import('../contracts').DiscoveryReplayResult } | undefined;
       if (
         discoveryDraft ||
         learnStart.disabled ||
@@ -866,7 +873,8 @@ async function restoreLearningDraft(): Promise<void> {
         restoredDraft = {
           ...draft,
           readyToSave: response.validation.passed,
-          validationReasons: response.validation.reasons
+          validationReasons: response.validation.reasons,
+          validationIssues: response.validation.issues ?? []
         };
         await chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: restoredDraft });
       }
@@ -876,7 +884,7 @@ async function restoreLearningDraft(): Promise<void> {
   }
   discoveryDraft = restoredDraft;
   learnName.value = restoredDraft.targetProviderId
-    ? restoredDraft.targetProviderName ?? restoredDraft.profile.name
+    ? (restoredDraft.targetProviderName ?? restoredDraft.profile.name)
     : suggestedProviderName(restoredDraft.profile);
   learnName.hidden = false;
   learnCapture.hidden = true;
@@ -887,7 +895,7 @@ async function restoreLearningDraft(): Promise<void> {
       restoredDraft.readyToSave === true
         ? 'A saved learning draft is ready to review.'
         : 'This learning draft did not pass lifecycle validation. Capture a new active response.';
-  renderLearnCapabilities(restoredDraft.capabilities);
+  renderLearnCapabilities(restoredDraft);
   renderLearnProposal(restoredDraft);
   renderLearnValidation(restoredDraft);
 }
@@ -1430,9 +1438,16 @@ function confidenceState(confidence: 'high' | 'medium' | 'low'): 'pass' | 'unkno
   return confidence === 'high' ? 'pass' : 'unknown';
 }
 
-function renderLearnCapabilities(
-  capabilities: BrowserProviderDiscoveryDraft['capabilities']
-): void {
+function renderLearnCapabilities(draft: BrowserProviderDiscoveryDraft): void {
+  const capabilities = draft.capabilities.map((capability) =>
+    capability.id === 'newConversation' ? newConversationCapability(draft) : capability
+  );
+  if (
+    draft.profile.newConversation &&
+    !capabilities.some((capability) => capability.id === 'newConversation')
+  ) {
+    capabilities.push(newConversationCapability(draft));
+  }
   learnEvidenceSection.hidden = false;
   renderLearningGuide();
   learnProgress.hidden = true;
@@ -1440,7 +1455,10 @@ function renderLearnCapabilities(
     learnCapabilities,
     capabilities.map((capability) => ({
       label: capability.label,
-      state: confidenceState(capability.confidence),
+      state:
+        capability.id === 'newConversation' && isNewConversationConfirmed(draft)
+          ? 'pass'
+          : confidenceState(capability.confidence),
       detail: `${capability.detail} Confidence: ${capability.confidence}.`
     }))
   );
@@ -1468,17 +1486,14 @@ function renderLearnProposal(draft: BrowserProviderDiscoveryDraft): void {
             detail: 'No New Chat control will be saved in this profile.'
           };
         }
-        if (
-          draft.profile.newConversation?.confirmation === 'context-change' &&
-          !draft.trace?.newConversationEvidence
-        ) {
+        if (draft.profile.newConversation && !isNewConversationConfirmed(draft)) {
           return {
             label:
               previous === entry.value
                 ? 'New conversation, kept but unconfirmed'
                 : 'New conversation, changed but unconfirmed',
             state: 'unknown' as const,
-            detail: `${entry.value}. The selector is configured, but Rover has not observed it start a new conversation.`
+            detail: `${entry.value}. The action is configured, but Rover has not observed it start a new conversation.`
           };
         }
       }
@@ -1509,19 +1524,12 @@ function renderLearnValidation(draft: BrowserProviderDiscoveryDraft): void {
   learnValidationSection.dataset.state = draft.readyToSave ? 'pass' : 'fail';
   const reasons = draft.validationReasons ?? [];
   learnSave.hidden = false;
-  learnSaveWithoutNewChat.hidden = !canOmitUnconfirmedNewChat(draft);
+  learnSaveWithoutNewChat.hidden = !canOmitNewChatSupport(draft);
   learnSave.disabled = draft.readyToSave !== true;
   learnSaveStatus.hidden = !learnSave.disabled;
   learnSaveStatus.textContent = learnSave.disabled
     ? `Cannot save yet: ${reasons.join(' ') || 'The provider must pass lifecycle validation.'}`
     : '';
-  if (
-    learnSave.disabled &&
-    draft.profile.newConversation?.confirmation === 'context-change' &&
-    !draft.trace?.newConversationEvidence
-  ) {
-    learnSaveStatus.textContent += ' Open a new conversation on the provider page to confirm it, or save without New Chat support. Evaluations without this support continue in the current conversation.';
-  }
   renderIndicatorList(learnValidation, [
     {
       label: 'Save readiness',
@@ -1530,11 +1538,17 @@ function renderLearnValidation(draft: BrowserProviderDiscoveryDraft): void {
         ? 'All required lifecycle checks passed.'
         : 'Provider cannot be saved until the failed checks are resolved.'
     },
-    ...reasons.map((reason) => ({
-      label: 'Validation issue',
-      state: 'fail' as const,
-      detail: reason
-    }))
+    ...(draft.validationIssues?.length
+      ? draft.validationIssues.map((issue) => ({
+          label: issue.blocking ? 'Validation issue' : 'Optional capability warning',
+          state: issue.blocking ? ('fail' as const) : ('unknown' as const),
+          detail: issue.message
+        }))
+      : reasons.map((reason) => ({
+          label: 'Validation issue',
+          state: 'fail' as const,
+          detail: reason
+        })))
   ]);
   learnValidation.hidden = false;
   learnValidationSection.hidden = false;
@@ -1543,12 +1557,8 @@ function renderLearnValidation(draft: BrowserProviderDiscoveryDraft): void {
 function renderLearningGuide(progress?: BrowserProviderDiscoveryProgress): void {
   if (progress) learningProgress = progress;
   const captured = Boolean(discoveryDraft && draftMatchesActivePage(discoveryDraft));
-  const hasNewConversationCandidate = Boolean(
-    captured && discoveryDraft?.profile.newConversation
-  );
-  const newConversationConfirmed = Boolean(
-    hasNewConversationCandidate && discoveryDraft?.trace?.newConversationEvidence
-  );
+  const hasNewConversationCandidate = Boolean(captured && discoveryDraft?.profile.newConversation);
+  const newConversationConfirmed = captured && isNewConversationConfirmed(discoveryDraft);
   const newConversationClickPending = Boolean(
     hasNewConversationCandidate && learningProgress?.newConversationClicked
   );
@@ -1562,8 +1572,14 @@ function renderLearningGuide(progress?: BrowserProviderDiscoveryProgress): void 
   ];
   if (hasNewConversationCandidate) {
     instructions.push([
-      'Start a new chat',
-      'Click the chat’s New Chat control and leave the page open while Rover confirms the conversation changed.'
+      'Start a new chat (optional)',
+      discoveryDraft?.profile.newConversation?.action === 'navigate'
+        ? discoveryDraft.readyToSave
+          ? 'This action opens another page. You can save it unconfirmed; Rover checks the new page when using it.'
+          : 'This optional action opens another page. Rover checks it when used. Resolve the required validation issues before saving.'
+        : discoveryDraft?.readyToSave
+          ? 'You can save now. To raise confidence in New Chat, click its control and leave the page open while Rover checks for an empty conversation.'
+          : 'This step is optional. Click New Chat to raise confidence in this capability. Resolve the required validation issues before saving.'
     ]);
   }
   const currentStep = captured
@@ -1585,9 +1601,9 @@ function renderLearningGuide(progress?: BrowserProviderDiscoveryProgress): void 
     ? 'New Chat confirmed'
     : newConversationClickPending
       ? 'Checking new chat…'
-    : captured && !hasNewConversationCandidate
-      ? 'Response captured'
-      : `Step ${Math.min(currentStep + 1, instructions.length)} of ${instructions.length}`;
+      : captured && !hasNewConversationCandidate
+        ? 'Response captured'
+        : `Step ${Math.min(currentStep + 1, instructions.length)} of ${instructions.length}`;
   heading.append(title, count);
   const steps = document.createElement('ol');
   steps.className = 'learning-steps';
@@ -1616,14 +1632,16 @@ function renderLearningGuide(progress?: BrowserProviderDiscoveryProgress): void 
         : state === 'current' && newConversationClickPending
           ? 'Checking'
           : state === 'current'
-            ? 'Next'
+            ? index === 3
+              ? 'Optional'
+              : 'Next'
             : 'Waiting';
     copy.append(name, status);
     if (state === 'current') {
       const instruction = document.createElement('p');
       instruction.textContent =
         newConversationClickPending && index === 3
-          ? 'Rover detected the click. Waiting to confirm the old response disappeared or the page changed.'
+          ? 'Rover detected the click. Checking that the previous responses are gone and the message input is empty.'
           : detail;
       copy.append(instruction);
     }
@@ -1710,7 +1728,7 @@ chrome.runtime.onMessage.addListener(
         ...event.draft,
         targetProviderId:
           event.draft.targetProviderId ??
-          (matchesPage ? selectedLearnTargetId ?? activeProvider : undefined),
+          (matchesPage ? (selectedLearnTargetId ?? activeProvider) : undefined),
         targetProviderName:
           event.draft.targetProviderName ??
           learnTargets.find(
@@ -1722,7 +1740,7 @@ chrome.runtime.onMessage.addListener(
         sourceUrl: event.draft.sourceUrl ?? activeTabUrl
       };
       learnName.value = discoveryDraft.targetProviderId
-        ? discoveryDraft.targetProviderName ?? discoveryDraft.profile.name
+        ? (discoveryDraft.targetProviderName ?? discoveryDraft.profile.name)
         : suggestedProviderName(discoveryDraft.profile);
       void chrome.storage.local.set({ [DISCOVERY_DRAFT_KEY]: discoveryDraft });
       learnStart.textContent = 'Stop learning';
@@ -1740,7 +1758,7 @@ chrome.runtime.onMessage.addListener(
       });
       learnName.hidden = false;
       learnPropose.hidden = !discoveryDraft.trace;
-      renderLearnCapabilities(discoveryDraft.capabilities);
+      renderLearnCapabilities(discoveryDraft);
       renderLearnProposal(discoveryDraft);
       renderLearnValidation(discoveryDraft);
     }

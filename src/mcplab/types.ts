@@ -26,7 +26,7 @@ export interface BrowserProviderProfile {
     locator?: ShadowLocator;
     locators?: ShadowLocator[];
     url?: string;
-    /** New profiles require meaningful context evidence after a click. Absent on saved legacy profiles. */
+    /** New profiles verify conversation state after a click or navigation. Absent on saved legacy profiles. */
     confirmation?: 'context-change';
   };
   learned: {

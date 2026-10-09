@@ -14,6 +14,19 @@ import {
 import { replayProviderProfile } from './discovery-replay';
 import { controlLabel, isGenerationControlLabel } from './control-labels';
 import { stableTurnIdentity } from './turn-identity';
+import { composerValue, isVisible } from './dom';
+import { queryShadowLocator } from './shadow-locator';
+import {
+  NEW_CONVERSATION_WINDOW_MS,
+  NEW_CONVERSATION_STABILITY_MS,
+  newConversationCapability
+} from './new-conversation-evidence';
+import {
+  NEW_CONVERSATION_CANDIDATES,
+  newConversationLabelSource,
+  newConversationTargetUrl,
+  resolveNewConversationControl
+} from './new-conversation-control';
 
 const DISCOVERY_LOG = '[MCPLab Rover][provider-discovery]';
 const COMPLETION_STABILITY_MS = 2500;
@@ -119,37 +132,59 @@ function allElements(selectorText: string): HTMLElement[] {
   );
 }
 
-function visibleMatchCount(selectorText: string | undefined): number {
-  return selectorText ? allElements(selectorText).filter(visible).length : 0;
-}
-
-function isNewConversationControl(element: HTMLElement): boolean {
-  const label =
-    `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.getAttribute('data-test') ?? ''} ${element.getAttribute('data-testid') ?? ''} ${element.getAttribute('trackingtest') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
-  return /new[\s_-]*(chat|conversation)|new[\s_-]*thread|start[\s_-]*(a[\s_-]*)?new/.test(
-    label
-  );
-}
-
 function findNewConversationControls(): HTMLElement[] {
-  return allElements(
-    'button,[role="button"],a,[tabindex]:not([tabindex="-1"]),[aria-label],[title],[data-test],[data-testid],[trackingtest]'
-  ).filter((element) => {
-    if (!visible(element) || (element instanceof HTMLButtonElement && element.disabled))
-      return false;
-    // Prefer the actionable descendant over a custom-element wrapper such as
-    // <tm-icon-button data-test="...">. Clicking the wrapper can be a no-op.
-    if (
-      !(
-        element instanceof HTMLButtonElement ||
-        element instanceof HTMLAnchorElement ||
-        element.getAttribute('role') === 'button'
-      ) &&
-      element.querySelector('button,a,[role="button"]')
+  return [
+    ...new Set(
+      allElements(NEW_CONVERSATION_CANDIDATES)
+        .map(resolveNewConversationControl)
+        .filter((element): element is HTMLElement => Boolean(element))
     )
-      return false;
-    return isNewConversationControl(element);
-  });
+  ];
+}
+
+function clickedNewConversationControl(
+  path: EventTarget[],
+  controls: HTMLElement[]
+): HTMLElement | undefined {
+  for (const target of path) {
+    if (!(target instanceof HTMLElement)) continue;
+    const resolved = resolveNewConversationControl(target);
+    if (resolved && controls.includes(resolved)) return resolved;
+  }
+  return undefined;
+}
+
+function uniqueControlSelector(element: HTMLElement): string {
+  const root = element.getRootNode() as Document | ShadowRoot;
+  const source = newConversationLabelSource(element);
+  const scopeToSource = source !== element && source.getRootNode() === root;
+  const chain: string[] = [];
+  for (let current: HTMLElement | null = element; current; current = current.parentElement) {
+    if (!scopeToSource || current === source || current.contains(source)) {
+      const unique = selectorCandidates(current).find((candidate) => {
+        const matches = root.querySelectorAll(candidate);
+        return matches.length === 1 && matches[0] === current;
+      });
+      if (unique) return [unique, ...chain].join(' > ');
+    }
+    const siblings = Array.from(current.parentElement?.children ?? root.children);
+    const sameTag = siblings.filter((sibling) => sibling.tagName === current!.tagName);
+    const segment = current.tagName.toLowerCase();
+    chain.unshift(
+      sameTag.length > 1 ? `${segment}:nth-of-type(${sameTag.indexOf(current) + 1})` : segment
+    );
+  }
+  return chain.join(' > ');
+}
+
+function newConversationLocator(element: HTMLElement): ShadowLocator {
+  const segments = [uniqueControlSelector(element)];
+  let root = element.getRootNode();
+  while (root instanceof ShadowRoot) {
+    segments.unshift(uniqueControlSelector(root.host as HTMLElement));
+    root = root.host.getRootNode();
+  }
+  return { segments };
 }
 
 function descriptor(element: HTMLElement, baselineTexts: Set<string>): ChatCandidateDescriptor {
@@ -240,7 +275,7 @@ function validateLocator(value: ShadowLocator): {
   visible: boolean;
 } {
   try {
-    const matches = allElements(value.segments.at(-1) ?? '');
+    const matches = queryShadowLocator(value);
     return {
       valid: value.segments.length > 0,
       matchCount: matches.length,
@@ -317,9 +352,14 @@ export function startProviderDiscovery(
   let lastDraftSignature = '';
   let lastDraft: BrowserProviderDiscoveryDraft | null = null;
   let pendingNewConversation: {
-    control: HTMLElement;
+    controlLocator: ShadowLocator;
+    controlSelectors: string[];
+    destinationUrl?: string;
     beforeUrl: string;
     beforeAssistantCount: number;
+    beforeAssistant: HTMLElement[];
+    expiresAt: number;
+    emptySince: number | null;
   } | null = null;
   let stopped = false;
   let observedGeneration = false;
@@ -348,7 +388,11 @@ export function startProviderDiscovery(
       generatingObserved: observedGeneration,
       idleObserved: observedIdle,
       ...(lastDraft?.profile.newConversation
-        ? { newConversationClicked: Boolean(pendingNewConversation) }
+        ? {
+            newConversationClicked: Boolean(
+              pendingNewConversation && !pendingNewConversation.destinationUrl
+            )
+          }
         : {})
     };
     const signature = JSON.stringify(progress);
@@ -512,52 +556,89 @@ export function startProviderDiscovery(
   record('baseline', 0, 0, controlState());
   discoveryLog('started', { origin, href: location.href, baselineTextCount: baselineTexts.size });
   const scan = () => {
+    if (stopped) return;
     if (pendingNewConversation && lastDraft) {
       const pending = pendingNewConversation;
-      const assistantSelector = lastDraft.profile.assistantMessages.locator.segments.at(-1);
-      const assistantCount = visibleMatchCount(assistantSelector);
-      const signal =
-        location.href !== pending.beforeUrl
-          ? 'url-changed'
-          : assistantCount < pending.beforeAssistantCount
-            ? 'assistant-count-reduced'
-            : null;
-      if (signal) {
-        discoveryLog('new conversation transition observed', {
-          signal,
-          beforeAssistantCount: pending.beforeAssistantCount,
-          afterAssistantCount: assistantCount
-        });
-        const updatedTrace: BrowserProviderDiscoveryTrace = {
-          ...trace,
-          newConversationEvidence: {
-            controlLocator: locator(pending.control),
-            controlSelectors: selectorCandidates(pending.control),
+      if (Date.now() >= pending.expiresAt) {
+        pendingNewConversation = null;
+        reportProgress();
+      } else {
+        const assistantCount = queryShadowLocator(
+          lastDraft.profile.assistantMessages.locator
+        ).filter(isVisible).length;
+        const currentComposer = queryShadowLocator(lastDraft.profile.composer.locator).find(
+          isVisible
+        );
+        const previousResponseGone =
+          pending.beforeAssistantCount > 0 &&
+          assistantCount === 0 &&
+          pending.beforeAssistant.every((element) => !element.isConnected || !isVisible(element));
+        const emptyComposer = currentComposer && !composerValue(currentComposer).trim();
+        if (!previousResponseGone || !emptyComposer) pending.emptySince = null;
+        else pending.emptySince ??= Date.now();
+        if (
+          pending.emptySince !== null &&
+          Date.now() - pending.emptySince >= NEW_CONVERSATION_STABILITY_MS
+        ) {
+          const currentUrl = new URL(location.href);
+          currentUrl.hash = '';
+          const beforeUrl = new URL(pending.beforeUrl);
+          beforeUrl.hash = '';
+          const signal =
+            currentUrl.href !== beforeUrl.href ? 'url-changed' : 'assistant-count-reduced';
+          discoveryLog('new conversation transition observed', {
             signal,
             beforeAssistantCount: pending.beforeAssistantCount,
             afterAssistantCount: assistantCount
-          }
-        };
-        const replay = replayProviderProfile(lastDraft.profile, updatedTrace);
-        lastDraftReady = replay.passed;
-        lastDraft = {
-          ...lastDraft,
-          trace: updatedTrace,
-          readyToSave: replay.passed,
-          validationReasons: replay.reasons,
-          capabilities: lastDraft.capabilities.map((capability) =>
-            capability.id === 'newConversation'
-              ? {
-                  ...capability,
-                  confidence: 'medium',
-                  detail: `New Chat was followed by ${signal === 'url-changed' ? 'a URL change' : 'the previous response disappearing'}. The UI did not expose a conversation identity.`
-                }
-              : capability
-          )
-        };
-        pendingNewConversation = null;
-        onDraft(lastDraft);
-        reportProgress();
+          });
+          const updatedTrace: BrowserProviderDiscoveryTrace = {
+            ...trace,
+            newConversationEvidence: {
+              controlLocator: pending.controlLocator,
+              controlSelectors: pending.controlSelectors,
+              signal,
+              beforeAssistantCount: pending.beforeAssistantCount,
+              afterAssistantCount: assistantCount,
+              composerEmpty: true,
+              emptyChatStableMs: Date.now() - pending.emptySince,
+              elapsedMs: Date.now() - (pending.expiresAt - NEW_CONVERSATION_WINDOW_MS),
+              ...(pending.destinationUrl ? { destinationUrl: location.href } : {})
+            }
+          };
+          // Save exactly the control whose click was observed, rather than the first label match.
+          const profile: BrowserProviderProfile = {
+            ...lastDraft.profile,
+            newConversation: {
+              action: pending.destinationUrl ? 'navigate' : 'click',
+              ...(pending.destinationUrl ? { url: pending.destinationUrl } : {}),
+              locator: pending.controlLocator,
+              locators: [pending.controlLocator],
+              confirmation: 'context-change'
+            }
+          };
+          const replay = replayProviderProfile(profile, updatedTrace);
+          lastDraftReady = replay.passed;
+          lastDraft = {
+            ...lastDraft,
+            profile,
+            trace: updatedTrace,
+            readyToSave: replay.passed,
+            validationReasons: replay.reasons,
+            validationIssues: replay.issues,
+            capabilities: lastDraft.capabilities.map((capability) =>
+              capability.id === 'newConversation'
+                ? newConversationCapability({
+                    profile,
+                    trace: updatedTrace,
+                    validationIssues: replay.issues
+                  })
+                : capability
+            )
+          };
+          pendingNewConversation = null;
+          onDraft(lastDraft);
+          reportProgress();
+        }
       }
     }
     if (stopped || lastDraftReady || !submittedAt) return;
@@ -729,11 +810,7 @@ export function startProviderDiscovery(
   const onClick = (event: MouseEvent) => {
     const path = event.composedPath();
     const newConversationControls = findNewConversationControls();
-    const newConversationControl = path.find(
-      (target): target is HTMLElement =>
-        target instanceof HTMLElement &&
-        (newConversationControls.includes(target) || isNewConversationControl(target))
-    );
+    const newConversationControl = clickedNewConversationControl(path, newConversationControls);
     if (lastDraft?.profile.newConversation) {
       discoveryLog('click checked for new conversation', {
         matched: Boolean(newConversationControl),
@@ -750,11 +827,19 @@ export function startProviderDiscovery(
       });
     }
     if (lastDraft && newConversationControl) {
-      const assistantSelector = lastDraft.profile.assistantMessages.locator.segments.at(-1);
+      const controlLocator = newConversationLocator(newConversationControl);
+      const beforeAssistant = queryShadowLocator(
+        lastDraft.profile.assistantMessages.locator
+      ).filter(isVisible);
       pendingNewConversation = {
-        control: newConversationControl,
+        controlLocator,
+        controlSelectors: [controlLocator.segments.at(-1)!],
+        destinationUrl: newConversationTargetUrl(newConversationControl),
         beforeUrl: location.href,
-        beforeAssistantCount: visibleMatchCount(assistantSelector)
+        beforeAssistantCount: beforeAssistant.length,
+        beforeAssistant,
+        expiresAt: Date.now() + NEW_CONVERSATION_WINDOW_MS,
+        emptySince: null
       };
       discoveryLog('new conversation control clicked', {
         tag: newConversationControl.tagName,
@@ -766,6 +851,11 @@ export function startProviderDiscovery(
       });
       reportProgress();
       return;
+    }
+    // A subsequent interaction cannot confirm the earlier New Chat click.
+    if (pendingNewConversation) {
+      pendingNewConversation = null;
+      reportProgress();
     }
     const target = path.find((entry): entry is HTMLElement => entry instanceof HTMLElement);
     const control = target?.closest('button,[role="button"]') as HTMLElement | null;
@@ -822,14 +912,17 @@ export function startProviderDiscovery(
     const newConversation = findNewConversationControls();
     const newConversationProfile =
       newConversation.length > 0
-        ? newConversation[0] instanceof HTMLAnchorElement && newConversation[0].href
-          ? { action: 'navigate' as const, url: newConversation[0].href }
-          : {
-              action: 'click' as const,
-              locator: locator(newConversation[0]),
-              locators: newConversation.map((control) => locator(control)),
-              confirmation: 'context-change' as const
-            }
+        ? {
+            action: newConversationTargetUrl(newConversation[0])
+              ? ('navigate' as const)
+              : ('click' as const),
+            ...(newConversationTargetUrl(newConversation[0])
+              ? { url: newConversationTargetUrl(newConversation[0]) }
+              : {}),
+            locator: newConversationLocator(newConversation[0]),
+            locators: newConversation.map(newConversationLocator),
+            confirmation: 'context-change' as const
+          }
         : undefined;
     const profile: BrowserProviderProfile = {
       schemaVersion: 1,
@@ -893,6 +986,7 @@ export function startProviderDiscovery(
       profile,
       readyToSave: replay.passed,
       validationReasons: replay.reasons,
+      validationIssues: replay.issues,
       trace,
       capabilities: [
         {
@@ -927,15 +1021,7 @@ export function startProviderDiscovery(
                   ? 'Observed generation, but not the idle transition yet.'
                   : 'No generation or working transition observed; completion cannot be validated.'
         },
-        {
-          id: 'newConversation',
-          label: 'New conversation',
-          confidence: 'low',
-          detail:
-            newConversation.length > 0
-              ? `Found ${newConversation.length} possible new chat control${newConversation.length === 1 ? '' : 's'}; opening a new conversation was not yet confirmed.`
-              : 'Not available for this provider.'
-        }
+        newConversationCapability({ profile, trace, validationIssues: replay.issues })
       ]
     };
     lastDraft = draft;
@@ -963,6 +1049,7 @@ export function startProviderDiscovery(
     });
   const stop = () => {
     stopped = true;
+    pendingNewConversation = null;
     observer.disconnect();
     window.clearInterval(poller);
     document.removeEventListener('focusin', onFocus, true);

@@ -242,12 +242,12 @@ describe('provider discovery recovery', { timeout: 10_000 }, () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     send.setAttribute('aria-label', 'Send');
     await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 3_500 });
-    expect(drafts.at(-1)?.readyToSave).toBe(false);
+    expect(drafts.at(-1)?.readyToSave).toBe(true);
     const newChat = document.querySelector('button[aria-label="New chat"]')!;
     newChat.addEventListener('click', () => response.remove());
     newChat.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await vi.waitFor(() => expect(drafts.at(-1)?.trace.newConversationEvidence).toBeDefined(), {
-      timeout: 1_000
+      timeout: 1_500
     });
     expect(drafts.at(-1)?.readyToSave).toBe(true);
     session.stop();
@@ -274,7 +274,7 @@ describe('provider discovery recovery', { timeout: 10_000 }, () => {
       height: 10
     } as DOMRect);
     document.body.innerHTML =
-      '<textarea></textarea><button aria-label="Send">Send</button><button title="New chat"></button>';
+      '<textarea></textarea><button aria-label="Send">Send</button><tm-icon-button data-test="ai-agent_chat_new-chat"><button title="New chat"></button></tm-icon-button>';
     const drafts: any[] = [];
     const session = startProviderDiscovery((draft) => drafts.push(draft));
     document.querySelector('textarea')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
@@ -295,11 +295,16 @@ describe('provider discovery recovery', { timeout: 10_000 }, () => {
     expect(drafts.at(-1).profile.newConversation.locator.segments.at(-1)).toBe(
       '[title="New chat"]'
     );
-    expect(drafts.at(-1).readyToSave).toBe(false);
-    const newChat = document.querySelector('[title="New chat"]')!;
-    newChat.addEventListener('click', () => response.remove());
-    newChat.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 1_000 });
+    expect(drafts.at(-1).readyToSave).toBe(true);
+    const newChatHost = document.querySelector('tm-icon-button')!;
+    newChatHost.addEventListener('click', () => response.remove());
+    newChatHost.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await vi.waitFor(() => expect(drafts.at(-1)?.trace.newConversationEvidence).toBeDefined(), {
+      timeout: 1_500
+    });
+    expect(drafts.at(-1).trace.newConversationEvidence.controlLocator.segments).toEqual([
+      '[title="New chat"]'
+    ]);
     session.stop();
   });
 
@@ -1169,5 +1174,265 @@ describe('provider discovery recovery', { timeout: 10_000 }, () => {
     expect(drafts).toHaveLength(1);
     expect(session.capture()).toBe(false);
     expect(drafts).toHaveLength(1);
+  });
+});
+
+describe('optional New Chat evidence', () => {
+  let session: ReturnType<typeof startProviderDiscovery>;
+  afterEach(() => {
+    session?.stop();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    document.body.replaceChildren();
+    history.replaceState(null, '', '/');
+  });
+
+  async function learn(
+    controlMarkup = '<button title="New chat">New chat</button>',
+    shadow = false
+  ) {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis, 'CSS', {
+      value: { escape: (value: string) => value },
+      configurable: true
+    });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
+    document.body.innerHTML =
+      '<textarea></textarea><button aria-label="Send">Send</button>' + controlMarkup;
+    const root = shadow
+      ? document.body
+          .appendChild(document.createElement('chat-host'))
+          .attachShadow({ mode: 'open' })
+      : document.body;
+    const drafts: any[] = [];
+    const progress: any[] = [];
+    session = startProviderDiscovery(
+      (draft) => drafts.push(draft),
+      (update) => progress.push(update)
+    );
+    const composer = document.querySelector('textarea')!;
+    composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    const send = document.querySelector<HTMLButtonElement>('[aria-label="Send"]')!;
+    send.click();
+    send.setAttribute('aria-label', 'Stop generating');
+    const response = document.createElement('div');
+    response.setAttribute('data-message-author-role', 'assistant');
+    response.textContent = 'A completed response';
+    Object.defineProperty(response, 'innerText', { get: () => response.textContent });
+    root.append(response);
+    await vi.advanceTimersByTimeAsync(500);
+    send.setAttribute('aria-label', 'Send');
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(drafts.at(-1)?.readyToSave).toBe(true);
+    return {
+      drafts,
+      progress,
+      composer,
+      response,
+      root,
+      control: document.querySelector<HTMLElement>('[title="New chat"]')!
+    };
+  }
+
+  it('does not learn conversation titles or answer prose as New Chat controls', async () => {
+    const { drafts } = await learn(
+      '<a href="/c/old" tabindex="0">New chat</a><div tabindex="0">You can start a new conversation here</div><div title="New chat"><span>Sidebar title</span></div>'
+    );
+    expect(drafts.at(-1).profile.newConversation).toBeUndefined();
+  });
+
+  it('uses the same actionable descendant for capture and wrapper clicks', async () => {
+    const { drafts, response, composer, root } = await learn(
+      '<tm-icon-button data-test="ai-agent_chat_new-chat"><button>+</button></tm-icon-button>'
+    );
+    const wrapper = document.querySelector<HTMLElement>('tm-icon-button')!;
+    wrapper.click();
+    response.remove();
+    await vi.advanceTimersByTimeAsync(1000);
+    const saved = drafts.at(-1);
+    expect(saved.trace.newConversationEvidence).toBeDefined();
+    expect(saved.profile.newConversation.locator).toEqual(
+      saved.trace.newConversationEvidence.controlLocator
+    );
+    expect(saved.profile.newConversation.locator.segments.at(-1)).toBe(
+      '[data-test="ai-agent_chat_new-chat"] > button'
+    );
+    expect(saved.validationIssues).toEqual([]);
+    root.append(response);
+    composer.value = 'A second draft';
+    wrapper.querySelector('button')!.addEventListener('click', () => {
+      response.remove();
+      composer.value = '';
+    });
+    await expect(
+      createMcplabAdapter(saved.profile).startNewConversation!()
+    ).resolves.toBeUndefined();
+  });
+
+  it.each(['new-chat-button', 'create-new-chat-button', 'sidebar_new_chat_btn', 'newChatButton'])(
+    'discovers and executes an icon-only New Chat control with metadata %s',
+    async (testId) => {
+      const { drafts, response, composer, root } = await learn(
+        `<button data-testid="${testId}">+</button>`
+      );
+      const control = document.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!;
+      expect(drafts.at(-1).profile.newConversation).toBeDefined();
+      control.click();
+      response.remove();
+      await vi.advanceTimersByTimeAsync(1000);
+      const saved = drafts.at(-1);
+      expect(saved.trace.newConversationEvidence).toBeDefined();
+      expect(saved.validationIssues).toEqual([]);
+      root.append(response);
+      composer.value = 'Another prompt';
+      control.addEventListener('click', () => {
+        response.remove();
+        composer.value = '';
+      });
+      await expect(
+        createMcplabAdapter(saved.profile).startNewConversation!()
+      ).resolves.toBeUndefined();
+    }
+  );
+
+  it('expires pending clicks before a later unrelated transition and resets progress', async () => {
+    const { drafts, progress, response, control } = await learn();
+    control.click();
+    await vi.advanceTimersByTimeAsync(5500);
+    expect(progress.at(-1).newConversationClicked).toBe(false);
+    response.remove();
+    history.replaceState(null, '', '/c/old');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(drafts.at(-1).trace.newConversationEvidence).toBeUndefined();
+  });
+
+  it.each([
+    'url-only',
+    'hash-only',
+    'nonempty-input',
+    'partial-removal',
+    'rerender',
+    'sidebar-click'
+  ])('does not confirm from %s', async (signal) => {
+    const { drafts, composer, response, root, control } = await learn();
+    const other = response.cloneNode(true);
+    if (signal === 'partial-removal') root.append(other);
+    control.click();
+    if (signal === 'sidebar-click') {
+      const sidebar = document.createElement('button');
+      sidebar.textContent = 'Old conversation';
+      document.body.append(sidebar);
+      sidebar.click();
+      response.remove();
+    }
+    if (signal === 'url-only') history.replaceState(null, '', '/c/old');
+    if (signal === 'hash-only') history.replaceState(null, '', '/#new');
+    if (signal === 'nonempty-input') composer.value = 'Unsent text';
+    if (signal === 'nonempty-input' || signal === 'partial-removal') response.remove();
+    if (signal === 'rerender') {
+      response.remove();
+      await vi.advanceTimersByTimeAsync(250);
+      root.append(response.cloneNode(true));
+    }
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(drafts.at(-1).trace.newConversationEvidence).toBeUndefined();
+  });
+
+  it('counts the full shadow locator and ignores unrelated matching elements', async () => {
+    const { drafts, response, control } = await learn(undefined, true);
+    const unrelated = response.cloneNode(true) as HTMLElement;
+    document.body.append(unrelated);
+    control.click();
+    unrelated.remove();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(drafts.at(-1).trace.newConversationEvidence).toBeUndefined();
+    response.remove();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(drafts.at(-1).trace.newConversationEvidence).toMatchObject({
+      beforeAssistantCount: 1,
+      afterAssistantCount: 0
+    });
+  });
+
+  it('confirms when visible responses become hidden while cached conversations remain in the DOM', async () => {
+    const { drafts, response, root, control } = await learn();
+    const cached = response.cloneNode(true) as HTMLElement;
+    cached.style.display = 'none';
+    root.append(cached);
+    control.click();
+    response.style.display = 'none';
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(response.isConnected).toBe(true);
+    expect(drafts.at(-1).trace.newConversationEvidence).toMatchObject({
+      beforeAssistantCount: 1,
+      afterAssistantCount: 0
+    });
+  });
+
+  it('does not confirm a click that starts with only hidden cached responses', async () => {
+    const { drafts, response, control } = await learn();
+    response.style.display = 'none';
+    control.click();
+    response.remove();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(drafts.at(-1).trace.newConversationEvidence).toBeUndefined();
+  });
+
+  it('keeps learning when an unrelated answer link has a malformed URL', async () => {
+    const { drafts } = await learn(
+      '<button title="New chat">New chat</button><a href="http://[broken">An unrelated answer link</a>'
+    );
+    expect(drafts.at(-1).readyToSave).toBe(true);
+    expect(drafts.at(-1).profile.newConversation.action).toBe('click');
+  });
+
+  it('learns a real New Chat link as navigation without requiring confirmation', async () => {
+    const { drafts } = await learn('<a title="New chat" href="/new">New chat</a>');
+    expect(drafts.at(-1).profile.newConversation).toMatchObject({
+      action: 'navigate',
+      url: new URL('/new', location.href).href
+    });
+    expect(drafts.at(-1).readyToSave).toBe(true);
+    expect(drafts.at(-1).validationIssues).toContainEqual(
+      expect.objectContaining({ code: 'new-chat-unconfirmed', blocking: false })
+    );
+  });
+
+  it('uniquely saves the clicked control when labels are identical', async () => {
+    const { drafts, response, root, composer } = await learn(
+      '<button title="New chat" id="first">New chat</button><button title="New chat" id="second">New chat</button>'
+    );
+    const first = document.querySelector<HTMLButtonElement>('#first')!;
+    const second = document.querySelector<HTMLButtonElement>('#second')!;
+    second.click();
+    response.remove();
+    await vi.advanceTimersByTimeAsync(1000);
+    const profile = drafts.at(-1).profile;
+    expect(profile.newConversation.locator.segments).toEqual(['[id="second"]']);
+    root.append(response);
+    composer.value = 'A second draft';
+    const firstClicked = vi.fn();
+    first.addEventListener('click', firstClicked);
+    second.addEventListener('click', () => {
+      response.remove();
+      composer.value = '';
+    });
+    await expect(createMcplabAdapter(profile).startNewConversation!()).resolves.toBeUndefined();
+    expect(firstClicked).not.toHaveBeenCalled();
+  });
+
+  it('saves the actually clicked candidate as the primary locator', async () => {
+    const { drafts, response } = await learn(
+      '<button title="New chat" id="first">New chat</button><button aria-label="New conversation" id="second">New conversation</button>'
+    );
+    document.querySelector<HTMLElement>('#second')!.click();
+    response.remove();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(drafts.at(-1).profile.newConversation.locator.segments).toEqual([
+      '[aria-label="New conversation"]'
+    ]);
   });
 });
