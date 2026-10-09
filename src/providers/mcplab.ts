@@ -6,7 +6,7 @@ import { controlLabel, isGenerationControlLabel } from './control-labels';
 import { stableTurnIdentity } from './turn-identity';
 import { queryShadowLocator } from './shadow-locator';
 import {
-  resolveNewConversationControl,
+  resolveNewConversationLocator,
   newConversationTargetUrl
 } from './new-conversation-control';
 import { observationFromCandidates } from '../runtime/provider-signals';
@@ -76,8 +76,7 @@ export function createMcplabAdapter(profile: BrowserProviderProfile): ChatProvid
     (findPath(profile.composer.locator)[0] as HTMLElement | undefined) ?? null;
   const findNewConversationControl = () =>
     newConversationLocators(profile)
-      .flatMap((locator) => findPath(locator, true) as HTMLElement[])
-      .map(resolveNewConversationControl)
+      .map(resolveNewConversationLocator)
       .find((element): element is HTMLElement => Boolean(element));
   const turnIdentity = (element: Element) => {
     const stable = stableTurnIdentity(element);

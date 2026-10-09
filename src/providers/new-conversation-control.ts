@@ -1,4 +1,6 @@
 import { isVisible } from './dom';
+import type { ShadowLocator } from '../mcplab/types';
+import { queryShadowLocator } from './shadow-locator';
 
 export const NEW_CONVERSATION_CANDIDATES =
   'button,[role="button"],a,[tabindex]:not([tabindex="-1"]),[aria-label],[title],[data-test],[data-testid],[trackingtest]';
@@ -31,12 +33,33 @@ function hasExplicitLabel(element: HTMLElement): boolean {
 function anonymousControl(element: HTMLElement): boolean {
   return (
     !['aria-label', 'title'].some((attribute) => element.getAttribute(attribute)?.trim()) &&
-    !/[\p{L}\p{N}]/u.test(element.textContent ?? '')
+    !/[\p{L}\p{N}]/u.test(labelText(element))
   );
+}
+
+/** Icon ligatures and decorative descendants are not a control's text label. */
+function labelText(node: Node): string {
+  if (
+    node instanceof Element &&
+    (node.matches('[aria-hidden="true"],svg') ||
+      Array.from(node.classList).some(
+        (name) =>
+          name === 'material-icons' ||
+          name.startsWith('material-icons-') ||
+          name.startsWith('material-symbols-')
+      ))
+  )
+    return '';
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+  return Array.from(node.childNodes).map(labelText).join(' ');
 }
 
 function actionable(element: HTMLElement): boolean {
   return element.matches('button,a,[role="button"]');
+}
+
+function standaloneControl(element: HTMLElement, childCount: number): boolean {
+  return childCount === 0 && (element.tagName.includes('-') || element.hasAttribute('tabindex'));
 }
 
 function enabled(element: HTMLElement): boolean {
@@ -60,10 +83,20 @@ function existingConversationLink(element: HTMLElement): boolean {
   }
 }
 
+/** A previously captured control may lose its tooltip label, but must still be usable and anonymous. */
+function isUnlabelledNewConversationControl(element: HTMLElement): boolean {
+  return (
+    enabled(element) &&
+    !existingConversationLink(element) &&
+    anonymousControl(element) &&
+    (actionable(element) || standaloneControl(element, descendants(element).length))
+  );
+}
+
 function labelled(element: HTMLElement): boolean {
   if (existingConversationLink(element)) return false;
   if (hasExplicitLabel(element)) return true;
-  const text = element.textContent?.trim() ?? '';
+  const text = labelText(element).trim();
   return actionable(element) && text.length <= 80 && newConversationLabel.test(normalized(text));
 }
 
@@ -96,10 +129,7 @@ export function resolveNewConversationControl(element: HTMLElement): HTMLElement
     if (labelledChildren.length > 1) return null;
     if (children.length === 1 && anonymousControl(children[0])) return children[0];
     // Only custom elements and explicit keyboard controls are actionable without children.
-    return allChildren.length === 0 &&
-      (element.tagName.includes('-') || element.hasAttribute('tabindex'))
-      ? element
-      : null;
+    return standaloneControl(element, allChildren.length) ? element : null;
   }
   if (!actionable(element)) return null;
   for (let parent = parentControl(element); parent; parent = parentControl(parent)) {
@@ -117,6 +147,18 @@ export function newConversationLabelSource(element: HTMLElement): HTMLElement {
       return parent;
   }
   return element;
+}
+
+/** Saved locators retain intent when a tooltip removes the current label. */
+export function resolveNewConversationLocator(locator: ShadowLocator): HTMLElement | null {
+  const matches = queryShadowLocator(locator);
+  const labelledControl = matches.map(resolveNewConversationControl).find(Boolean);
+  if (labelledControl) return labelledControl;
+  // An unscoped tag selector does not identify an anonymous New Chat action.
+  const bareTag = locator.segments.length === 1 && /^(?:[\w-]+|\*)$/.test(locator.segments[0]);
+  return !bareTag && matches.length === 1 && isUnlabelledNewConversationControl(matches[0])
+    ? matches[0]
+    : null;
 }
 
 export function newConversationTargetUrl(element: HTMLElement): string | undefined {

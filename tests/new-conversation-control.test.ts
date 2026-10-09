@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   resolveNewConversationControl,
+  resolveNewConversationLocator,
   newConversationTargetUrl
 } from '../src/providers/new-conversation-control';
 import { queryShadowLocator } from '../src/providers/shadow-locator';
@@ -72,6 +73,64 @@ it('resolves an anonymous shadow child through the labeled host', () => {
   expect(resolveNewConversationControl(shadow.querySelector('button')!)).toBe(
     shadow.querySelector('button')
   );
+});
+
+it.each([
+  '<button class="material-icons" title="" data-title="New chat">add</button>',
+  '<button><span class="material-icons">add</span></button>',
+  '<button><span class="material-symbols-outlined">add</span></button>',
+  '<button><span class="material-icons-round">add</span></button>',
+  '<button><span aria-hidden="true">add</span></button>',
+  '<button><svg><text>add</text></svg></button>'
+])('inherits the wrapper label when button content is decorative: %s', (markup) => {
+  document.body.innerHTML = `<tm-icon-button data-test="ai-agent_chat_new-chat">${markup}</tm-icon-button>`;
+  const host = document.querySelector<HTMLElement>('tm-icon-button')!;
+  const button = host.querySelector('button')!;
+  expect(resolveNewConversationControl(host)).toBe(button);
+  expect(resolveNewConversationControl(button)).toBe(button);
+});
+
+it.each([
+  '<button><span class="material-icons">more_vert</span>More options</button>',
+  '<button aria-label="More options"><span class="material-icons">more_vert</span></button>',
+  '<button><span class="not-material-symbols-outlined">More options</span></button>',
+  '<button>add</button>'
+])('keeps meaningful labels when decorative content is excluded: %s', (markup) => {
+  document.body.innerHTML = `<tm-icon-button data-test="ai-agent_chat_new-chat">${markup}</tm-icon-button>`;
+  expect(
+    resolveNewConversationControl(document.querySelector<HTMLElement>('tm-icon-button')!)
+  ).toBeNull();
+});
+
+it('ignores icon ligatures alongside a real New Chat text label', () => {
+  document.body.innerHTML = '<button><span class="material-icons">add</span>New chat</button>';
+  expect(resolveNewConversationControl(document.querySelector('button')!)).toBe(
+    document.querySelector('button')
+  );
+});
+
+it('does not resolve an anonymous action from an unscoped tag locator', () => {
+  document.body.innerHTML = '<button><span class="material-icons">send</span></button>';
+  expect(resolveNewConversationLocator({ segments: ['button'] })).toBeNull();
+});
+
+it.each([
+  '<button disabled data-testid="launch"><span aria-hidden="true">add</span></button>',
+  '<button data-testid="launch" aria-label="More options"><span aria-hidden="true">add</span></button>',
+  '<button data-testid="launch"><span aria-hidden="true">add</span></button><button data-testid="launch"><span aria-hidden="true">add</span></button>'
+])('rejects unusable or ambiguous anonymous saved targets: %s', (markup) => {
+  document.body.innerHTML = markup;
+  expect(resolveNewConversationLocator({ segments: ['[data-testid="launch"]'] })).toBeNull();
+});
+
+it.each([
+  '<chat-control data-test="new-chat"><button disabled class="material-icons">add</button></chat-control>',
+  '<chat-control data-test="new-chat"><button aria-label="More options"><span class="material-icons">more_vert</span></button></chat-control>',
+  '<div tabindex="0" data-test="new-chat"><button disabled class="material-icons">add</button></div>'
+])('does not bypass rejected wrapper descendants through a saved locator: %s', (markup) => {
+  document.body.innerHTML = markup;
+  expect(resolveNewConversationControl(document.body.firstElementChild as HTMLElement)).toBeNull();
+  expect(resolveNewConversationLocator({ segments: ['[data-test="new-chat"]'] })).toBeNull();
 });
 
 it('does not escape a missing shadow root to match another chat', () => {

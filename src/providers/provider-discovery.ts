@@ -25,6 +25,7 @@ import {
   NEW_CONVERSATION_CANDIDATES,
   newConversationLabelSource,
   newConversationTargetUrl,
+  resolveNewConversationLocator,
   resolveNewConversationControl
 } from './new-conversation-control';
 
@@ -144,14 +145,22 @@ function findNewConversationControls(): HTMLElement[] {
 
 function clickedNewConversationControl(
   path: EventTarget[],
-  controls: HTMLElement[]
+  controls: HTMLElement[],
+  captured: BrowserProviderProfile['newConversation']
 ): HTMLElement | undefined {
   for (const target of path) {
     if (!(target instanceof HTMLElement)) continue;
     const resolved = resolveNewConversationControl(target);
     if (resolved && controls.includes(resolved)) return resolved;
   }
-  return undefined;
+  const capturedTargets = [captured?.locator, ...(captured?.locators ?? [])]
+    .filter((value): value is ShadowLocator => Boolean(value))
+    .map(resolveNewConversationLocator)
+    .filter((value): value is HTMLElement => Boolean(value));
+  return path.find(
+    (target): target is HTMLElement =>
+      target instanceof HTMLElement && capturedTargets.includes(target)
+  );
 }
 
 function uniqueControlSelector(element: HTMLElement): string {
@@ -810,7 +819,11 @@ export function startProviderDiscovery(
   const onClick = (event: MouseEvent) => {
     const path = event.composedPath();
     const newConversationControls = findNewConversationControls();
-    const newConversationControl = clickedNewConversationControl(path, newConversationControls);
+    const newConversationControl = clickedNewConversationControl(
+      path,
+      newConversationControls,
+      lastDraft?.profile.newConversation
+    );
     if (lastDraft?.profile.newConversation) {
       discoveryLog('click checked for new conversation', {
         matched: Boolean(newConversationControl),

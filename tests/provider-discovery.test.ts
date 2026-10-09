@@ -1189,7 +1189,8 @@ describe('optional New Chat evidence', () => {
 
   async function learn(
     controlMarkup = '<button title="New chat">New chat</button>',
-    shadow = false
+    shadow = false,
+    controlsInShadow = false
   ) {
     vi.useFakeTimers();
     Object.defineProperty(globalThis, 'CSS', {
@@ -1201,7 +1202,14 @@ describe('optional New Chat evidence', () => {
       height: 10
     } as DOMRect);
     document.body.innerHTML =
-      '<textarea></textarea><button aria-label="Send">Send</button>' + controlMarkup;
+      '<textarea></textarea><button aria-label="Send">Send</button>' +
+      (controlsInShadow ? '' : controlMarkup);
+    const controlRoot = controlsInShadow
+      ? document.body
+          .appendChild(document.createElement('controls-host'))
+          .attachShadow({ mode: 'open' })
+      : document;
+    if (controlsInShadow) (controlRoot as ShadowRoot).innerHTML = controlMarkup;
     const root = shadow
       ? document.body
           .appendChild(document.createElement('chat-host'))
@@ -1233,7 +1241,7 @@ describe('optional New Chat evidence', () => {
       composer,
       response,
       root,
-      control: document.querySelector<HTMLElement>('[title="New chat"]')!
+      control: controlRoot.querySelector<HTMLElement>('[title="New chat"]')!
     };
   }
 
@@ -1271,6 +1279,89 @@ describe('optional New Chat evidence', () => {
       createMcplabAdapter(saved.profile).startNewConversation!()
     ).resolves.toBeUndefined();
   });
+
+  it('confirms a decorative icon click after a tooltip clears the native title', async () => {
+    const { drafts, control, response, composer, root } = await learn(
+      '<tm-icon-button data-test="ai-agent_chat_new-chat"><button class="material-icons" kendotooltip title="New chat" data-title="">add</button></tm-icon-button>'
+    );
+    control.setAttribute('title', '');
+    control.setAttribute('data-title', 'New chat');
+    control.click();
+    response.remove();
+    await vi.advanceTimersByTimeAsync(1000);
+    const saved = drafts.at(-1);
+    expect(saved.trace.newConversationEvidence).toBeDefined();
+    expect(saved.validationIssues).toEqual([]);
+    root.append(response);
+    composer.value = 'Another prompt';
+    control.addEventListener('click', () => {
+      response.remove();
+      composer.value = '';
+    });
+    await expect(
+      createMcplabAdapter(saved.profile).startNewConversation!()
+    ).resolves.toBeUndefined();
+  });
+
+  it.each(['light DOM', 'shadow DOM'])(
+    'recognizes an anonymous click through its captured locator in %s',
+    async (mode) => {
+      const {
+        drafts,
+        response,
+        composer,
+        root,
+        control: button
+      } = await learn(
+        '<button data-testid="launch" title="New chat"><span aria-hidden="true">add</span></button>',
+        false,
+        mode === 'shadow DOM'
+      );
+      button.setAttribute('title', '');
+      button.setAttribute('data-title', 'New chat');
+      button.querySelector<HTMLElement>('span')!.click();
+      response.remove();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(drafts.at(-1).trace.newConversationEvidence).toBeDefined();
+      expect(drafts.at(-1).validationIssues).toEqual([]);
+      const saved = drafts.at(-1);
+      root.append(response);
+      composer.value = 'Another prompt';
+      button.addEventListener('click', () => {
+        response.remove();
+        composer.value = '';
+      });
+      await expect(
+        createMcplabAdapter(saved.profile).startNewConversation!()
+      ).resolves.toBeUndefined();
+    }
+  );
+
+  it.each(['disabled', 'aria-disabled', 'renamed', 'ambiguous', 'outside-shadow'])(
+    'does not trust a captured locator when its clicked target is %s',
+    async (state) => {
+      const { drafts, response, control } = await learn(
+        '<button data-testid="launch" title="New chat"><span aria-hidden="true">add</span></button>',
+        false,
+        state === 'outside-shadow'
+      );
+      control.setAttribute('title', '');
+      if (state === 'disabled') control.setAttribute('disabled', '');
+      if (state === 'aria-disabled') control.setAttribute('aria-disabled', 'true');
+      if (state === 'renamed') control.setAttribute('aria-label', 'More options');
+      let clicked = control;
+      if (state === 'ambiguous' || state === 'outside-shadow') {
+        clicked = control.cloneNode(true) as HTMLElement;
+        document.body.append(clicked);
+      }
+      clicked
+        .querySelector<HTMLElement>('span')!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+      response.remove();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(drafts.at(-1).trace.newConversationEvidence).toBeUndefined();
+    }
+  );
 
   it.each(['new-chat-button', 'create-new-chat-button', 'sidebar_new_chat_btn', 'newChatButton'])(
     'discovers and executes an icon-only New Chat control with metadata %s',
