@@ -363,23 +363,33 @@ button:disabled {
 .queue-add-row select {
   min-height: 34px;
 }
+#queue-panel {
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
 .queue-items {
   display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
   max-height: 190px;
   overflow: auto;
 }
 .queue-group {
   display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
 }
 .queue-group-title {
   margin-top: 3px;
   color: var(--text-soft);
   font-size: 11px;
+  overflow-wrap: anywhere;
 }
 .queue-item {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 5px;
   padding: 7px 8px;
@@ -430,6 +440,7 @@ button:disabled {
   color: var(--failure);
 }
 .queue-result-link {
+  flex-shrink: 0;
   color: var(--text-muted);
   font-size: 10px;
   white-space: nowrap;

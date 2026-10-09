@@ -661,6 +661,7 @@ function renderQueue(queue: RoverQueueState | null): void {
         (candidate) => candidate.queueItemId === item.queueItemId
       );
       name.textContent = `${(history ? index : queueIndex) + 1}. ${item.name}`;
+      name.title = item.name;
       const itemStatus = document.createElement('span');
       itemStatus.className = 'queue-item-status';
       itemStatus.dataset.status = item.status;
@@ -746,7 +747,7 @@ function renderQueue(queue: RoverQueueState | null): void {
         link.href = `${queue.origin}${item.resultUrl}`;
         link.target = '_blank';
         link.rel = 'noreferrer';
-        link.textContent = 'View result';
+        link.textContent = 'Result';
         row.append(link);
       }
       return row;
