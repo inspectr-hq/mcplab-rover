@@ -226,12 +226,7 @@ describe('queue state', () => {
   });
 
   it('advances after evaluated outcomes and completes after the final item', () => {
-    let queue = createQueue(
-      'http://127.0.0.1:8787',
-      'polo',
-      true,
-      '2026-09-09T10:00:00.000Z'
-    );
+    let queue = createQueue('http://127.0.0.1:8787', 'polo', true, '2026-09-09T10:00:00.000Z');
     queue = addQueueItem(addQueueItem(queue, alpha), beta);
     queue = startQueue(queue, '2026-09-09T10:01:00.000Z');
     const first = queue.items[0]!.queueItemId;
@@ -424,7 +419,6 @@ describe('queue state', () => {
     expect(stopped.items[0]?.status).toBe('stopped');
   });
 });
-
 
 describe('adding after a settled assignment', () => {
   it.each(['completed', 'stopped'] as const)(

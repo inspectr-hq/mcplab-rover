@@ -54,7 +54,11 @@ beforeEach(async () => {
       }
     },
     storage: {
-      local: { get: vi.fn(async () => ({})), set: vi.fn(async () => undefined), remove: vi.fn(async () => undefined) },
+      local: {
+        get: vi.fn(async () => ({})),
+        set: vi.fn(async () => undefined),
+        remove: vi.fn(async () => undefined)
+      },
       onChanged: {
         addListener: vi.fn((listener) => {
           storageChanged = listener;
@@ -397,7 +401,6 @@ it.each(['response', 'exception'])(
   }
 );
 
-
 it.each([true, false])(
   'hides Run queue on a closed assignment (evaluation ID present: %s)',
   (hasEvaluationId) => {
@@ -440,7 +443,10 @@ it('only shows Run queue while there are unfinished local evaluations', () => {
   storageChanged({ 'rover.queue': { newValue: empty } }, 'session');
   expect(run.hidden).toBe(true);
   const queued = addQueueItem(empty, {
-    id: 'case', name: 'Search assets', prompt: '', assertionCount: 1
+    id: 'case',
+    name: 'Search assets',
+    prompt: '',
+    assertionCount: 1
   });
   storageChanged({ 'rover.queue': { newValue: queued } }, 'session');
   expect(run.hidden).toBe(false);
@@ -454,7 +460,6 @@ it('only shows Run queue while there are unfinished local evaluations', () => {
   storageChanged({ 'rover.queue': { newValue: null } }, 'session');
   expect(run.hidden).toBe(true);
 });
-
 
 it('hides the empty queue status but shows errors and progress', async () => {
   const style = document.createElement('style');
@@ -483,7 +488,6 @@ it('hides the empty queue status but shows errors and progress', async () => {
   expect(status.textContent).toContain('requires a supported or learned browser provider');
 });
 
-
 it('orders the evaluation dropdown alphabetically by name', async () => {
   sendMessage.mockResolvedValueOnce({
     ok: true,
@@ -498,10 +502,11 @@ it('orders the evaluation dropdown alphabetically by name', async () => {
   const dropdown = document.querySelector<HTMLSelectElement>('#queue-evaluation')!;
   await vi.waitFor(() => expect(dropdown.options.length).toBe(3));
   expect(Array.from(dropdown.options, (option) => option.textContent)).toEqual([
-    'Alpha', 'beta', 'Zulu'
+    'Alpha',
+    'beta',
+    'Zulu'
   ]);
 });
-
 
 it('numbers archived evaluations within the recent list and renumbers after removal', () => {
   const running = startQueue(
@@ -520,18 +525,25 @@ it('numbers archived evaluations within the recent list and renumbers after remo
     { ...latest, queueItemId: 'older' },
     { ...latest, queueItemId: 'oldest' }
   ];
-  storageChanged({
-    'rover.queue': { newValue: { ...completed, recentHistory: { claude: history } } }
-  }, 'session');
-  expect(Array.from(document.querySelectorAll('.queue-item-name'), (node) => node.textContent))
-    .toEqual(['1. What is the weather?', '2. What is the weather?', '3. What is the weather?']);
-  storageChanged({
-    'rover.queue': { newValue: { ...completed, recentHistory: { claude: history.slice(1) } } }
-  }, 'session');
-  expect(Array.from(document.querySelectorAll('.queue-item-name'), (node) => node.textContent))
-    .toEqual(['1. What is the weather?', '2. What is the weather?']);
+  storageChanged(
+    {
+      'rover.queue': { newValue: { ...completed, recentHistory: { claude: history } } }
+    },
+    'session'
+  );
+  expect(
+    Array.from(document.querySelectorAll('.queue-item-name'), (node) => node.textContent)
+  ).toEqual(['1. What is the weather?', '2. What is the weather?', '3. What is the weather?']);
+  storageChanged(
+    {
+      'rover.queue': { newValue: { ...completed, recentHistory: { claude: history.slice(1) } } }
+    },
+    'session'
+  );
+  expect(
+    Array.from(document.querySelectorAll('.queue-item-name'), (node) => node.textContent)
+  ).toEqual(['1. What is the weather?', '2. What is the weather?']);
 });
-
 
 it('restores manual Add after MCPLab acknowledgement without changing the assignment', async () => {
   const settled = {
@@ -575,7 +587,6 @@ it('restores manual Add after MCPLab acknowledgement without changing the assign
     item: { id: 'case', name: 'Search assets', prompt: '', assertionCount: 1 }
   });
 });
-
 
 it('hides stale Add controls when no queue exists', () => {
   storageChanged({ 'rover.queue': { newValue: null } }, 'session');
@@ -630,7 +641,9 @@ it('keeps a running local queue visible with Stop while hiding Add', () => {
 });
 
 it('announces learning only after the page observer acknowledges startup', async () => {
-  const originalSend = sendMessage.getMockImplementation()! as (message: { type: string }) => Promise<unknown>;
+  const originalSend = sendMessage.getMockImplementation()! as (message: {
+    type: string;
+  }) => Promise<unknown>;
   let resolveDetection!: (value: unknown) => void;
   let resolveStart!: (value: unknown) => void;
   const detection = new Promise((resolve) => {
@@ -664,7 +677,9 @@ it('announces learning only after the page observer acknowledges startup', async
 });
 
 it('keeps capture hidden when the page cannot start learning', async () => {
-  const originalSend = sendMessage.getMockImplementation()! as (message: { type: string }) => Promise<unknown>;
+  const originalSend = sendMessage.getMockImplementation()! as (message: {
+    type: string;
+  }) => Promise<unknown>;
   sendMessage.mockImplementation((message) => {
     if (message.type === 'ROVER_GET_LEARN_TARGETS') return Promise.resolve({ targets: [] });
     if (message.type === 'ROVER_LEARN_START')
