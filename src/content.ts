@@ -12,6 +12,7 @@ import { debugLog, initializeDebugLogging } from './content-debug-logging';
 import { sendRuntimeMessage } from './content-runtime';
 import { isEmptyConversation, visibleResponseCount } from './providers/adapter-helpers';
 import { enablePanelPlacement } from './panel-placement';
+import { enableBadgeTheme } from './badge-theme';
 
 initializeDebugLogging();
 
@@ -84,6 +85,7 @@ function togglePanel(expand = false): boolean {
   frame.title = 'MCPLab Rover';
   frame.src = chrome.runtime.getURL('rover.html');
   const disablePlacement = enablePanelPlacement(host, notch, style);
+  const disableBadgeTheme = enableBadgeTheme(host, notch, style);
   notch.addEventListener('click', () => {
     host.classList.toggle('expanded');
     reportPanelState(host.classList.contains('expanded'));
@@ -106,6 +108,7 @@ function togglePanel(expand = false): boolean {
   panelCleanup.set(host, () => {
     window.removeEventListener('message', onMessage);
     disablePlacement();
+    disableBadgeTheme();
   });
   shadow.append(style, notch, frame);
   document.documentElement.append(host);

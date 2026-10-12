@@ -12,10 +12,22 @@ const viewport = { width: 1000, height: 800 };
 
 describe('panel placement geometry', () => {
   it.each([
-    [{ left: 900, top: 100 }, { horizontal: 'right', x: 58, vertical: 'top', y: 100 }],
-    [{ left: 50, top: 100 }, { horizontal: 'left', x: 50, vertical: 'top', y: 100 }],
-    [{ left: 900, top: 700 }, { horizontal: 'right', x: 58, vertical: 'bottom', y: 58 }],
-    [{ left: 50, top: 700 }, { horizontal: 'left', x: 50, vertical: 'bottom', y: 58 }]
+    [
+      { left: 900, top: 100 },
+      { horizontal: 'right', x: 58, vertical: 'top', y: 100 }
+    ],
+    [
+      { left: 50, top: 100 },
+      { horizontal: 'left', x: 50, vertical: 'top', y: 100 }
+    ],
+    [
+      { left: 900, top: 700 },
+      { horizontal: 'right', x: 58, vertical: 'bottom', y: 58 }
+    ],
+    [
+      { left: 50, top: 700 },
+      { horizontal: 'left', x: 50, vertical: 'bottom', y: 58 }
+    ]
   ])('opens a badge at %o toward the free space', (badge, expected) => {
     expect(placePanel(badge, viewport, 300)).toEqual(expected);
   });
@@ -70,8 +82,7 @@ describe('badge dragging', () => {
     style.textContent = ':host {}';
     host.append(badge);
     document.body.append(host);
-    badge.getBoundingClientRect = () =>
-      ({ left: 900, top: 140, width: 34, height: 34 }) as DOMRect;
+    badge.getBoundingClientRect = () => ({ left: 900, top: 140, width: 34, height: 34 }) as DOMRect;
     disable = enablePanelPlacement(host, badge, style);
     clicks = 0;
     badge.addEventListener('click', () => {
