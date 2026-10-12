@@ -75,6 +75,50 @@ describe('ChatGPT current response markup', () => {
     expect(composer.textContent).toBe('MCPLab prompt');
   });
 
+  it('confirms a new empty chat when the previous answer is retained but hidden', async () => {
+    vi.useFakeTimers();
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      response('cached-answer') + '<button aria-label="New chat">New chat</button>'
+    );
+    const previous = document.querySelector<HTMLElement>(
+      '[data-markdown-text-style="assistant-message"]'
+    )!;
+    document.querySelector('button')!.addEventListener('click', () => {
+      setTimeout(() => {
+        previous.style.display = 'none';
+      }, 100);
+    });
+    const outcome = chatgptAdapter.startNewConversation!().then(
+      () => 'ready',
+      (error: Error) => error.message
+    );
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(await outcome).toBe('ready');
+    expect(previous.isConnected).toBe(true);
+    expect(chatgptAdapter.getAssistantCandidates()).toMatchObject([{ visible: false }]);
+  });
+
+  it('recognizes an already empty chat despite hidden cached answers', async () => {
+    vi.useFakeTimers();
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      response('cached-answer') + '<button aria-label="New chat">New chat</button>'
+    );
+    document.querySelector<HTMLElement>(
+      '[data-markdown-text-style="assistant-message"]'
+    )!.style.display = 'none';
+    const clicked = vi.fn();
+    document.querySelector('button')!.addEventListener('click', clicked);
+    const outcome = chatgptAdapter.startNewConversation!().then(
+      () => 'ready',
+      (error: Error) => error.message
+    );
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(await outcome).toBe('ready');
+    expect(clicked).not.toHaveBeenCalled();
+  });
+
   it('captures every block of the latest answer as one candidate', () => {
     document.body.insertAdjacentHTML(
       'beforeend',

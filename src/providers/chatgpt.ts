@@ -1,6 +1,12 @@
 import type { ChatProviderAdapter } from './types';
 import { composerValue, isVisible, setTextValue, textFrom } from './dom';
-import { debugCheck, first, pageAlertText, waitForNewConversation } from './adapter-helpers';
+import {
+  debugCheck,
+  first,
+  pageAlertText,
+  visibleResponseCount,
+  waitForNewConversation
+} from './adapter-helpers';
 import type { ResponseCandidate } from '../runtime/candidate-selection';
 import { observationFromCandidates } from '../runtime/provider-signals';
 import type { ProviderSignalEvaluator } from '../runtime/provider-state-engine';
@@ -79,7 +85,7 @@ export const chatgptAdapter: ChatProviderAdapter = {
   },
   startNewConversation: async () => {
     const initialComposer = chatgptAdapter.findComposer();
-    const beforeMessageCount = chatgptAdapter.getAssistantCandidates().length;
+    const beforeMessageCount = visibleResponseCount(chatgptAdapter.getAssistantCandidates());
     if (
       initialComposer &&
       !composerValue(initialComposer).trim() &&
@@ -91,7 +97,7 @@ export const chatgptAdapter: ChatProviderAdapter = {
     if (control) {
       await waitForNewConversation({
         findComposer: chatgptAdapter.findComposer,
-        messageCount: () => chatgptAdapter.getAssistantCandidates().length,
+        messageCount: () => visibleResponseCount(chatgptAdapter.getAssistantCandidates()),
         start: () => control.click(),
         providerName: 'ChatGPT',
         confirmation: 'empty-chat'
