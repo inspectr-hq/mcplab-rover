@@ -141,6 +141,69 @@ describe('badge dragging', () => {
     expect(clicks).toBe(1);
   });
 
+  it('drags the badge again after it was moved', async () => {
+    mount();
+    pointer('pointerdown', 917, 157);
+    pointer('pointermove', 517, 657);
+    pointer('pointerup', 517, 657);
+    badge.click();
+    pointer('pointerdown', 517, 657);
+    pointer('pointermove', 317, 157);
+    pointer('pointerup', 317, 157);
+    badge.click();
+    await flush();
+    expect(clicks).toBe(0);
+    expect(host.style.left).toBe('296px');
+    expect(host.style.top).toBe('157px');
+    expect(storage[BADGE_POSITION_KEY]).toEqual({
+      horizontal: 'left',
+      x: 296,
+      vertical: 'top',
+      y: 136
+    });
+  });
+
+  it('does not let a drag without a click swallow the next real click', async () => {
+    mount();
+    pointer('pointerdown', 917, 157);
+    pointer('pointermove', 517, 657);
+    pointer('pointerup', 517, 657);
+    // Chrome may not dispatch the click that would consume the suppression.
+    pointer('pointerdown', 517, 657);
+    pointer('pointerup', 517, 657);
+    badge.click();
+    expect(clicks).toBe(1);
+  });
+
+  it.each(['pointercancel', 'lostpointercapture'])(
+    'ends the drag on %s and still allows the next drag',
+    async (type) => {
+      mount();
+      pointer('pointerdown', 917, 157);
+      pointer('pointermove', 517, 657);
+      pointer(type, 517, 657);
+      expect(host.classList.contains('rover-dragging')).toBe(false);
+      pointer('pointerdown', 517, 657);
+      pointer('pointermove', 317, 157);
+      pointer('pointerup', 317, 157);
+      expect(host.style.left).toBe('296px');
+    }
+  );
+
+  it('prevents a native drag of the badge logo', () => {
+    host = document.createElement('div');
+    badge = document.createElement('button');
+    badge.innerHTML = '<img alt="">';
+    style = document.createElement('style');
+    style.textContent = '';
+    disable = enablePanelPlacement(host, badge, style);
+    expect(badge.querySelector('img')!.draggable).toBe(false);
+    const dragStart = new Event('dragstart', { bubbles: true, cancelable: true });
+    badge.querySelector('img')!.dispatchEvent(dragStart);
+    expect(dragStart.defaultPrevented).toBe(true);
+    expect(style.textContent).toContain('touch-action: none');
+  });
+
   it('treats a small pointer wobble as a click', async () => {
     mount();
     pointer('pointerdown', 917, 157);

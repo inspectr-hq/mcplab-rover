@@ -105,6 +105,8 @@ function isStoredPosition(value: unknown): value is StoredBadgePosition {
 const PLACEMENT_STYLE = `
   :host(:not(.expanded)) { pointer-events: none; }
   :host(:not(.expanded)) button { pointer-events: auto; }
+  :host(:not(.expanded)) button { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
+  :host(:not(.expanded)) button img { pointer-events: none; -webkit-user-drag: none; }
   :host(.rover-dragging) { transition: none; }
   :host(.rover-dragging) button { cursor: grabbing; }
   :host(.expanded.anchor-left) iframe { border-radius: 8px 20px 20px 20px; }
@@ -185,7 +187,14 @@ export function enablePanelPlacement(
     };
   };
 
+  // The badge logo is an <img>; a native image drag would cancel the pointer drag.
+  for (const image of Array.from(badge.querySelectorAll('img'))) image.draggable = false;
+  badge.addEventListener('dragstart', (event) => event.preventDefault());
+
   badge.addEventListener('pointerdown', (event: PointerEvent) => {
+    // A drag can end without a click (pointercancel, lost capture), so never carry the
+    // suppression into a new gesture.
+    suppressClick = false;
     if (event.button !== 0 || host.classList.contains('expanded')) return;
     drag = {
       pointerId: event.pointerId,
@@ -220,6 +229,7 @@ export function enablePanelPlacement(
   };
   badge.addEventListener('pointerup', endDrag);
   badge.addEventListener('pointercancel', endDrag);
+  badge.addEventListener('lostpointercapture', endDrag);
   badge.addEventListener(
     'click',
     (event) => {
