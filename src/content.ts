@@ -11,6 +11,7 @@ import { roverResultMessage } from './content-result';
 import { debugLog, initializeDebugLogging } from './content-debug-logging';
 import { sendRuntimeMessage } from './content-runtime';
 import { isEmptyConversation, visibleResponseCount } from './providers/adapter-helpers';
+import { enablePanelPlacement } from './panel-placement';
 
 initializeDebugLogging();
 
@@ -82,14 +83,8 @@ function togglePanel(expand = false): boolean {
   const frame = document.createElement('iframe');
   frame.title = 'MCPLab Rover';
   frame.src = chrome.runtime.getURL('rover.html');
+  const disablePlacement = enablePanelPlacement(host, notch, style);
   notch.addEventListener('click', () => {
-    const expanding = !host.classList.contains('expanded');
-    if (expanding) {
-      host.style.left = '';
-      host.style.top = '';
-      host.style.right = '';
-      host.style.transform = '';
-    }
     host.classList.toggle('expanded');
     reportPanelState(host.classList.contains('expanded'));
     notch.title = host.classList.contains('expanded')
@@ -108,7 +103,10 @@ function togglePanel(expand = false): boolean {
     }
   };
   window.addEventListener('message', onMessage);
-  panelCleanup.set(host, () => window.removeEventListener('message', onMessage));
+  panelCleanup.set(host, () => {
+    window.removeEventListener('message', onMessage);
+    disablePlacement();
+  });
   shadow.append(style, notch, frame);
   document.documentElement.append(host);
   if (expand) {
