@@ -171,7 +171,10 @@ describe('queue message handler', () => {
       mocks.activeTab.mockResolvedValue({ id: 22 });
       const response = vi.fn();
       handleQueueMessage(
-        { type: 'ROVER_QUEUE_ADD', item: { id: 'new', name: 'New', prompt: '', assertionCount: 1 } },
+        {
+          type: 'ROVER_QUEUE_ADD',
+          item: { id: 'new', name: 'New', prompt: '', assertionCount: 1 }
+        },
         response
       );
       await vi.waitFor(() =>

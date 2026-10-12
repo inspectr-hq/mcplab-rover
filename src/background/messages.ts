@@ -72,7 +72,9 @@ async function handleLearningMessage(message: ExtensionMessage): Promise<unknown
         () => false
       );
       if (tabExists)
-        throw new Error('Learning is already active. Stop learning before starting another session.');
+        throw new Error(
+          'Learning is already active. Stop learning before starting another session.'
+        );
       await setLearningTabId();
     }
     const tab = await activeTab();
@@ -142,7 +144,9 @@ export function installMessageHandler(): void {
   chrome.tabs.onRemoved.addListener((tabId) => {
     void serializeLearningOperation(async () => {
       if ((await getLearningTabId()) === tabId) await setLearningTabId();
-    }).catch((error) => debugLog('learning tab cleanup failed', { tabId, error: errorMessage(error) }));
+    }).catch((error) =>
+      debugLog('learning tab cleanup failed', { tabId, error: errorMessage(error) })
+    );
   });
   chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
     if (message.type === 'ROVER_LEARN_PROGRESS' || message.type === 'ROVER_LEARN_RESULT') {

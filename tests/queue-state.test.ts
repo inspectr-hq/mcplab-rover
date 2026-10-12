@@ -464,7 +464,10 @@ describe('adding after a settled assignment', () => {
   it.each(['draft', 'running', 'paused'] as const)(
     'does not switch provider for a %s queue',
     (status) => {
-      const queue = { ...createQueue('http://localhost:8787', 'chatgpt-com', false, 'now'), status };
+      const queue = {
+        ...createQueue('http://localhost:8787', 'chatgpt-com', false, 'now'),
+        status
+      };
       expect(() => addQueueItem(queue, beta, 22, 'claude')).toThrow();
     }
   );
@@ -473,7 +476,9 @@ describe('adding after a settled assignment', () => {
     const queue = {
       ...createQueue('http://localhost:8787', 'chatgpt-com', false, 'now'),
       status: 'completed' as const,
-      pendingLeaseActions: [{ type: 'release' as const, leaseId: 'lease', reason: 'stopped' as const }]
+      pendingLeaseActions: [
+        { type: 'release' as const, leaseId: 'lease', reason: 'stopped' as const }
+      ]
     };
     expect(() => addQueueItem(queue, beta, 22, 'claude')).toThrow();
   });
