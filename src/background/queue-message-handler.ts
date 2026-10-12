@@ -114,18 +114,21 @@ export function handleQueueMessage(
         const queue = await getQueue();
         if (!queue) throw new Error('No queue has been created.');
         let tabId: number | undefined;
+        let provider = queue.provider;
         if (message.type === 'ROVER_QUEUE_ADD') {
           const tab = await activeTab();
-          const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
-          if (!provider || provider !== queue.provider)
+          const detectedProvider =
+            typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
+          if (!detectedProvider || typeof tab?.id !== 'number')
             throw new Error(
               `Open a supported chat page for ${queue.provider} before adding evaluations.`
             );
-          tabId = tab!.id;
+          tabId = tab.id;
+          provider = detectedProvider;
         }
         const next =
           message.type === 'ROVER_QUEUE_ADD'
-            ? addQueueItem(queue, message.item, tabId)
+            ? addQueueItem(queue, message.item, tabId, provider)
             : message.type === 'ROVER_QUEUE_REMOVE'
               ? removeQueueItem(queue, message.queueItemId)
               : moveQueueItem(queue, message.queueItemId, message.direction);

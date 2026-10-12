@@ -167,13 +167,14 @@ export function isQueueSettled(queue: RoverQueueState): boolean {
 export function addQueueItem(
   queue: RoverQueueState,
   catalog: QueueCatalogItem,
-  tabId = queue.tabId
+  tabId = queue.tabId,
+  provider = queue.provider
 ): RoverQueueState {
   if (isQueueSettled(queue)) {
     queue = {
       ...createQueue(
         queue.origin,
-        queue.provider,
+        provider,
         queue.newConversationBetweenItems,
         new Date().toISOString()
       ),
@@ -182,6 +183,8 @@ export function addQueueItem(
       recentHistory: archiveCompletedQueueItems(queue).recentHistory
     };
   }
+  if (provider !== queue.provider)
+    throw new Error(`Open a supported chat page for ${queue.provider} before adding evaluations.`);
   if (queue.evaluationRunId || queue.leaseId || queue.pendingLeaseActions?.length)
     throw new Error('Wait for the MCPLab assignment to finish before adding evaluations.');
   if (queue.status !== 'draft')

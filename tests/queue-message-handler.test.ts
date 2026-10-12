@@ -142,6 +142,57 @@ describe('queue message handler', () => {
     expect(mocks.saveQueue).not.toHaveBeenCalled();
   });
 
+  it.each(['completed', 'stopped'] as const)(
+    'starts a new local queue on the detected provider after a %s assignment',
+    async (status) => {
+      const running = startQueue(
+        addQueueItem(createQueue('http://localhost:8787', 'chatgpt-com', false, 'now'), {
+          id: 'old',
+          name: 'Old',
+          prompt: '',
+          assertionCount: 1
+        }),
+        'now'
+      );
+      const previous = {
+        ...recordQueueItemOutcome(
+          running,
+          running.activeItemId!,
+          'passed',
+          { runId: 'saved' },
+          'now'
+        ),
+        status,
+        tabId: 11,
+        evaluationRunId: 'managed-run',
+        managedPhase: 'terminal' as const
+      };
+      mocks.getQueue.mockResolvedValue(previous);
+      mocks.activeTab.mockResolvedValue({ id: 22 });
+      const response = vi.fn();
+      handleQueueMessage(
+        { type: 'ROVER_QUEUE_ADD', item: { id: 'new', name: 'New', prompt: '', assertionCount: 1 } },
+        response
+      );
+      await vi.waitFor(() =>
+        expect(response).toHaveBeenCalledWith(expect.objectContaining({ ok: true }))
+      );
+      const saved = mocks.saveQueue.mock.calls[0][0];
+      expect(saved).toMatchObject({
+        status: 'draft',
+        provider: 'claude',
+        tabId: 22,
+        origin: previous.origin,
+        items: [expect.objectContaining({ testCaseId: 'new' })],
+        recentHistory: { 'chatgpt-com': [expect.objectContaining({ runId: 'saved' })] }
+      });
+      expect(saved.queueId).not.toBe(previous.queueId);
+      expect(saved.evaluationRunId).toBeUndefined();
+      expect(saved.managedPhase).toBeUndefined();
+      expect(mocks.persistLeaseRelease).not.toHaveBeenCalled();
+    }
+  );
+
   it('rejects Start on a closed assignment without saving or executing it', async () => {
     const running = startQueue(
       addQueueItem(

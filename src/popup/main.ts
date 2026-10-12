@@ -632,7 +632,7 @@ function renderQueue(queue: RoverQueueState | null): void {
   const editable =
     Boolean(activeProvider) &&
     !activeProviderChecking &&
-    matchesCurrentAssignment &&
+    (matchesCurrentAssignment || readyForNextEvaluation) &&
     (queue.status === 'draft' || readyForNextEvaluation) &&
     (!managed || readyForNextEvaluation);
   addRow?.toggleAttribute('hidden', !editable);
@@ -1429,6 +1429,7 @@ reset.addEventListener(
 );
 
 chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'session' && changes['rover.learningTabId']) void refreshActiveProvider();
   if (area === 'session' && changes['rover.run'])
     render(changes['rover.run'].newValue as RoverState | null);
   if (area === 'session' && changes['rover.queue'])

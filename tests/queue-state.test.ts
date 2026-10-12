@@ -422,6 +422,63 @@ describe('queue state', () => {
 
 describe('adding after a settled assignment', () => {
   it.each(['completed', 'stopped'] as const)(
+    'switches provider after %s while archiving history under the original provider',
+    (status) => {
+      const running = startQueue(
+        addQueueItem(createQueue('http://localhost:8787', 'chatgpt-com', true, 'now'), alpha),
+        'now'
+      );
+      const previous = {
+        ...recordQueueItemOutcome(
+          running,
+          running.activeItemId!,
+          'passed',
+          { runId: 'saved' },
+          'now'
+        ),
+        status,
+        tabId: 11,
+        recentHistory: {
+          claude: [{ ...running.items[0], status: 'passed' as const, runId: 'older' }]
+        }
+      };
+      const next = addQueueItem(previous, beta, 22, 'claude');
+      expect(next.queueId).not.toBe(previous.queueId);
+      expect(next).toMatchObject({
+        status: 'draft',
+        origin: previous.origin,
+        provider: 'claude',
+        tabId: 22,
+        newConversationBetweenItems: true,
+        items: [expect.objectContaining({ testCaseId: 'beta', status: 'queued' })],
+        recentHistory: {
+          'chatgpt-com': [expect.objectContaining({ testCaseId: 'alpha', runId: 'saved' })],
+          claude: [expect.objectContaining({ runId: 'older' })]
+        }
+      });
+      expect(previous.provider).toBe('chatgpt-com');
+      expect(previous.tabId).toBe(11);
+    }
+  );
+
+  it.each(['draft', 'running', 'paused'] as const)(
+    'does not switch provider for a %s queue',
+    (status) => {
+      const queue = { ...createQueue('http://localhost:8787', 'chatgpt-com', false, 'now'), status };
+      expect(() => addQueueItem(queue, beta, 22, 'claude')).toThrow();
+    }
+  );
+
+  it('does not switch provider while completed lease cleanup is pending', () => {
+    const queue = {
+      ...createQueue('http://localhost:8787', 'chatgpt-com', false, 'now'),
+      status: 'completed' as const,
+      pendingLeaseActions: [{ type: 'release' as const, leaseId: 'lease', reason: 'stopped' as const }]
+    };
+    expect(() => addQueueItem(queue, beta, 22, 'claude')).toThrow();
+  });
+
+  it.each(['completed', 'stopped'] as const)(
     'creates a local draft after %s and preserves history',
     (status) => {
       const running = startQueue(

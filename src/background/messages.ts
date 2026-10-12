@@ -57,11 +57,23 @@ import { debugLog } from './debug-logging';
 let debugSubscribed = false;
 let learningOperation: Promise<unknown> = Promise.resolve();
 
+function serializeLearningOperation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = learningOperation.then(operation);
+  learningOperation = result.catch(() => undefined);
+  return result;
+}
+
 async function handleLearningMessage(message: ExtensionMessage): Promise<unknown> {
   const learningTabId = await getLearningTabId();
   if (message.type === 'ROVER_LEARN_START') {
     if (learningTabId !== undefined) {
-      throw new Error('Learning is already active. Stop learning before starting another session.');
+      const tabExists = await chrome.tabs.get(learningTabId).then(
+        () => true,
+        () => false
+      );
+      if (tabExists)
+        throw new Error('Learning is already active. Stop learning before starting another session.');
+      await setLearningTabId();
     }
     const tab = await activeTab();
     if (typeof tab?.id !== 'number') throw new Error('No active browser tab is available.');
@@ -127,6 +139,11 @@ export async function syncDebugSubscription(tabId: number): Promise<void> {
 }
 
 export function installMessageHandler(): void {
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    void serializeLearningOperation(async () => {
+      if ((await getLearningTabId()) === tabId) await setLearningTabId();
+    }).catch((error) => debugLog('learning tab cleanup failed', { tabId, error: errorMessage(error) }));
+  });
   chrome.runtime.onMessage.addListener((message: ExtensionMessage, sender, sendResponse) => {
     if (message.type === 'ROVER_LEARN_PROGRESS' || message.type === 'ROVER_LEARN_RESULT') {
       debugLog('learning update received by background', {
@@ -144,9 +161,9 @@ export function installMessageHandler(): void {
       message.type === 'ROVER_LEARN_STOP' ||
       message.type === 'ROVER_LEARN_CAPTURE'
     ) {
-      const operation = learningOperation.then(() => handleLearningMessage(message));
-      learningOperation = operation.catch(() => undefined);
-      return respond(sendResponse, () => operation);
+      return respond(sendResponse, () =>
+        serializeLearningOperation(() => handleLearningMessage(message))
+      );
     }
     if (message.type === 'ROVER_LEARN_SAVE') {
       return respond(sendResponse, async () => {

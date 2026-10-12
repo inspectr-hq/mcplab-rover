@@ -624,6 +624,48 @@ it('requires a detected matching provider before showing Add', async () => {
   await vi.waitFor(() => expect(row.hidden).toBe(false));
 });
 
+it.each(['completed', 'stopped'] as const)(
+  'shows Add on a different provider once the old queue is %s',
+  async (status) => {
+    const queue = { ...createQueue('http://localhost:8787', 'chatgpt-com', false, 'now'), status };
+    storageChanged({ 'rover.queue': { newValue: queue } }, 'session');
+    const row = document.querySelector<HTMLElement>('.queue-add-row')!;
+    expect(row.hidden).toBe(false);
+    sendMessage.mockResolvedValueOnce({});
+    runtimeMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+    await vi.waitFor(() =>
+      expect(document.querySelector('#provider')?.textContent).toBe(
+        'No supported chat detected on this tab'
+      )
+    );
+    expect(row.hidden).toBe(true);
+    sendMessage.mockResolvedValueOnce({ provider: 'claude' });
+    runtimeMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+    await vi.waitFor(() => expect(row.hidden).toBe(false));
+    sendMessage.mockClear();
+    sendMessage.mockResolvedValueOnce({ ok: false });
+    document.querySelector<HTMLButtonElement>('#queue-add')!.click();
+    await vi.waitFor(() =>
+      expect(sendMessage).toHaveBeenCalledWith({
+        type: 'ROVER_QUEUE_ADD',
+        item: { id: 'case', name: 'Search assets', prompt: '', assertionCount: 1 }
+      })
+    );
+  }
+);
+
+it('keeps Add hidden on another provider while a completed assignment awaits acknowledgement', () => {
+  const queue = {
+    ...createQueue('http://localhost:8787', 'chatgpt-com', false, 'now'),
+    status: 'completed' as const,
+    evaluationRunId: 'managed-run',
+    managedPhase: 'waiting_ack' as const,
+    pendingLeaseActions: [{ type: 'release' as const, leaseId: 'lease' }]
+  };
+  storageChanged({ 'rover.queue': { newValue: queue } }, 'session');
+  expect(document.querySelector<HTMLElement>('.queue-add-row')!.hidden).toBe(true);
+});
+
 it('keeps a running local queue visible with Stop while hiding Add', () => {
   const running = startQueue(
     addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), {
@@ -674,6 +716,17 @@ it('announces learning only after the page observer acknowledges startup', async
   await vi.waitFor(() => expect(start.disabled).toBe(false));
   expect(status.textContent).toContain('Learning is active');
   expect(capture.hidden).toBe(false);
+});
+
+it('refreshes the learning controls when closing a tab clears learning ownership', async () => {
+  sendMessage.mockResolvedValueOnce({ provider: 'claude', tabId: 22, learningTabId: 11 });
+  runtimeMessage({ type: 'ROVER_ACTIVE_PROVIDER_CHANGED' });
+  const start = document.querySelector<HTMLButtonElement>('#learn-start')!;
+  await vi.waitFor(() => expect(start.textContent).toBe('Stop learning'));
+  sendMessage.mockResolvedValueOnce({ provider: 'claude', tabId: 22, learningTabId: null });
+  storageChanged({ 'rover.learningTabId': { newValue: undefined } }, 'session');
+  await vi.waitFor(() => expect(start.textContent).toBe('Start learning'));
+  expect(document.querySelector<HTMLElement>('#learn-capture')!.hidden).toBe(true);
 });
 
 it('keeps capture hidden when the page cannot start learning', async () => {

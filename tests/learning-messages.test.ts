@@ -8,12 +8,14 @@ let listener: (
   respond: (value: unknown) => void
 ) => unknown;
 let stored: Record<string, unknown>;
+let tabRemoved: (tabId: number) => void;
 const sendMessage = vi.fn();
 const getTab = vi.fn();
 
 beforeEach(async () => {
   vi.resetModules();
   activeTabId = 11;
+  tabRemoved = () => undefined;
   stored = {};
   sendMessage.mockReset().mockResolvedValue({ ok: true });
   getTab.mockReset().mockImplementation(async (id) => ({ id }));
@@ -25,7 +27,12 @@ beforeEach(async () => {
         }
       }
     },
-    tabs: { query: vi.fn(async () => [{ id: activeTabId }]), sendMessage, get: getTab },
+    tabs: {
+      query: vi.fn(async () => [{ id: activeTabId }]),
+      sendMessage,
+      get: getTab,
+      onRemoved: { addListener: (callback: typeof tabRemoved) => (tabRemoved = callback) }
+    },
     storage: {
       session: {
         get: vi.fn(async () => ({ ...stored })),
@@ -66,6 +73,41 @@ it('does not start another tab while a learning session is active', async () => 
   activeTabId = 22;
   expect(await dispatch({ type: 'ROVER_LEARN_START' })).toMatchObject({ ok: false });
   expect(sendMessage).toHaveBeenCalledTimes(1);
+});
+
+it('starts learning in the new tab when the stored learning tab no longer exists', async () => {
+  await dispatch({ type: 'ROVER_LEARN_START' });
+  activeTabId = 22;
+  getTab.mockRejectedValueOnce(new Error('Tab closed'));
+  expect(await dispatch({ type: 'ROVER_LEARN_START' })).toMatchObject({ ok: true, tabId: 22 });
+  expect(stored['rover.learningTabId']).toBe(22);
+  expect(sendMessage.mock.calls.map(([id]) => id)).toEqual([11, 22]);
+});
+
+it('clears ownership when the learning tab closes', async () => {
+  await dispatch({ type: 'ROVER_LEARN_START' });
+  tabRemoved(11);
+  await vi.waitFor(() => expect(stored['rover.learningTabId']).toBeUndefined());
+  activeTabId = 22;
+  expect(await dispatch({ type: 'ROVER_LEARN_START' })).toMatchObject({ ok: true, tabId: 22 });
+});
+
+it('keeps the learning session when an unrelated tab closes', async () => {
+  await dispatch({ type: 'ROVER_LEARN_START' });
+  tabRemoved(22);
+  expect(await dispatch({ type: 'ROVER_LEARN_CAPTURE' })).toMatchObject({ ok: true });
+  expect(stored['rover.learningTabId']).toBe(11);
+});
+
+it('clears ownership if the tab closes while learning startup is still pending', async () => {
+  let acknowledge!: (value: unknown) => void;
+  sendMessage.mockImplementationOnce(() => new Promise((resolve) => (acknowledge = resolve)));
+  const started = dispatch({ type: 'ROVER_LEARN_START' });
+  await vi.waitFor(() => expect(acknowledge).toBeTypeOf('function'));
+  tabRemoved(11);
+  acknowledge({ ok: true });
+  await started;
+  await vi.waitFor(() => expect(stored['rover.learningTabId']).toBeUndefined());
 });
 
 it('does not retain ownership when learning fails to start', async () => {
