@@ -48,6 +48,7 @@ describe('background message routing', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     (globalThis as typeof globalThis & { chrome: unknown }).chrome = {
+      tabs: { onRemoved: { addListener: vi.fn() } },
       runtime: { onMessage: { addListener: mocks.addListener } }
     } as unknown as typeof chrome;
     (globalThis as typeof globalThis & { WebSocket: unknown }).WebSocket = {
@@ -125,7 +126,7 @@ describe('background message routing', () => {
     const queue = {
       queueId: 'queue-1',
       origin: 'http://127.0.0.1:8787',
-      provider: 'trendminer',
+      provider: 'polo',
       status: 'running',
       mode: 'queue',
       newConversationBetweenItems: false,

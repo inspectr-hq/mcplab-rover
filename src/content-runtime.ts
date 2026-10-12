@@ -1,5 +1,7 @@
 import type { ExtensionMessage } from './contracts';
 
+import { debugLog } from './content-debug-logging';
+
 function isInvalidatedContextError(error: unknown): boolean {
   return error instanceof Error && /Extension context invalidated/i.test(error.message);
 }
@@ -15,6 +17,7 @@ export function createSafeRuntimeMessageSender<TMessage, TResponse>(
     } catch (error) {
       if (!isInvalidatedContextError(error)) throw error;
       invalidated = true;
+      debugLog('runtime context invalidated; refresh this page before learning again');
       return undefined;
     }
   };

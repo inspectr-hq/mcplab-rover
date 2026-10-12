@@ -19,6 +19,8 @@
   --result-text: #24231f;
   --result-border: #d2d1cb;
   --copy-surface: #eee9e2;
+  --success: #059669;
+  --failure: #dc2626;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -34,11 +36,16 @@
     --result-text: #efebe4;
     --result-border: #2b2b2b;
     --copy-surface: #252525;
+    --success: #34d399;
+    --failure: #f87171;
   }
 }
 
 * {
   box-sizing: border-box;
+}
+#queue-status:empty {
+  display: none;
 }
 [hidden] {
   display: none !important;
@@ -75,20 +82,8 @@ body {
   font-size: 12px;
   line-height: 1.45;
 }
-.shell::after {
-  content: '';
-  position: absolute;
-  top: 22px;
-  right: -1px;
-  width: 13px;
-  height: 30px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 0;
-  border-radius: 0 16px 16px 0;
-  transform: translateX(9px);
-}
 .brand-row {
+  padding-right: 24px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -111,6 +106,7 @@ body {
   height: 18px;
 }
 .brand-copy {
+  flex: 1;
   min-width: 0;
 }
 h1 {
@@ -176,6 +172,9 @@ button:disabled {
   color: var(--button-disabled);
   cursor: wait;
   box-shadow: none;
+}
+#learn-save:disabled {
+  cursor: not-allowed;
 }
 .learn-reset-button {
   background: transparent;
@@ -288,13 +287,13 @@ button:disabled {
 .inline-row > * {
   flex: 1;
 }
-.connection-label {
+.brand-title-row {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.connection-label label {
-  margin-right: 0;
+.brand-title-row h1 {
+  white-space: nowrap;
 }
 .connection-status {
   display: inline-flex;
@@ -302,9 +301,9 @@ button:disabled {
   gap: 5px;
   color: var(--text-muted);
   font-size: 10px;
-}
-.connection-status {
   margin-left: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .connection-dot {
   width: 7px;
@@ -325,6 +324,7 @@ button:disabled {
   background: #ff6961;
 }
 .settings-button {
+  flex-shrink: 0;
   width: 22px;
   height: 22px;
   padding: 0;
@@ -363,24 +363,33 @@ button:disabled {
 .queue-add-row select {
   min-height: 34px;
 }
+#queue-panel {
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+}
 .queue-items {
   display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
   max-height: 190px;
   overflow: auto;
 }
 .queue-group {
   display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
   gap: 5px;
 }
 .queue-group-title {
   margin-top: 3px;
   color: var(--text-soft);
   font-size: 11px;
+  overflow-wrap: anywhere;
 }
 .queue-item {
-  display: grid;
-  grid-template-columns: 1fr auto auto auto;
+  display: flex;
+  min-width: 0;
   align-items: center;
   gap: 5px;
   padding: 7px 8px;
@@ -390,20 +399,54 @@ button:disabled {
   font-size: 11px;
 }
 .queue-item-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .queue-item-status {
+  flex-shrink: 0;
   color: var(--text-muted);
   font-size: 10px;
 }
+.queue-item-status[data-status='running'] {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: queue-status-spin 0.8s linear infinite;
+}
+@keyframes queue-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .queue-item-status[data-status='running'] {
+    animation: none;
+  }
+}
+.queue-item-status[data-status='passed'],
+.queue-item-status[data-status='failed'] {
+  font-size: 14px;
+  font-weight: 600;
+}
+.queue-item-status[data-status='passed'] {
+  color: var(--success);
+}
+.queue-item-status[data-status='failed'] {
+  color: var(--failure);
+}
 .queue-result-link {
+  flex-shrink: 0;
   color: var(--text-muted);
   font-size: 10px;
   white-space: nowrap;
 }
 .queue-item button {
+  flex-shrink: 0;
   width: 22px;
   height: 22px;
   padding: 0;
@@ -411,6 +454,11 @@ button:disabled {
   color: var(--text-muted);
   box-shadow: none;
   font-size: 12px;
+}
+.queue-item .queue-history-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .debug-heading {
   align-items: center;
@@ -437,7 +485,10 @@ button:disabled {
   border-color: rgba(112, 148, 255, 0.42);
   background: color-mix(in srgb, #708cff 5%, var(--surface));
 }
-.learning-validation {
+.learning-validation[data-state='pass'] {
+  border-color: rgba(66, 211, 146, 0.35);
+}
+.learning-validation[data-state='fail'] {
   border-color: rgba(255, 105, 97, 0.38);
 }
 .learning-section-heading {
@@ -590,4 +641,78 @@ textarea:focus-visible {
 
 #prompt {
   max-height: 120px;
+}
+
+.learning-guide {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.learning-guide-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.learning-guide-heading strong {
+  color: var(--text);
+  font-size: 12px;
+}
+.learning-guide-heading span,
+.learning-step-state {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.learning-steps {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.learning-steps li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+}
+.learning-steps li[data-state='current'] {
+  border-color: #ff672a;
+  background: color-mix(in srgb, #ff672a 8%, var(--surface));
+}
+.learning-step-marker {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+.learning-steps li[data-state='current'] .learning-step-marker {
+  background: #ff672a;
+  border-color: #ff672a;
+  color: #2b1005;
+}
+.learning-steps li[data-state='complete'] .learning-step-marker {
+  color: var(--success);
+  border-color: var(--success);
+}
+.learning-steps strong {
+  display: block;
+  color: var(--text);
+  font-size: 12px;
+}
+.learning-steps p {
+  margin: 4px 0 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.4;
 }

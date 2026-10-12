@@ -5,12 +5,32 @@ import type {
   BrowserProviderDiscoveryTraceEvent
 } from '../contracts';
 import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
-import { hasAssistantMarker, scoreAssistantCandidate, selectAssistantCandidate, type ChatCandidateDescriptor } from './candidate-descriptor';
+import {
+  hasAssistantMarker,
+  scoreAssistantCandidate,
+  selectAssistantCandidate,
+  type ChatCandidateDescriptor
+} from './candidate-descriptor';
 import { replayProviderProfile } from './discovery-replay';
 import { controlLabel, isGenerationControlLabel } from './control-labels';
 import { stableTurnIdentity } from './turn-identity';
+import { composerValue, isVisible } from './dom';
+import { queryShadowLocator } from './shadow-locator';
+import {
+  NEW_CONVERSATION_WINDOW_MS,
+  NEW_CONVERSATION_STABILITY_MS,
+  newConversationCapability
+} from './new-conversation-evidence';
+import {
+  NEW_CONVERSATION_CANDIDATES,
+  newConversationLabelSource,
+  newConversationTargetUrl,
+  resolveNewConversationLocator,
+  resolveNewConversationControl
+} from './new-conversation-control';
 
 const DISCOVERY_LOG = '[MCPLab Rover][provider-discovery]';
+const COMPLETION_STABILITY_MS = 2500;
 
 function discoveryLog(message: string, details?: unknown): void {
   if (details === undefined) console.info(`${DISCOVERY_LOG} ${message}`);
@@ -44,17 +64,10 @@ function selectorAttributeValue(element: Element, attribute: string): string | u
 function selector(element: Element): string {
   const html = element as HTMLElement;
   const authorRole = selectorAttributeValue(html, 'data-message-author-role');
-  if (authorRole)
-    return `[data-message-author-role="${CSS.escape(authorRole)}"]`;
+  if (authorRole) return `[data-message-author-role="${CSS.escape(authorRole)}"]`;
   const assistantClass = assistantClassSelector(element);
   if (assistantClass) return assistantClass;
-  for (const attribute of [
-    'data-testid',
-    'data-test',
-    'aria-label',
-    'title',
-    'name'
-  ]) {
+  for (const attribute of ['data-testid', 'data-test', 'aria-label', 'title', 'name']) {
     const value = selectorAttributeValue(html, attribute);
     if (value) return `[${attribute}="${CSS.escape(value)}"]`;
   }
@@ -121,26 +134,66 @@ function allElements(selectorText: string): HTMLElement[] {
 }
 
 function findNewConversationControls(): HTMLElement[] {
-  return allElements(
-    'button,[role="button"],a,[tabindex]:not([tabindex="-1"]),[aria-label],[title],[data-test],[data-testid],[trackingtest]'
-  ).filter((element) => {
-    if (!visible(element) || (element instanceof HTMLButtonElement && element.disabled))
-      return false;
-    // Prefer the actionable descendant over a custom-element wrapper such as
-    // <tm-icon-button data-test="...">. Clicking the wrapper can be a no-op.
-    if (
-      !(
-        element instanceof HTMLButtonElement ||
-        element instanceof HTMLAnchorElement ||
-        element.getAttribute('role') === 'button'
-      ) &&
-      element.querySelector('button,a,[role="button"]')
+  return [
+    ...new Set(
+      allElements(NEW_CONVERSATION_CANDIDATES)
+        .map(resolveNewConversationControl)
+        .filter((element): element is HTMLElement => Boolean(element))
     )
-      return false;
-    const label =
-      `${element.getAttribute('aria-label') ?? ''} ${element.getAttribute('title') ?? ''} ${element.getAttribute('data-test') ?? ''} ${element.getAttribute('data-testid') ?? ''} ${element.getAttribute('trackingtest') ?? ''} ${element.textContent ?? ''}`.toLowerCase();
-    return /new[\s_-]*(chat|conversation)|new[\s_-]*thread|start[\s_-]*(a[\s_-]*)?new/.test(label);
-  });
+  ];
+}
+
+function clickedNewConversationControl(
+  path: EventTarget[],
+  controls: HTMLElement[],
+  captured: BrowserProviderProfile['newConversation']
+): HTMLElement | undefined {
+  for (const target of path) {
+    if (!(target instanceof HTMLElement)) continue;
+    const resolved = resolveNewConversationControl(target);
+    if (resolved && controls.includes(resolved)) return resolved;
+  }
+  const capturedTargets = [captured?.locator, ...(captured?.locators ?? [])]
+    .filter((value): value is ShadowLocator => Boolean(value))
+    .map(resolveNewConversationLocator)
+    .filter((value): value is HTMLElement => Boolean(value));
+  return path.find(
+    (target): target is HTMLElement =>
+      target instanceof HTMLElement && capturedTargets.includes(target)
+  );
+}
+
+function uniqueControlSelector(element: HTMLElement): string {
+  const root = element.getRootNode() as Document | ShadowRoot;
+  const source = newConversationLabelSource(element);
+  const scopeToSource = source !== element && source.getRootNode() === root;
+  const chain: string[] = [];
+  for (let current: HTMLElement | null = element; current; current = current.parentElement) {
+    if (!scopeToSource || current === source || current.contains(source)) {
+      const unique = selectorCandidates(current).find((candidate) => {
+        const matches = root.querySelectorAll(candidate);
+        return matches.length === 1 && matches[0] === current;
+      });
+      if (unique) return [unique, ...chain].join(' > ');
+    }
+    const siblings = Array.from(current.parentElement?.children ?? root.children);
+    const sameTag = siblings.filter((sibling) => sibling.tagName === current!.tagName);
+    const segment = current.tagName.toLowerCase();
+    chain.unshift(
+      sameTag.length > 1 ? `${segment}:nth-of-type(${sameTag.indexOf(current) + 1})` : segment
+    );
+  }
+  return chain.join(' > ');
+}
+
+function newConversationLocator(element: HTMLElement): ShadowLocator {
+  const segments = [uniqueControlSelector(element)];
+  let root = element.getRootNode();
+  while (root instanceof ShadowRoot) {
+    segments.unshift(uniqueControlSelector(root.host as HTMLElement));
+    root = root.host.getRootNode();
+  }
+  return { segments };
 }
 
 function descriptor(element: HTMLElement, baselineTexts: Set<string>): ChatCandidateDescriptor {
@@ -231,7 +284,7 @@ function validateLocator(value: ShadowLocator): {
   visible: boolean;
 } {
   try {
-    const matches = allElements(value.segments.at(-1) ?? '');
+    const matches = queryShadowLocator(value);
     return {
       valid: value.segments.length > 0,
       matchCount: matches.length,
@@ -307,12 +360,20 @@ export function startProviderDiscovery(
   let lastDraftReady = false;
   let lastDraftSignature = '';
   let lastDraft: BrowserProviderDiscoveryDraft | null = null;
-  let pendingNewConversation:
-    | { control: HTMLElement; beforeUrl: string; beforeAssistantCount: number }
-    | null = null;
+  let pendingNewConversation: {
+    controlLocator: ShadowLocator;
+    controlSelectors: string[];
+    destinationUrl?: string;
+    beforeUrl: string;
+    beforeAssistantCount: number;
+    beforeAssistant: HTMLElement[];
+    expiresAt: number;
+    emptySince: number | null;
+  } | null = null;
   let stopped = false;
   let observedGeneration = false;
   let observedIdle = false;
+  let idleSince: number | null = null;
   let generatingLocator: ShadowLocator | undefined;
   let workingLocator: ShadowLocator | undefined;
   let lastWorkingElement: HTMLElement | null = null;
@@ -334,7 +395,14 @@ export function startProviderDiscovery(
         ? { assistantPreview: assistant.innerText.trim().slice(0, 160) }
         : {}),
       generatingObserved: observedGeneration,
-      idleObserved: observedIdle
+      idleObserved: observedIdle,
+      ...(lastDraft?.profile.newConversation
+        ? {
+            newConversationClicked: Boolean(
+              pendingNewConversation && !pendingNewConversation.destinationUrl
+            )
+          }
+        : {})
     };
     const signature = JSON.stringify(progress);
     if (signature === lastProgressSignature) return;
@@ -371,18 +439,34 @@ export function startProviderDiscovery(
       const currentAssistantCount = candidate
         ? allElements('*').filter((item) => {
             const value = descriptor(item, baselineTexts);
-            return value.visible && Boolean(value.text.trim()) && hasAssistantMarker(value) &&
-              scoreAssistantCandidate(value) !== Number.NEGATIVE_INFINITY;
+            return (
+              value.visible &&
+              Boolean(value.text.trim()) &&
+              hasAssistantMarker(value) &&
+              scoreAssistantCandidate(value) !== Number.NEGATIVE_INFINITY
+            );
           }).length
         : 0;
       const identity = stableTurnIdentity(element);
       const attributes = {
-        ...(element.getAttribute('role') ? { role: element.getAttribute('role')!.slice(0, 128) } : {}),
-        ...(element.getAttribute('aria-label') ? { ariaLabel: element.getAttribute('aria-label')!.slice(0, 128) } : {}),
-        ...(element.getAttribute('aria-busy') ? { ariaBusy: element.getAttribute('aria-busy')!.slice(0, 128) } : {}),
-        ...(element.getAttribute('data-testid') ? { testId: element.getAttribute('data-testid')!.slice(0, 128) } : {}),
-        ...(element.getAttribute('data-test') ? { dataTest: element.getAttribute('data-test')!.slice(0, 128) } : {}),
-        ...(element.getAttribute('data-message-author-role') ? { authorRole: element.getAttribute('data-message-author-role')!.slice(0, 128) } : {})
+        ...(element.getAttribute('role')
+          ? { role: element.getAttribute('role')!.slice(0, 128) }
+          : {}),
+        ...(element.getAttribute('aria-label')
+          ? { ariaLabel: element.getAttribute('aria-label')!.slice(0, 128) }
+          : {}),
+        ...(element.getAttribute('aria-busy')
+          ? { ariaBusy: element.getAttribute('aria-busy')!.slice(0, 128) }
+          : {}),
+        ...(element.getAttribute('data-testid')
+          ? { testId: element.getAttribute('data-testid')!.slice(0, 128) }
+          : {}),
+        ...(element.getAttribute('data-test')
+          ? { dataTest: element.getAttribute('data-test')!.slice(0, 128) }
+          : {}),
+        ...(element.getAttribute('data-message-author-role')
+          ? { authorRole: element.getAttribute('data-message-author-role')!.slice(0, 128) }
+          : {})
       };
       const selectors = selectorCandidates(element);
       const selectorEvaluations = candidate
@@ -428,7 +512,8 @@ export function startProviderDiscovery(
           : {})
       };
     };
-    const selectedElements: NonNullable<BrowserProviderDiscoveryTraceEvent['selectedElements']> = {};
+    const selectedElements: NonNullable<BrowserProviderDiscoveryTraceEvent['selectedElements']> =
+      {};
     if ((phase === 'baseline' || phase === 'submitted') && composer)
       selectedElements.composer = evidenceFor(composer);
     if (phase === 'submitted' && submit && submit !== composer)
@@ -480,49 +565,89 @@ export function startProviderDiscovery(
   record('baseline', 0, 0, controlState());
   discoveryLog('started', { origin, href: location.href, baselineTextCount: baselineTexts.size });
   const scan = () => {
+    if (stopped) return;
     if (pendingNewConversation && lastDraft) {
       const pending = pendingNewConversation;
-      const assistantSelector = lastDraft.profile.assistantMessages.locator.segments.at(-1);
-      const assistantCount = assistantSelector ? allElements(assistantSelector).length : 0;
-      const signal =
-        location.href !== pending.beforeUrl
-          ? 'url-changed'
-          : assistantCount < pending.beforeAssistantCount
-            ? 'assistant-count-reduced'
-            : null;
-      const readyComposer = composer && !(composer instanceof HTMLInputElement || composer instanceof HTMLTextAreaElement
-        ? composer.value.trim()
-        : composer.textContent?.trim());
-      if (signal && readyComposer) {
-        const updatedTrace: BrowserProviderDiscoveryTrace = {
-          ...trace,
-          newConversationEvidence: {
-            controlLocator: locator(pending.control),
-            controlSelectors: selectorCandidates(pending.control),
+      if (Date.now() >= pending.expiresAt) {
+        pendingNewConversation = null;
+        reportProgress();
+      } else {
+        const assistantCount = queryShadowLocator(
+          lastDraft.profile.assistantMessages.locator
+        ).filter(isVisible).length;
+        const currentComposer = queryShadowLocator(lastDraft.profile.composer.locator).find(
+          isVisible
+        );
+        const previousResponseGone =
+          pending.beforeAssistantCount > 0 &&
+          assistantCount === 0 &&
+          pending.beforeAssistant.every((element) => !element.isConnected || !isVisible(element));
+        const emptyComposer = currentComposer && !composerValue(currentComposer).trim();
+        if (!previousResponseGone || !emptyComposer) pending.emptySince = null;
+        else pending.emptySince ??= Date.now();
+        if (
+          pending.emptySince !== null &&
+          Date.now() - pending.emptySince >= NEW_CONVERSATION_STABILITY_MS
+        ) {
+          const currentUrl = new URL(location.href);
+          currentUrl.hash = '';
+          const beforeUrl = new URL(pending.beforeUrl);
+          beforeUrl.hash = '';
+          const signal =
+            currentUrl.href !== beforeUrl.href ? 'url-changed' : 'assistant-count-reduced';
+          discoveryLog('new conversation transition observed', {
             signal,
             beforeAssistantCount: pending.beforeAssistantCount,
             afterAssistantCount: assistantCount
-          }
-        };
-        const replay = replayProviderProfile(lastDraft.profile, updatedTrace);
-        lastDraftReady = replay.passed;
-        lastDraft = {
-          ...lastDraft,
-          trace: updatedTrace,
-          readyToSave: replay.passed,
-          validationReasons: replay.reasons,
-          capabilities: lastDraft.capabilities.map((capability) =>
-            capability.id === 'newConversation'
-              ? {
-                  ...capability,
-                  confidence: 'medium',
-                  detail: `New Chat was followed by ${signal === 'url-changed' ? 'a URL change' : 'the previous response disappearing'}. The UI did not expose a conversation identity.`
-                }
-              : capability
-          )
-        };
-        pendingNewConversation = null;
-        onDraft(lastDraft);
+          });
+          const updatedTrace: BrowserProviderDiscoveryTrace = {
+            ...trace,
+            newConversationEvidence: {
+              controlLocator: pending.controlLocator,
+              controlSelectors: pending.controlSelectors,
+              signal,
+              beforeAssistantCount: pending.beforeAssistantCount,
+              afterAssistantCount: assistantCount,
+              composerEmpty: true,
+              emptyChatStableMs: Date.now() - pending.emptySince,
+              elapsedMs: Date.now() - (pending.expiresAt - NEW_CONVERSATION_WINDOW_MS),
+              ...(pending.destinationUrl ? { destinationUrl: location.href } : {})
+            }
+          };
+          // Save exactly the control whose click was observed, rather than the first label match.
+          const profile: BrowserProviderProfile = {
+            ...lastDraft.profile,
+            newConversation: {
+              action: pending.destinationUrl ? 'navigate' : 'click',
+              ...(pending.destinationUrl ? { url: pending.destinationUrl } : {}),
+              locator: pending.controlLocator,
+              locators: [pending.controlLocator],
+              confirmation: 'context-change'
+            }
+          };
+          const replay = replayProviderProfile(profile, updatedTrace);
+          lastDraftReady = replay.passed;
+          lastDraft = {
+            ...lastDraft,
+            profile,
+            trace: updatedTrace,
+            readyToSave: replay.passed,
+            validationReasons: replay.reasons,
+            validationIssues: replay.issues,
+            capabilities: lastDraft.capabilities.map((capability) =>
+              capability.id === 'newConversation'
+                ? newConversationCapability({
+                    profile,
+                    trace: updatedTrace,
+                    validationIssues: replay.issues
+                  })
+                : capability
+            )
+          };
+          pendingNewConversation = null;
+          onDraft(lastDraft);
+          reportProgress();
+        }
       }
     }
     if (stopped || lastDraftReady || !submittedAt) return;
@@ -552,7 +677,15 @@ export function startProviderDiscovery(
         : undefined;
       record('generating', candidates.length, 0, controls, selected ?? undefined);
     }
-    if (observedGeneration && controls.idleControl && !controls.generating) observedIdle = true;
+    // Stop controls can disappear briefly between response stages. Require the same
+    // sustained idle period used by the saved profile before claiming completion.
+    if (controls.generating || workingElement || !selected) {
+      idleSince = null;
+      observedIdle = false;
+    } else if (observedGeneration) {
+      idleSince ??= Date.now();
+      observedIdle = Date.now() - idleSince >= COMPLETION_STABILITY_MS;
+    }
     idleControl = controls.idleControl;
     const topCandidates = candidates
       .map((candidate) => ({ element: candidate.element, descriptor: candidate.descriptor }))
@@ -569,8 +702,15 @@ export function startProviderDiscovery(
     lastSelected = selected ?? undefined;
     lastControls = controls;
     const scanSignature = `${candidates.length}:${selected?.testId ?? selected?.tagName ?? 'none'}:${Boolean(workingElement)}:${topCandidates.map((candidate) => `${candidate.testId ?? candidate.tag}:${candidate.text}`).join('|')}`;
-    if (scanSignature !== selectedSignature) {
-      selectedSignature = scanSignature;
+    // Stability follows the complete selected answer, not truncated debug previews or
+    // unrelated DOM candidate counts that may change while the answer remains idle.
+    const responseSignature = JSON.stringify([
+      selectedElement ? locator(selectedElement).segments : null,
+      selected?.text,
+      Boolean(workingElement)
+    ]);
+    if (responseSignature !== selectedSignature) {
+      selectedSignature = responseSignature;
       selectedStableSince = selected ? Date.now() : null;
     }
     if (scanSignature !== lastScanSignature) {
@@ -605,11 +745,9 @@ export function startProviderDiscovery(
         ? true
         : !observedGeneration && workingLocator
           ? selectedStableSince !== null && Date.now() - selectedStableSince >= 500
-          :
-        (Boolean(controls.idleControl) &&
-          !controls.generating &&
-          selectedStableSince !== null &&
-          Date.now() - selectedStableSince >= 500));
+          : observedIdle &&
+            selectedStableSince !== null &&
+            Date.now() - selectedStableSince >= COMPLETION_STABILITY_MS);
     if (composer && assistant && responseIsReady) {
       const draftSignature = `${selectedSignature}:${observedGeneration}:${observedIdle}:${generatingLocator?.segments.join('/') ?? ''}:${idleControl ? locator(idleControl).segments.join('/') : ''}`;
       if (draftSignature !== lastDraftSignature) {
@@ -633,12 +771,16 @@ export function startProviderDiscovery(
     );
     submissionAssistantCount = elements.filter((element) => {
       const value = descriptor(element, baselineTexts);
-      return value.visible && Boolean(value.text.trim()) && hasAssistantMarker(value) &&
-        scoreAssistantCandidate(value) !== Number.NEGATIVE_INFINITY;
+      return (
+        value.visible &&
+        Boolean(value.text.trim()) &&
+        hasAssistantMarker(value) &&
+        scoreAssistantCandidate(value) !== Number.NEGATIVE_INFINITY
+      );
     }).length;
   };
   const onFocus = (event: FocusEvent) => {
-    const target = event.target;
+    const target = event.composedPath()[0] ?? event.target;
     if (
       target instanceof HTMLElement &&
       (target.isContentEditable ||
@@ -654,7 +796,7 @@ export function startProviderDiscovery(
     }
   };
   const onInput = (event: Event) => {
-    const target = event.target;
+    const target = event.composedPath()[0] ?? event.target;
     if (
       target instanceof HTMLElement &&
       (target.isContentEditable ||
@@ -675,19 +817,62 @@ export function startProviderDiscovery(
     }
   };
   const onClick = (event: MouseEvent) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    const control = target.closest('button,[role="button"]') as HTMLElement | null;
+    const path = event.composedPath();
+    const newConversationControls = findNewConversationControls();
+    const newConversationControl = clickedNewConversationControl(
+      path,
+      newConversationControls,
+      lastDraft?.profile.newConversation
+    );
+    if (lastDraft?.profile.newConversation) {
+      discoveryLog('click checked for new conversation', {
+        matched: Boolean(newConversationControl),
+        path: path
+          .filter((target): target is HTMLElement => target instanceof HTMLElement)
+          .map((element) => ({
+            tag: element.tagName,
+            title: element.getAttribute('title'),
+            ariaLabel: element.getAttribute('aria-label'),
+            dataTest: element.getAttribute('data-test'),
+            trackingTest: element.getAttribute('trackingtest')
+          }))
+          .slice(0, 8)
+      });
+    }
+    if (lastDraft && newConversationControl) {
+      const controlLocator = newConversationLocator(newConversationControl);
+      const beforeAssistant = queryShadowLocator(
+        lastDraft.profile.assistantMessages.locator
+      ).filter(isVisible);
+      pendingNewConversation = {
+        controlLocator,
+        controlSelectors: [controlLocator.segments.at(-1)!],
+        destinationUrl: newConversationTargetUrl(newConversationControl),
+        beforeUrl: location.href,
+        beforeAssistantCount: beforeAssistant.length,
+        beforeAssistant,
+        expiresAt: Date.now() + NEW_CONVERSATION_WINDOW_MS,
+        emptySince: null
+      };
+      discoveryLog('new conversation control clicked', {
+        tag: newConversationControl.tagName,
+        href:
+          newConversationControl instanceof HTMLAnchorElement
+            ? newConversationControl.href
+            : undefined,
+        beforeAssistantCount: pendingNewConversation.beforeAssistantCount
+      });
+      reportProgress();
+      return;
+    }
+    // A subsequent interaction cannot confirm the earlier New Chat click.
+    if (pendingNewConversation) {
+      pendingNewConversation = null;
+      reportProgress();
+    }
+    const target = path.find((entry): entry is HTMLElement => entry instanceof HTMLElement);
+    const control = target?.closest('button,[role="button"]') as HTMLElement | null;
     if (control) {
-      if (lastDraft && findNewConversationControls().includes(control)) {
-        const assistantSelector = lastDraft.profile.assistantMessages.locator.segments.at(-1);
-        pendingNewConversation = {
-          control,
-          beforeUrl: location.href,
-          beforeAssistantCount: assistantSelector ? allElements(assistantSelector).length : 0
-        };
-        return;
-      }
       const label =
         `${control.getAttribute('aria-label') ?? ''} ${control.textContent ?? ''} ${control.getAttribute('data-testid') ?? ''}`.toLowerCase();
       if (/send|submit|enter|ask|run/.test(label)) {
@@ -705,14 +890,15 @@ export function startProviderDiscovery(
     }
   };
   const onKey = (event: KeyboardEvent) => {
+    const target = event.composedPath()[0] ?? event.target;
     if (event.key === 'Enter' && !event.shiftKey) {
       if (
-        event.target instanceof HTMLElement &&
-        (event.target.isContentEditable ||
-          event.target instanceof HTMLTextAreaElement ||
-          event.target instanceof HTMLInputElement)
+        target instanceof HTMLElement &&
+        (target.isContentEditable ||
+          target instanceof HTMLTextAreaElement ||
+          target instanceof HTMLInputElement)
       )
-        composer = event.target;
+        composer = target;
       submit = submit ?? composer;
       submittedAt = Date.now();
       captureSubmissionBaseline();
@@ -734,18 +920,23 @@ export function startProviderDiscovery(
   const emit = () => {
     if (!composer || !assistant) return;
     emitted = true;
-    const submitLocator = submit && submit !== composer ? locator(submit) : undefined;
+    const submitLocator = [...trace.events].reverse().find((event) => event.phase === 'submitted')
+      ?.selectedElements?.submit?.locator;
     const newConversation = findNewConversationControls();
-    const newConversationProfile = newConversation.length > 0
-      ? newConversation[0] instanceof HTMLAnchorElement && newConversation[0].href
-        ? { action: 'navigate' as const, url: newConversation[0].href }
-        : {
-            action: 'click' as const,
-            locator: locator(newConversation[0]),
-            locators: newConversation.map((control) => locator(control)),
+    const newConversationProfile =
+      newConversation.length > 0
+        ? {
+            action: newConversationTargetUrl(newConversation[0])
+              ? ('navigate' as const)
+              : ('click' as const),
+            ...(newConversationTargetUrl(newConversation[0])
+              ? { url: newConversationTargetUrl(newConversation[0]) }
+              : {}),
+            locator: newConversationLocator(newConversation[0]),
+            locators: newConversation.map(newConversationLocator),
             confirmation: 'context-change' as const
           }
-      : undefined;
+        : undefined;
     const profile: BrowserProviderProfile = {
       schemaVersion: 1,
       id:
@@ -766,13 +957,11 @@ export function startProviderDiscovery(
       submit: submitLocator ? { action: 'click', locator: submitLocator } : { action: 'enter' },
       assistantMessages: { locator: locator(assistant) },
       completion: {
-        stabilityMs: 2500,
-        ...(generatingLocator
-          ? { generatingLocator }
-          : {}),
+        stabilityMs: COMPLETION_STABILITY_MS,
+        ...(generatingLocator ? { generatingLocator } : {}),
         ...(idleControl
           ? { idleLocator: controlLocator(idleControl, 'idle') }
-          : submit && submit !== composer
+          : !observedGeneration && submit && submit !== composer
             ? { idleLocator: withFinalSelector(locator(submit), ':not([disabled])') }
             : {}),
         ...(workingLocator ? { workingLocator } : {})
@@ -796,13 +985,21 @@ export function startProviderDiscovery(
         : { valid: true, matchCount: 0, visible: true },
       assistant: validateLocator(profile.assistantMessages.locator)
     };
-    record('final', lastCandidateCount, lastChangedCandidateCount, lastControls, lastSelected, assistant);
+    record(
+      'final',
+      lastCandidateCount,
+      lastChangedCandidateCount,
+      lastControls,
+      lastSelected,
+      assistant
+    );
     const replay = replayProviderProfile(profile, trace);
     lastDraftReady = replay.passed;
     const draft: BrowserProviderDiscoveryDraft = {
       profile,
       readyToSave: replay.passed,
       validationReasons: replay.reasons,
+      validationIssues: replay.issues,
       trace,
       capabilities: [
         {
@@ -826,25 +1023,18 @@ export function startProviderDiscovery(
         {
           id: 'completion',
           label: 'Completion',
-          confidence: observedGeneration && observedIdle ? 'high' : observedGeneration ? 'medium' : 'low',
+          confidence:
+            observedGeneration && observedIdle ? 'high' : observedGeneration ? 'medium' : 'low',
           detail:
             observedGeneration && observedIdle
               ? 'Observed the generation control and its idle transition.'
               : workingLocator
                 ? 'Observed assistant-scoped activity ending; completion remains inferred from response stability.'
-              : observedGeneration
-                ? 'Observed generation, but not the idle transition yet.'
-                : 'No generation or working transition observed; completion cannot be validated.'
+                : observedGeneration
+                  ? 'Observed generation, but not the idle transition yet.'
+                  : 'No generation or working transition observed; completion cannot be validated.'
         },
-        {
-          id: 'newConversation',
-          label: 'New conversation',
-          confidence: 'low',
-          detail:
-            newConversation.length > 0
-              ? `Found ${newConversation.length} possible new chat control${newConversation.length === 1 ? '' : 's'}; opening a new conversation was not yet confirmed.`
-              : 'Not available for this provider.'
-        }
+        newConversationCapability({ profile, trace, validationIssues: replay.issues })
       ]
     };
     lastDraft = draft;
@@ -861,10 +1051,18 @@ export function startProviderDiscovery(
       subtree: true,
       characterData: true,
       attributes: true,
-      attributeFilter: ['aria-label', 'aria-busy', 'title', 'disabled', 'class', 'data-is-streaming']
+      attributeFilter: [
+        'aria-label',
+        'aria-busy',
+        'title',
+        'disabled',
+        'class',
+        'data-is-streaming'
+      ]
     });
   const stop = () => {
     stopped = true;
+    pendingNewConversation = null;
     observer.disconnect();
     window.clearInterval(poller);
     document.removeEventListener('focusin', onFocus, true);
@@ -882,5 +1080,7 @@ export function startProviderDiscovery(
     emit();
     return emitted;
   };
+  // Show the waiting checks as soon as the observer is installed, before any input.
+  reportProgress();
   return { stop, capture };
 }

@@ -4,7 +4,160 @@ import { startProviderDiscovery } from '../src/providers/provider-discovery';
 import { createMcplabAdapter } from '../src/providers/mcplab';
 import { ask } from '../src/runtime/ask';
 
-describe('provider discovery recovery', () => {
+describe('provider discovery recovery', { timeout: 10_000 }, () => {
+  it('reports the initial waiting state before the user interacts with the chat', () => {
+    const report = vi.fn();
+    const session = startProviderDiscovery(vi.fn(), report);
+    try {
+      expect(report).toHaveBeenCalledWith({
+        composerDetected: false,
+        submitDetected: false,
+        assistantDetected: false,
+        generatingObserved: false,
+        idleObserved: false
+      });
+    } finally {
+      session.stop();
+    }
+  });
+
+  it.each(['enter', 'click'])(
+    'observes %s submission from an open shadow-root chat',
+    (submission) => {
+      Object.defineProperty(globalThis, 'CSS', {
+        value: { escape: (value: string) => value },
+        configurable: true
+      });
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+        width: 10,
+        height: 10
+      } as DOMRect);
+      const host = document.createElement('polo-chat');
+      document.body.append(host);
+      const shadow = host.attachShadow({ mode: 'open' });
+      shadow.innerHTML = '<textarea></textarea><button aria-label="Send">Send</button>';
+      const report = vi.fn();
+      const session = startProviderDiscovery(vi.fn(), report);
+      try {
+        const composer = shadow.querySelector('textarea')!;
+        composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true, composed: true }));
+        expect(report.mock.calls.at(-1)?.[0].composerDetected).toBe(true);
+        composer.value = 'Hello';
+        composer.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true }));
+        if (submission === 'enter') {
+          composer.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, composed: true })
+          );
+        } else {
+          shadow.querySelector('button')!.click();
+        }
+        expect(report.mock.calls.at(-1)?.[0]).toMatchObject({
+          composerDetected: true,
+          submitDetected: true
+        });
+      } finally {
+        session.stop();
+      }
+    }
+  );
+  it('does not capture during a brief gap in generation controls', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis, 'CSS', {
+      value: { escape: (value: string) => value },
+      configurable: true
+    });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
+    document.body.innerHTML = '<textarea></textarea><button aria-label="Send">Send</button>';
+    const drafts: any[] = [];
+    const progress: any[] = [];
+    const session = startProviderDiscovery(
+      (draft) => drafts.push(draft),
+      (update) => progress.push(update)
+    );
+    try {
+      document
+        .querySelector('textarea')!
+        .dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      const send = document.querySelector('button')!;
+      send.click();
+      send.setAttribute('aria-label', 'Stop generating');
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        '<div data-message-author-role="assistant">Partial reply</div>'
+      );
+      const answer = document.querySelector<HTMLElement>('[data-message-author-role]')!;
+      Object.defineProperty(answer, 'innerText', {
+        get: () => answer.textContent,
+        configurable: true
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      send.setAttribute('aria-label', 'Send');
+      await vi.advanceTimersByTimeAsync(750);
+      expect(progress.at(-1)?.idleObserved).toBe(false);
+      expect(drafts).toHaveLength(0);
+      send.setAttribute('aria-label', 'Stop generating');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(drafts).toHaveLength(0);
+      answer.textContent = 'The complete reply';
+      send.setAttribute('aria-label', 'Send');
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(drafts.at(-1)?.readyToSave).toBe(true);
+      expect(
+        drafts.at(-1)?.capabilities.find((item: any) => item.id === 'completion').confidence
+      ).toBe('high');
+    } finally {
+      session.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for the full response text to stabilize after generation ends', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis, 'CSS', {
+      value: { escape: (value: string) => value },
+      configurable: true
+    });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
+    document.body.innerHTML = '<textarea></textarea><button aria-label="Send">Send</button>';
+    const drafts: any[] = [];
+    const session = startProviderDiscovery((draft) => drafts.push(draft));
+    try {
+      document
+        .querySelector('textarea')!
+        .dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      const send = document.querySelector('button')!;
+      send.click();
+      send.setAttribute('aria-label', 'Stop generating');
+      document.body.insertAdjacentHTML(
+        'beforeend',
+        '<div data-message-author-role="assistant"></div>'
+      );
+      const answer = document.querySelector<HTMLElement>('[data-message-author-role]')!;
+      answer.textContent = 'The first paragraph. '.repeat(20);
+      Object.defineProperty(answer, 'innerText', {
+        get: () => answer.textContent,
+        configurable: true
+      });
+      await vi.advanceTimersByTimeAsync(1000);
+      send.setAttribute('aria-label', 'Send');
+      await vi.advanceTimersByTimeAsync(2000);
+      answer.textContent += 'The final paragraph arrived later.';
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(drafts).toHaveLength(0);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(drafts.at(-1)?.readyToSave).toBe(true);
+    } finally {
+      session.stop();
+      vi.useRealTimers();
+    }
+  });
+
   it('does not arm a request when an unrelated control is clicked', async () => {
     Object.defineProperty(globalThis, 'CSS', {
       value: { escape: (value: string) => value },
@@ -14,7 +167,8 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    document.body.innerHTML = '<textarea></textarea><button aria-label="Open settings">Settings</button>';
+    document.body.innerHTML =
+      '<textarea></textarea><button aria-label="Open settings">Settings</button>';
     const drafts: any[] = [];
     const session = startProviderDiscovery((draft) => drafts.push(draft));
     document.querySelector('textarea')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
@@ -22,7 +176,10 @@ describe('provider discovery recovery', () => {
     const response = document.createElement('div');
     response.setAttribute('data-testid', 'markdown-reply');
     response.textContent = 'An unrelated existing response changed';
-    Object.defineProperty(response, 'innerText', { value: response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      value: response.textContent,
+      configurable: true
+    });
     document.body.append(response);
     await new Promise((resolve) => setTimeout(resolve, 650));
     session.stop();
@@ -47,7 +204,10 @@ describe('provider discovery recovery', () => {
     const response = document.createElement('div');
     response.setAttribute('data-testid', 'markdown-reply');
     response.textContent = 'An old response changed while typing';
-    Object.defineProperty(response, 'innerText', { value: response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      value: response.textContent,
+      configurable: true
+    });
     document.body.append(response);
     await new Promise((resolve) => setTimeout(resolve, 650));
     session.stop();
@@ -63,7 +223,8 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    document.body.innerHTML = '<textarea></textarea><button aria-label="Send">Send</button><button aria-label="New chat">New chat</button>';
+    document.body.innerHTML =
+      '<textarea></textarea><button aria-label="Send">Send</button><button aria-label="New chat">New chat</button>';
     const drafts: any[] = [];
     const session = startProviderDiscovery((draft) => drafts.push(draft));
     document.querySelector('textarea')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
@@ -73,17 +234,20 @@ describe('provider discovery recovery', () => {
     const response = document.createElement('div');
     response.setAttribute('data-testid', 'markdown-reply');
     response.textContent = 'Answer before new conversation';
-    Object.defineProperty(response, 'innerText', { value: response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      value: response.textContent,
+      configurable: true
+    });
     document.body.append(response);
     await new Promise((resolve) => setTimeout(resolve, 100));
     send.setAttribute('aria-label', 'Send');
-    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 2_000 });
-    expect(drafts.at(-1)?.readyToSave).toBe(false);
+    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 3_500 });
+    expect(drafts.at(-1)?.readyToSave).toBe(true);
     const newChat = document.querySelector('button[aria-label="New chat"]')!;
     newChat.addEventListener('click', () => response.remove());
     newChat.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await vi.waitFor(() => expect(drafts.at(-1)?.trace.newConversationEvidence).toBeDefined(), {
-      timeout: 1_000
+      timeout: 1_500
     });
     expect(drafts.at(-1)?.readyToSave).toBe(true);
     session.stop();
@@ -93,9 +257,11 @@ describe('provider discovery recovery', () => {
       beforeAssistantCount: 1,
       afterAssistantCount: 0
     });
-    expect(drafts.at(-1)?.capabilities).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: 'newConversation', confidence: 'medium' })
-    ]));
+    expect(drafts.at(-1)?.capabilities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'newConversation', confidence: 'medium' })
+      ])
+    );
   });
 
   it('targets a title-only New Chat control rather than the Send button', async () => {
@@ -107,7 +273,8 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    document.body.innerHTML = '<textarea></textarea><button aria-label="Send">Send</button><button title="New chat"></button>';
+    document.body.innerHTML =
+      '<textarea></textarea><button aria-label="Send">Send</button><tm-icon-button data-test="ai-agent_chat_new-chat"><button title="New chat"></button></tm-icon-button>';
     const drafts: any[] = [];
     const session = startProviderDiscovery((draft) => drafts.push(draft));
     document.querySelector('textarea')!.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
@@ -117,17 +284,27 @@ describe('provider discovery recovery', () => {
     const response = document.createElement('div');
     response.setAttribute('data-testid', 'markdown-reply');
     response.textContent = 'A complete response before the next chat';
-    Object.defineProperty(response, 'innerText', { value: response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      value: response.textContent,
+      configurable: true
+    });
     document.body.append(response);
     await new Promise((resolve) => setTimeout(resolve, 100));
     send.setAttribute('aria-label', 'Send');
-    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 2_000 });
-    expect(drafts.at(-1).profile.newConversation.locator.segments.at(-1)).toBe('[title="New chat"]');
-    expect(drafts.at(-1).readyToSave).toBe(false);
-    const newChat = document.querySelector('[title="New chat"]')!;
-    newChat.addEventListener('click', () => response.remove());
-    newChat.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 1_000 });
+    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 3_500 });
+    expect(drafts.at(-1).profile.newConversation.locator.segments.at(-1)).toBe(
+      '[title="New chat"]'
+    );
+    expect(drafts.at(-1).readyToSave).toBe(true);
+    const newChatHost = document.querySelector('tm-icon-button')!;
+    newChatHost.addEventListener('click', () => response.remove());
+    newChatHost.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await vi.waitFor(() => expect(drafts.at(-1)?.trace.newConversationEvidence).toBeDefined(), {
+      timeout: 1_500
+    });
+    expect(drafts.at(-1).trace.newConversationEvidence.controlLocator.segments).toEqual([
+      '[title="New chat"]'
+    ]);
     session.stop();
   });
 
@@ -163,7 +340,7 @@ describe('provider discovery recovery', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(drafts).toHaveLength(0);
     container.setAttribute('aria-busy', 'false');
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    await new Promise((resolve) => setTimeout(resolve, 3_100));
     session.stop();
     expect(drafts.at(-1)?.profile.completion.workingLocator.segments.at(-1)).toBe(
       'section[aria-busy="true"]'
@@ -205,7 +382,7 @@ describe('provider discovery recovery', () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
     send.setAttribute('aria-label', 'Send');
     container.setAttribute('aria-busy', 'false');
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    await new Promise((resolve) => setTimeout(resolve, 3_100));
     session.stop();
 
     expect(drafts.at(-1)?.profile.completion.workingLocator.segments.at(-1)).toBe(
@@ -239,13 +416,16 @@ describe('provider discovery recovery', () => {
     const response = document.createElement('div');
     response.setAttribute('data-testid', 'markdown-reply');
     response.textContent = 'Answer from an agent with no Stop control';
-    Object.defineProperty(response, 'innerText', { value: response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      value: response.textContent,
+      configurable: true
+    });
     container.append(response);
     document.body.append(container);
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(drafts).toHaveLength(0);
     container.setAttribute('aria-busy', 'false');
-    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 3_500 });
     session.stop();
     expect(drafts.at(-1)?.profile.completion.generatingLocator).toBeUndefined();
     expect(drafts.at(-1)?.profile.completion.workingLocator).toBeDefined();
@@ -270,12 +450,15 @@ describe('provider discovery recovery', () => {
     const response = document.createElement('div');
     response.setAttribute('data-testid', 'markdown-reply');
     response.textContent = 'An answer while a separate busy marker exists';
-    Object.defineProperty(response, 'innerText', { value: response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      value: response.textContent,
+      configurable: true
+    });
     container.append(response);
     document.body.append(container);
     await new Promise((resolve) => setTimeout(resolve, 120));
     container.replaceWith(response);
-    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 3_500 });
     session.stop();
     expect(drafts.at(-1)?.trace.events.at(-1)?.workingActive).toBe(false);
   });
@@ -298,7 +481,10 @@ describe('provider discovery recovery', () => {
     send.setAttribute('aria-label', 'Stop generating');
     const response = document.createElement('div');
     response.setAttribute('data-testid', 'markdown-reply');
-    Object.defineProperty(response, 'innerText', { get: () => response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      get: () => response.textContent,
+      configurable: true
+    });
     response.textContent = 'The first streamed chunk';
     document.body.append(response);
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -307,10 +493,12 @@ describe('provider discovery recovery', () => {
       response.textContent = `Streaming response content ${index}`;
       await Promise.resolve();
     }
-    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 3_500 });
     session.stop();
     expect(drafts.at(-1).trace.events.length).toBeLessThanOrEqual(32);
-    expect(drafts.at(-1).trace.events.some((event: any) => event.phase === 'generating')).toBe(true);
+    expect(drafts.at(-1).trace.events.some((event: any) => event.phase === 'generating')).toBe(
+      true
+    );
   });
 
   it('updates an early incomplete draft when a later generation and idle transition is observed', async () => {
@@ -342,7 +530,7 @@ describe('provider discovery recovery', () => {
     send.setAttribute('aria-label', 'Stop generating');
     await new Promise((resolve) => setTimeout(resolve, 150));
     send.setAttribute('aria-label', 'Send');
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    await new Promise((resolve) => setTimeout(resolve, 3_100));
     session.stop();
     expect(drafts.at(-1)?.readyToSave).toBe(true);
     expect(drafts.at(-1)?.trace.observedGeneration).toBe(true);
@@ -357,7 +545,8 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    document.body.innerHTML = '<textarea aria-label="Message Copilot"></textarea><button aria-label="Send">Send</button>';
+    document.body.innerHTML =
+      '<textarea aria-label="Message Copilot"></textarea><button aria-label="Send">Send</button>';
     const composer = document.querySelector('textarea')!;
     const send = document.querySelector('button')!;
     const drafts: any[] = [];
@@ -385,7 +574,7 @@ describe('provider discovery recovery', () => {
     composer.value = 'Learning request';
     composer.dispatchEvent(new Event('input', { bubbles: true }));
     send.click();
-    await new Promise((resolve) => setTimeout(resolve, 1_250));
+    await new Promise((resolve) => setTimeout(resolve, 3_250));
     session.stop();
     expect(drafts).toHaveLength(1);
     expect(drafts[0].readyToSave).toBe(true);
@@ -405,7 +594,8 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><button aria-label="Submit">Submit</button><div data-test="chat-messages_message" class="chat-messages__message--user">Old user prompt</div>';
+    document.body.innerHTML =
+      '<textarea data-test="ai-agent_input"></textarea><button aria-label="Submit">Submit</button><div data-test="chat-messages_message" class="chat-messages__message--user">Old user prompt</div>';
     const composer = document.querySelector('textarea')!;
     const send = document.querySelector('button')!;
     const drafts: any[] = [];
@@ -433,7 +623,7 @@ describe('provider discovery recovery', () => {
     composer.value = 'Learning request';
     composer.dispatchEvent(new Event('input', { bubbles: true }));
     send.click();
-    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 3_500 });
     session.stop();
     const adapter = createMcplabAdapter(drafts.at(-1).profile);
     expect(await ask(adapter, 'Second request')).toBe('Final custom response 2');
@@ -460,7 +650,10 @@ describe('provider discovery recovery', () => {
       response.id = `answer-${request}`;
       response.setAttribute('role', 'article');
       response.textContent = `Assistant answer for request ${request}`;
-      Object.defineProperty(response, 'innerText', { get: () => response.textContent, configurable: true });
+      Object.defineProperty(response, 'innerText', {
+        get: () => response.textContent,
+        configurable: true
+      });
       document.body.append(response);
       setTimeout(() => send.setAttribute('aria-label', 'Send'), 100);
     });
@@ -469,9 +662,11 @@ describe('provider discovery recovery', () => {
     composer.value = 'Learning request';
     composer.dispatchEvent(new Event('input', { bubbles: true }));
     send.click();
-    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 3_500 });
     session.stop();
-    expect(drafts.at(-1).profile.assistantMessages.locator.segments.at(-1)).toBe('[role="article"]');
+    expect(drafts.at(-1).profile.assistantMessages.locator.segments.at(-1)).toBe(
+      '[role="article"]'
+    );
     expect(await ask(createMcplabAdapter(drafts.at(-1).profile), 'Second request')).toBe(
       'Assistant answer for request 2'
     );
@@ -486,9 +681,13 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    document.body.innerHTML = '<textarea></textarea><button aria-label="Send">Send</button><div data-testid="markdown-reply">Previous answer</div>';
+    document.body.innerHTML =
+      '<textarea></textarea><button aria-label="Send">Send</button><div data-testid="markdown-reply">Previous answer</div>';
     const response = document.querySelector('[data-testid="markdown-reply"]')!;
-    Object.defineProperty(response, 'innerText', { get: () => response.textContent, configurable: true });
+    Object.defineProperty(response, 'innerText', {
+      get: () => response.textContent,
+      configurable: true
+    });
     const send = document.querySelector('button')!;
     const drafts: any[] = [];
     const session = startProviderDiscovery((draft) => drafts.push(draft));
@@ -498,7 +697,7 @@ describe('provider discovery recovery', () => {
     response.textContent = 'Previous answer changed after Send';
     await new Promise((resolve) => setTimeout(resolve, 100));
     send.setAttribute('aria-label', 'Send');
-    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 3_500 });
     session.stop();
     expect(drafts.at(-1)?.readyToSave).toBe(false);
     expect(drafts.at(-1)?.validationReasons).toContain(
@@ -515,7 +714,8 @@ describe('provider discovery recovery', () => {
       width: 10,
       height: 10
     } as DOMRect);
-    document.body.innerHTML = '<textarea></textarea><button aria-label="Send">Send</button><div data-testid="markdown-reply" data-message-id="old-turn">Old answer</div>';
+    document.body.innerHTML =
+      '<textarea></textarea><button aria-label="Send">Send</button><div data-testid="markdown-reply" data-message-id="old-turn">Old answer</div>';
     const send = document.querySelector('button')!;
     const drafts: any[] = [];
     const session = startProviderDiscovery((draft) => drafts.push(draft));
@@ -523,12 +723,16 @@ describe('provider discovery recovery', () => {
     send.click();
     send.setAttribute('aria-label', 'Stop generating');
     const response = document.querySelector('[data-message-id="old-turn"]')!;
-    response.outerHTML = '<div data-testid="markdown-reply" data-message-id="old-turn">Old answer rerendered after Send</div>';
+    response.outerHTML =
+      '<div data-testid="markdown-reply" data-message-id="old-turn">Old answer rerendered after Send</div>';
     const replacement = document.querySelector('[data-message-id="old-turn"]')!;
-    Object.defineProperty(replacement, 'innerText', { get: () => replacement.textContent, configurable: true });
+    Object.defineProperty(replacement, 'innerText', {
+      get: () => replacement.textContent,
+      configurable: true
+    });
     await new Promise((resolve) => setTimeout(resolve, 100));
     send.setAttribute('aria-label', 'Send');
-    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts.length).toBeGreaterThan(0), { timeout: 3_500 });
     session.stop();
     expect(drafts.at(-1)?.readyToSave).toBe(false);
   });
@@ -548,7 +752,8 @@ describe('provider discovery recovery', () => {
       height: 10
     } as DOMRect);
     const drafts: any[] = [];
-    document.body.innerHTML = '<textarea aria-label="Message Copilot"></textarea><button aria-label="Send">Send</button>';
+    document.body.innerHTML =
+      '<textarea aria-label="Message Copilot"></textarea><button aria-label="Send">Send</button>';
     const session = startProviderDiscovery((draft) => drafts.push(draft));
     const composer = document.querySelector('textarea')!;
     composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
@@ -568,14 +773,22 @@ describe('provider discovery recovery', () => {
     expect(drafts[0].profile.assistantMessages.locator.segments.at(-1)).toBe(
       '[data-testid="markdown-reply"]'
     );
-    expect(drafts[0].trace.events.some((event: any) =>
-      event.snapshot?.some((node: any) => node.selector === '[data-testid="markdown-reply"]')
-    )).toBe(false);
-    expect(drafts[0].trace.events.some((event: any) =>
-      event.selectedElements?.assistant?.locator.segments.at(-1) === '[data-testid="markdown-reply"]'
-    )).toBe(true);
-    expect(drafts[0].trace.events.find((event: any) => event.selectedElements?.assistant)
-      .selectedElements.assistant).toMatchObject({
+    expect(
+      drafts[0].trace.events.some((event: any) =>
+        event.snapshot?.some((node: any) => node.selector === '[data-testid="markdown-reply"]')
+      )
+    ).toBe(false);
+    expect(
+      drafts[0].trace.events.some(
+        (event: any) =>
+          event.selectedElements?.assistant?.locator.segments.at(-1) ===
+          '[data-testid="markdown-reply"]'
+      )
+    ).toBe(true);
+    expect(
+      drafts[0].trace.events.find((event: any) => event.selectedElements?.assistant)
+        .selectedElements.assistant
+    ).toMatchObject({
       candidateScore: 21,
       attributes: { testId: 'markdown-reply' },
       changedFromBaseline: true
@@ -714,7 +927,7 @@ describe('provider discovery recovery', () => {
       configurable: true
     });
     document.body.append(response);
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    await new Promise((resolve) => setTimeout(resolve, 3_100));
 
     expect(drafts).toHaveLength(1);
     expect(drafts[0].trace.observedGeneration).toBe(true);
@@ -757,6 +970,65 @@ describe('provider discovery recovery', () => {
     session.stop();
   });
 
+  it.each(['hidden', 'replaced', 'stop-hidden'])(
+    'learns idle after generation ends with a %s send control',
+    async (state) => {
+      Object.defineProperty(globalThis, 'CSS', {
+        value: { escape: (value: string) => value },
+        configurable: true
+      });
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+        width: 10,
+        height: 10
+      } as DOMRect);
+      document.body.innerHTML =
+        '<textarea aria-label="Enter a prompt for Gemini"></textarea><button aria-label="Send message"></button>';
+      const drafts: any[] = [];
+      const progress: any[] = [];
+      const session = startProviderDiscovery(
+        (draft) => drafts.push(draft),
+        (update) => progress.push(update)
+      );
+      try {
+        const composer = document.querySelector('textarea')!;
+        const send = document.querySelector('button')!;
+        composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+        send.click();
+        send.setAttribute('aria-label', 'Stop generating');
+        const response = document.createElement('div');
+        response.setAttribute('data-message-author-role', 'assistant');
+        response.textContent = 'Hey there! How can I help you today?';
+        Object.defineProperty(response, 'innerText', {
+          value: response.textContent,
+          configurable: true
+        });
+        document.body.append(response);
+        await vi.waitFor(() => expect(progress.at(-1)?.generatingObserved).toBe(true));
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        expect(drafts).toHaveLength(0);
+        if (state !== 'replaced') {
+          if (state === 'hidden') send.setAttribute('aria-label', 'Send message');
+          send.style.display = 'none';
+        } else {
+          send.remove();
+          document.body.insertAdjacentHTML('beforeend', '<button aria-label="Dictate"></button>');
+        }
+        await vi.waitFor(() => expect(drafts.at(-1)?.readyToSave).toBe(true), { timeout: 3_500 });
+        expect(progress.at(-1)?.idleObserved).toBe(true);
+        expect(drafts.at(-1)?.profile.completion.idleLocator).toBeUndefined();
+        expect(drafts.at(-1)?.profile.submit.locator.segments.at(-1)).toBe(
+          '[aria-label="Send message"]'
+        );
+        const adapter = createMcplabAdapter(drafts.at(-1).profile);
+        expect(
+          adapter.signalEvaluator.evaluate(adapter.getAssistantCandidates(), Date.now()).signals
+        ).toMatchObject({ generation_active: false, idle_visible: true });
+      } finally {
+        session.stop();
+      }
+    }
+  );
+
   it('learns an abort control as generation and submit as idle', async () => {
     Object.defineProperty(globalThis, 'CSS', {
       value: { escape: (value: string) => value },
@@ -794,7 +1066,7 @@ describe('provider discovery recovery', () => {
       submit.setAttribute('title', 'Submit');
       submit.textContent = 'Submit';
     }, 450);
-    await vi.waitFor(() => expect(drafts).toHaveLength(1), { timeout: 2_000 });
+    await vi.waitFor(() => expect(drafts).toHaveLength(1), { timeout: 3_500 });
     session.stop();
     expect(drafts).toHaveLength(1);
     expect(drafts[0].trace.observedGeneration).toBe(true);
@@ -902,5 +1174,356 @@ describe('provider discovery recovery', () => {
     expect(drafts).toHaveLength(1);
     expect(session.capture()).toBe(false);
     expect(drafts).toHaveLength(1);
+  });
+});
+
+describe('optional New Chat evidence', () => {
+  let session: ReturnType<typeof startProviderDiscovery>;
+  afterEach(() => {
+    session?.stop();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    document.body.replaceChildren();
+    history.replaceState(null, '', '/');
+  });
+
+  async function learn(
+    controlMarkup = '<button title="New chat">New chat</button>',
+    shadow = false,
+    controlsInShadow = false
+  ) {
+    vi.useFakeTimers();
+    Object.defineProperty(globalThis, 'CSS', {
+      value: { escape: (value: string) => value },
+      configurable: true
+    });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
+    document.body.innerHTML =
+      '<textarea></textarea><button aria-label="Send">Send</button>' +
+      (controlsInShadow ? '' : controlMarkup);
+    const controlRoot = controlsInShadow
+      ? document.body
+          .appendChild(document.createElement('controls-host'))
+          .attachShadow({ mode: 'open' })
+      : document;
+    if (controlsInShadow) (controlRoot as ShadowRoot).innerHTML = controlMarkup;
+    const root = shadow
+      ? document.body
+          .appendChild(document.createElement('chat-host'))
+          .attachShadow({ mode: 'open' })
+      : document.body;
+    const drafts: any[] = [];
+    const progress: any[] = [];
+    session = startProviderDiscovery(
+      (draft) => drafts.push(draft),
+      (update) => progress.push(update)
+    );
+    const composer = document.querySelector('textarea')!;
+    composer.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    const send = document.querySelector<HTMLButtonElement>('[aria-label="Send"]')!;
+    send.click();
+    send.setAttribute('aria-label', 'Stop generating');
+    const response = document.createElement('div');
+    response.setAttribute('data-message-author-role', 'assistant');
+    response.textContent = 'A completed response';
+    Object.defineProperty(response, 'innerText', { get: () => response.textContent });
+    root.append(response);
+    await vi.advanceTimersByTimeAsync(500);
+    send.setAttribute('aria-label', 'Send');
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(drafts.at(-1)?.readyToSave).toBe(true);
+    return {
+      drafts,
+      progress,
+      composer,
+      response,
+      root,
+      control: controlRoot.querySelector<HTMLElement>('[title="New chat"]')!
+    };
+  }
+
+  it('does not learn conversation titles or answer prose as New Chat controls', async () => {
+    const { drafts } = await learn(
+      '<a href="/c/old" tabindex="0">New chat</a><div tabindex="0">You can start a new conversation here</div><div title="New chat"><span>Sidebar title</span></div>'
+    );
+    expect(drafts.at(-1).profile.newConversation).toBeUndefined();
+  });
+
+  it('uses the same actionable descendant for capture and wrapper clicks', async () => {
+    const { drafts, response, composer, root } = await learn(
+      '<tm-icon-button data-test="ai-agent_chat_new-chat"><button>+</button></tm-icon-button>'
+    );
+    const wrapper = document.querySelector<HTMLElement>('tm-icon-button')!;
+    wrapper.click();
+    response.remove();
+    await vi.advanceTimersByTimeAsync(1000);
+    const saved = drafts.at(-1);
+    expect(saved.trace.newConversationEvidence).toBeDefined();
+    expect(saved.profile.newConversation.locator).toEqual(
+      saved.trace.newConversationEvidence.controlLocator
+    );
+    expect(saved.profile.newConversation.locator.segments.at(-1)).toBe(
+      '[data-test="ai-agent_chat_new-chat"] > button'
+    );
+    expect(saved.validationIssues).toEqual([]);
+    root.append(response);
+    composer.value = 'A second draft';
+    wrapper.querySelector('button')!.addEventListener('click', () => {
+      response.remove();
+      composer.value = '';
+    });
+    await expect(
+      createMcplabAdapter(saved.profile).startNewConversation!()
+    ).resolves.toBeUndefined();
+  });
+
+  it('confirms a decorative icon click after a tooltip clears the native title', async () => {
+    const { drafts, control, response, composer, root } = await learn(
+      '<tm-icon-button data-test="ai-agent_chat_new-chat"><button class="material-icons" kendotooltip title="New chat" data-title="">add</button></tm-icon-button>'
+    );
+    control.setAttribute('title', '');
+    control.setAttribute('data-title', 'New chat');
+    control.click();
+    response.remove();
+    await vi.advanceTimersByTimeAsync(1000);
+    const saved = drafts.at(-1);
+    expect(saved.trace.newConversationEvidence).toBeDefined();
+    expect(saved.validationIssues).toEqual([]);
+    root.append(response);
+    composer.value = 'Another prompt';
+    control.addEventListener('click', () => {
+      response.remove();
+      composer.value = '';
+    });
+    await expect(
+      createMcplabAdapter(saved.profile).startNewConversation!()
+    ).resolves.toBeUndefined();
+  });
+
+  it.each(['light DOM', 'shadow DOM'])(
+    'recognizes an anonymous click through its captured locator in %s',
+    async (mode) => {
+      const {
+        drafts,
+        response,
+        composer,
+        root,
+        control: button
+      } = await learn(
+        '<button data-testid="launch" title="New chat"><span aria-hidden="true">add</span></button>',
+        false,
+        mode === 'shadow DOM'
+      );
+      button.setAttribute('title', '');
+      button.setAttribute('data-title', 'New chat');
+      button.querySelector<HTMLElement>('span')!.click();
+      response.remove();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(drafts.at(-1).trace.newConversationEvidence).toBeDefined();
+      expect(drafts.at(-1).validationIssues).toEqual([]);
+      const saved = drafts.at(-1);
+      root.append(response);
+      composer.value = 'Another prompt';
+      button.addEventListener('click', () => {
+        response.remove();
+        composer.value = '';
+      });
+      await expect(
+        createMcplabAdapter(saved.profile).startNewConversation!()
+      ).resolves.toBeUndefined();
+    }
+  );
+
+  it.each(['disabled', 'aria-disabled', 'renamed', 'ambiguous', 'outside-shadow'])(
+    'does not trust a captured locator when its clicked target is %s',
+    async (state) => {
+      const { drafts, response, control } = await learn(
+        '<button data-testid="launch" title="New chat"><span aria-hidden="true">add</span></button>',
+        false,
+        state === 'outside-shadow'
+      );
+      control.setAttribute('title', '');
+      if (state === 'disabled') control.setAttribute('disabled', '');
+      if (state === 'aria-disabled') control.setAttribute('aria-disabled', 'true');
+      if (state === 'renamed') control.setAttribute('aria-label', 'More options');
+      let clicked = control;
+      if (state === 'ambiguous' || state === 'outside-shadow') {
+        clicked = control.cloneNode(true) as HTMLElement;
+        document.body.append(clicked);
+      }
+      clicked
+        .querySelector<HTMLElement>('span')!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
+      response.remove();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(drafts.at(-1).trace.newConversationEvidence).toBeUndefined();
+    }
+  );
+
+  it.each(['new-chat-button', 'create-new-chat-button', 'sidebar_new_chat_btn', 'newChatButton'])(
+    'discovers and executes an icon-only New Chat control with metadata %s',
+    async (testId) => {
+      const { drafts, response, composer, root } = await learn(
+        `<button data-testid="${testId}">+</button>`
+      );
+      const control = document.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)!;
+      expect(drafts.at(-1).profile.newConversation).toBeDefined();
+      control.click();
+      response.remove();
+      await vi.advanceTimersByTimeAsync(1000);
+      const saved = drafts.at(-1);
+      expect(saved.trace.newConversationEvidence).toBeDefined();
+      expect(saved.validationIssues).toEqual([]);
+      root.append(response);
+      composer.value = 'Another prompt';
+      control.addEventListener('click', () => {
+        response.remove();
+        composer.value = '';
+      });
+      await expect(
+        createMcplabAdapter(saved.profile).startNewConversation!()
+      ).resolves.toBeUndefined();
+    }
+  );
+
+  it('expires pending clicks before a later unrelated transition and resets progress', async () => {
+    const { drafts, progress, response, control } = await learn();
+    control.click();
+    await vi.advanceTimersByTimeAsync(5500);
+    expect(progress.at(-1).newConversationClicked).toBe(false);
+    response.remove();
+    history.replaceState(null, '', '/c/old');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(drafts.at(-1).trace.newConversationEvidence).toBeUndefined();
+  });
+
+  it.each([
+    'url-only',
+    'hash-only',
+    'nonempty-input',
+    'partial-removal',
+    'rerender',
+    'sidebar-click'
+  ])('does not confirm from %s', async (signal) => {
+    const { drafts, composer, response, root, control } = await learn();
+    const other = response.cloneNode(true);
+    if (signal === 'partial-removal') root.append(other);
+    control.click();
+    if (signal === 'sidebar-click') {
+      const sidebar = document.createElement('button');
+      sidebar.textContent = 'Old conversation';
+      document.body.append(sidebar);
+      sidebar.click();
+      response.remove();
+    }
+    if (signal === 'url-only') history.replaceState(null, '', '/c/old');
+    if (signal === 'hash-only') history.replaceState(null, '', '/#new');
+    if (signal === 'nonempty-input') composer.value = 'Unsent text';
+    if (signal === 'nonempty-input' || signal === 'partial-removal') response.remove();
+    if (signal === 'rerender') {
+      response.remove();
+      await vi.advanceTimersByTimeAsync(250);
+      root.append(response.cloneNode(true));
+    }
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(drafts.at(-1).trace.newConversationEvidence).toBeUndefined();
+  });
+
+  it('counts the full shadow locator and ignores unrelated matching elements', async () => {
+    const { drafts, response, control } = await learn(undefined, true);
+    const unrelated = response.cloneNode(true) as HTMLElement;
+    document.body.append(unrelated);
+    control.click();
+    unrelated.remove();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(drafts.at(-1).trace.newConversationEvidence).toBeUndefined();
+    response.remove();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(drafts.at(-1).trace.newConversationEvidence).toMatchObject({
+      beforeAssistantCount: 1,
+      afterAssistantCount: 0
+    });
+  });
+
+  it('confirms when visible responses become hidden while cached conversations remain in the DOM', async () => {
+    const { drafts, response, root, control } = await learn();
+    const cached = response.cloneNode(true) as HTMLElement;
+    cached.style.display = 'none';
+    root.append(cached);
+    control.click();
+    response.style.display = 'none';
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(response.isConnected).toBe(true);
+    expect(drafts.at(-1).trace.newConversationEvidence).toMatchObject({
+      beforeAssistantCount: 1,
+      afterAssistantCount: 0
+    });
+  });
+
+  it('does not confirm a click that starts with only hidden cached responses', async () => {
+    const { drafts, response, control } = await learn();
+    response.style.display = 'none';
+    control.click();
+    response.remove();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(drafts.at(-1).trace.newConversationEvidence).toBeUndefined();
+  });
+
+  it('keeps learning when an unrelated answer link has a malformed URL', async () => {
+    const { drafts } = await learn(
+      '<button title="New chat">New chat</button><a href="http://[broken">An unrelated answer link</a>'
+    );
+    expect(drafts.at(-1).readyToSave).toBe(true);
+    expect(drafts.at(-1).profile.newConversation.action).toBe('click');
+  });
+
+  it('learns a real New Chat link as navigation without requiring confirmation', async () => {
+    const { drafts } = await learn('<a title="New chat" href="/new">New chat</a>');
+    expect(drafts.at(-1).profile.newConversation).toMatchObject({
+      action: 'navigate',
+      url: new URL('/new', location.href).href
+    });
+    expect(drafts.at(-1).readyToSave).toBe(true);
+    expect(drafts.at(-1).validationIssues).toContainEqual(
+      expect.objectContaining({ code: 'new-chat-unconfirmed', blocking: false })
+    );
+  });
+
+  it('uniquely saves the clicked control when labels are identical', async () => {
+    const { drafts, response, root, composer } = await learn(
+      '<button title="New chat" id="first">New chat</button><button title="New chat" id="second">New chat</button>'
+    );
+    const first = document.querySelector<HTMLButtonElement>('#first')!;
+    const second = document.querySelector<HTMLButtonElement>('#second')!;
+    second.click();
+    response.remove();
+    await vi.advanceTimersByTimeAsync(1000);
+    const profile = drafts.at(-1).profile;
+    expect(profile.newConversation.locator.segments).toEqual(['[id="second"]']);
+    root.append(response);
+    composer.value = 'A second draft';
+    const firstClicked = vi.fn();
+    first.addEventListener('click', firstClicked);
+    second.addEventListener('click', () => {
+      response.remove();
+      composer.value = '';
+    });
+    await expect(createMcplabAdapter(profile).startNewConversation!()).resolves.toBeUndefined();
+    expect(firstClicked).not.toHaveBeenCalled();
+  });
+
+  it('saves the actually clicked candidate as the primary locator', async () => {
+    const { drafts, response } = await learn(
+      '<button title="New chat" id="first">New chat</button><button aria-label="New conversation" id="second">New conversation</button>'
+    );
+    document.querySelector<HTMLElement>('#second')!.click();
+    response.remove();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(drafts.at(-1).profile.newConversation.locator.segments).toEqual([
+      '[aria-label="New conversation"]'
+    ]);
   });
 });

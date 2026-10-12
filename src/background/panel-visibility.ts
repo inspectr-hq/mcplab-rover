@@ -11,7 +11,7 @@ export function shouldRestorePanelAfterNavigation(input: {
   );
 }
 
-export function shouldHidePanelOnTabActivation(input: {
+export function shouldHidePreviousPanel(input: {
   panelTabId: number | undefined;
   activeTabId: number | undefined;
 }): boolean {

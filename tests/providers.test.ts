@@ -73,15 +73,21 @@ function evaluate(adapter: ChatProviderAdapter, candidates = adapter.getAssistan
 }
 
 describe('learned provider profile validation', () => {
+  it('rejects an unknown profile source', () => {
+    expect(isValidBrowserProviderProfile({ ...learnedProfile, source: 'BuiltIn' })).toBe(false);
+  });
+
   it('rejects an invalid New Chat alternative even when the primary locator is valid', () => {
-    expect(isValidBrowserProviderProfile({
-      ...learnedProfile,
-      newConversation: {
-        action: 'click',
-        locator: { segments: ['[data-testid="new-chat"]'] },
-        locators: [{ segments: [] }]
-      }
-    })).toBe(false);
+    expect(
+      isValidBrowserProviderProfile({
+        ...learnedProfile,
+        newConversation: {
+          action: 'click',
+          locator: { segments: ['[data-testid="new-chat"]'] },
+          locators: [{ segments: [] }]
+        }
+      })
+    ).toBe(false);
   });
 
   it('rejects malformed optional locators instead of treating them as absent', () => {
@@ -132,13 +138,22 @@ describe('ChatGPT adapter', () => {
     document.body.innerHTML = `
       <div aria-label="Chat with ChatGPT" contenteditable="true"></div>
       <button aria-label="New chat">New chat</button>
+      <div data-message-author-role="assistant">Previous reply</div>
     `;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 10,
+      height: 10
+    } as DOMRect);
     let clicks = 0;
-    document.querySelector('button')!.addEventListener('click', () => clicks++);
+    document.querySelector('button')!.addEventListener('click', () => {
+      clicks++;
+      document.querySelector('[data-message-author-role]')!.remove();
+    });
 
     await chatgptAdapter.startNewConversation?.();
 
     expect(clicks).toBe(1);
+    vi.restoreAllMocks();
   });
 });
 
@@ -146,14 +161,19 @@ describe('Claude adapter', () => {
   it('gives separate replies distinct keys when their test IDs repeat', () => {
     document.body.innerHTML = '<div data-testid="assistant-message">First reply</div>';
     const baseline = claudeAdapter.getAssistantCandidates();
-    document.body.insertAdjacentHTML('beforeend', '<div data-testid="assistant-message">Second reply</div>');
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      '<div data-testid="assistant-message">Second reply</div>'
+    );
 
     const current = claudeAdapter.getAssistantCandidates();
     expect(current[1]?.key).not.toBe(current[0]?.key);
-    expect(selectResponseCandidate(
-      baseline.map((candidate) => ({ ...candidate, visible: true })),
-      current.map((candidate) => ({ ...candidate, visible: true }))
-    )?.text).toBe('Second reply');
+    expect(
+      selectResponseCandidate(
+        baseline.map((candidate) => ({ ...candidate, visible: true })),
+        current.map((candidate) => ({ ...candidate, visible: true }))
+      )?.text
+    ).toBe('Second reply');
   });
 
   it('reports missing composer and controls without throwing', () => {
@@ -219,17 +239,24 @@ describe('Learned provider adapter', () => {
   afterEach(() => vi.restoreAllMocks());
 
   it('lists all same-origin learned profiles that can handle the current DOM', () => {
-    document.body.innerHTML = '<textarea data-provider="generic"></textarea><textarea data-provider="lumen"></textarea>';
+    document.body.innerHTML =
+      '<textarea data-provider="generic"></textarea><textarea data-provider="lumen"></textarea>';
     setLearnedProfiles([
       {
         ...testProviderProfile,
         id: 'generic',
-        composer: { locator: { segments: ['textarea[data-provider="generic"]'] }, inputMode: 'textarea' }
+        composer: {
+          locator: { segments: ['textarea[data-provider="generic"]'] },
+          inputMode: 'textarea'
+        }
       },
       {
         ...testProviderProfile,
         id: 'lumen',
-        composer: { locator: { segments: ['textarea[data-provider="lumen"]'] }, inputMode: 'textarea' }
+        composer: {
+          locator: { segments: ['textarea[data-provider="lumen"]'] },
+          inputMode: 'textarea'
+        }
       }
     ]);
 
@@ -237,7 +264,8 @@ describe('Learned provider adapter', () => {
   });
 
   it('does not click an unrelated first button for a broad New Chat locator', async () => {
-    document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><button aria-label="Submit">Submit</button><button title="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div>';
+    document.body.innerHTML =
+      '<textarea data-test="ai-agent_input"></textarea><button aria-label="Submit">Submit</button><button title="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div>';
     const adapter = createMcplabAdapter({
       ...testProviderProfile,
       newConversation: {
@@ -251,12 +279,32 @@ describe('Learned provider adapter', () => {
         value: () => ({ width: 10, height: 10 })
       });
     let submitClicks = 0;
-    document.querySelector('[aria-label="Submit"]')!.addEventListener('click', () => submitClicks++);
+    document
+      .querySelector('[aria-label="Submit"]')!
+      .addEventListener('click', () => submitClicks++);
     document.querySelector('[title="New chat"]')!.addEventListener('click', () => {
       document.querySelector('[data-test="chat-messages_message"]')!.remove();
     });
     await expect(adapter.startNewConversation?.()).resolves.toBeUndefined();
     expect(submitClicks).toBe(0);
+  });
+
+  it('supports stored and proposed profiles with ancestor and descendant segments', async () => {
+    document.body.innerHTML =
+      '<main id="chat"><textarea data-test="ai-agent_input"></textarea><div data-test="chat-messages_message">Inside</div><a aria-label="New chat" href="/new">New chat</a></main><div data-test="chat-messages_message">Outside</div>';
+    const adapter = createMcplabAdapter({
+      ...testProviderProfile,
+      composer: { ...testProviderProfile.composer, locator: { segments: ['#chat', 'textarea'] } },
+      assistantMessages: {
+        locator: { segments: ['#chat', '[data-test="chat-messages_message"]'] }
+      },
+      newConversation: { action: 'click', locator: { segments: ['#chat', 'a'] } }
+    });
+    expect(adapter.findComposer()).toBe(document.querySelector('textarea'));
+    expect(adapter.getAssistantCandidates().map((candidate) => candidate.text)).toEqual(['Inside']);
+    expect(adapter.getNewConversationUrl?.()).toBe(new URL('/new', location.href).href);
+    await adapter.setComposerText('Prompt');
+    expect(document.querySelector('textarea')!.value).toBe('Prompt');
   });
 
   it('ignores a hidden generation control the same way Learning does', () => {
@@ -265,9 +313,13 @@ describe('Learned provider adapter', () => {
       <button aria-label="Submit">Submit</button>
       <button aria-label="Stop generating" style="display: none">Stop</button>
     `;
-    Object.defineProperty(document.querySelector('[aria-label="Stop generating"]'), 'getBoundingClientRect', {
-      value: () => ({ width: 10, height: 10 })
-    });
+    Object.defineProperty(
+      document.querySelector('[aria-label="Stop generating"]'),
+      'getBoundingClientRect',
+      {
+        value: () => ({ width: 10, height: 10 })
+      }
+    );
     const adapter = createMcplabAdapter({
       ...testProviderProfile,
       completion: {
@@ -285,9 +337,13 @@ describe('Learned provider adapter', () => {
       <textarea data-test="ai-agent_input"></textarea>
       <button aria-label="Cancel upload">Cancel</button>
     `;
-    Object.defineProperty(document.querySelector('[aria-label="Cancel upload"]'), 'getBoundingClientRect', {
-      value: () => ({ width: 10, height: 10 })
-    });
+    Object.defineProperty(
+      document.querySelector('[aria-label="Cancel upload"]'),
+      'getBoundingClientRect',
+      {
+        value: () => ({ width: 10, height: 10 })
+      }
+    );
     const adapter = createMcplabAdapter({
       ...testProviderProfile,
       completion: {
@@ -333,10 +389,15 @@ describe('Learned provider adapter', () => {
   });
 
   it('reports a configured independent working indicator', () => {
-    document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><div data-state="tool-running">Searching</div>';
-    Object.defineProperty(document.querySelector('[data-state="tool-running"]'), 'getBoundingClientRect', {
-      value: () => ({ width: 10, height: 10 })
-    });
+    document.body.innerHTML =
+      '<textarea data-test="ai-agent_input"></textarea><div data-state="tool-running">Searching</div>';
+    Object.defineProperty(
+      document.querySelector('[data-state="tool-running"]'),
+      'getBoundingClientRect',
+      {
+        value: () => ({ width: 10, height: 10 })
+      }
+    );
     const adapter = createMcplabAdapter({
       ...testProviderProfile,
       completion: {
@@ -350,7 +411,8 @@ describe('Learned provider adapter', () => {
   it('does not confirm a new conversation from an unrelated body mutation', async () => {
     vi.useFakeTimers();
     try {
-      document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div>';
+      document.body.innerHTML =
+        '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div>';
       const adapter = createMcplabAdapter({
         ...testProviderProfile,
         newConversation: {
@@ -373,10 +435,63 @@ describe('Learned provider adapter', () => {
     }
   });
 
+  it('confirms a learned click when previous responses become hidden cached elements', async () => {
+    vi.useFakeTimers();
+    try {
+      document.body.innerHTML =
+        '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div><div data-test="chat-messages_message" style="display:none">Cached answer</div>';
+      const adapter = createMcplabAdapter({
+        ...testProviderProfile,
+        newConversation: {
+          action: 'click',
+          locator: { segments: ['button[aria-label="New chat"]'] },
+          confirmation: 'context-change'
+        }
+      });
+      document.querySelector('button')!.addEventListener('click', () => {
+        document.querySelector<HTMLElement>('[data-test="chat-messages_message"]')!.style.display =
+          'none';
+      });
+      const outcome = adapter.startNewConversation!().then(
+        () => 'resolved',
+        (error: Error) => error.message
+      );
+      await vi.advanceTimersByTimeAsync(15_100);
+      expect(await outcome).toBe('resolved');
+      expect(adapter.getAssistantCandidates()).toHaveLength(2);
+      expect(
+        adapter.getAssistantCandidates().every((candidate) => candidate.visible === false)
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses a blank learned view with hidden cached responses without clicking New chat', async () => {
+    vi.useFakeTimers();
+    try {
+      document.body.innerHTML =
+        '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button><div data-test="chat-messages_message" style="display:none">Cached answer</div>';
+      const click = vi.fn();
+      document.querySelector('button')!.addEventListener('click', click);
+      const adapter = createMcplabAdapter(testProviderProfile);
+      const outcome = adapter.startNewConversation!().then(
+        () => 'resolved',
+        (error: Error) => error.message
+      );
+      await vi.advanceTimersByTimeAsync(15_100);
+      expect(await outcome).toBe('resolved');
+      expect(click).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not confirm a legacy new conversation from an unrelated body mutation', async () => {
     vi.useFakeTimers();
     try {
-      document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div>';
+      document.body.innerHTML =
+        '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div>';
       const adapter = createMcplabAdapter(testProviderProfile);
       document.querySelector('button')!.addEventListener('click', () => {
         document.body.append(document.createElement('span'));
@@ -395,7 +510,8 @@ describe('Learned provider adapter', () => {
   it('uses an already blank learned conversation without clicking New chat', async () => {
     vi.useFakeTimers();
     try {
-      document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button>';
+      document.body.innerHTML =
+        '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button>';
       const adapter = createMcplabAdapter(testProviderProfile);
       let clicks = 0;
       document.querySelector('button')!.addEventListener('click', () => clicks++);
@@ -412,7 +528,8 @@ describe('Learned provider adapter', () => {
   });
 
   it('confirms a learned click when the previous assistant turn disappears', async () => {
-    document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div>';
+    document.body.innerHTML =
+      '<textarea data-test="ai-agent_input"></textarea><button aria-label="New chat">New chat</button><div data-test="chat-messages_message">Previous answer</div>';
     const adapter = createMcplabAdapter({
       ...testProviderProfile,
       newConversation: {
@@ -428,10 +545,12 @@ describe('Learned provider adapter', () => {
   });
 
   it('keeps one assistant turn key stable as its text streams and its DOM node rerenders', () => {
-    document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><div data-test="chat-messages_message" data-message-id="answer-1">Short</div>';
+    document.body.innerHTML =
+      '<textarea data-test="ai-agent_input"></textarea><div data-test="chat-messages_message" data-message-id="answer-1">Short</div>';
     const adapter = createMcplabAdapter(testProviderProfile);
     const firstKey = adapter.getAssistantCandidates()[0].key;
-    document.querySelector('[data-message-id="answer-1"]')!.textContent = 'A longer streamed answer';
+    document.querySelector('[data-message-id="answer-1"]')!.textContent =
+      'A longer streamed answer';
     expect(adapter.getAssistantCandidates()[0].key).toBe(firstKey);
     document.querySelector('[data-message-id="answer-1"]')!.outerHTML =
       '<div data-test="chat-messages_message" data-message-id="answer-1">A rerendered answer</div>';
@@ -439,7 +558,8 @@ describe('Learned provider adapter', () => {
   });
 
   it('does not transfer an assistant turn key to a different node after insertion', () => {
-    document.body.innerHTML = '<textarea data-test="ai-agent_input"></textarea><div data-test="chat-messages_message">First answer</div><div data-test="chat-messages_message">Second answer</div>';
+    document.body.innerHTML =
+      '<textarea data-test="ai-agent_input"></textarea><div data-test="chat-messages_message">First answer</div><div data-test="chat-messages_message">Second answer</div>';
     const adapter = createMcplabAdapter(testProviderProfile);
     const existing = Array.from(document.querySelectorAll('[data-test="chat-messages_message"]'));
     const before = adapter.getAssistantCandidates().map((candidate) => candidate.key);

@@ -1,8 +1,5 @@
 import type { ResponseCandidate } from './candidate-selection';
-import type {
-  ProviderObservation,
-  ProviderRawSignalName
-} from './provider-state-engine';
+import type { ProviderObservation, ProviderRawSignalName } from './provider-state-engine';
 
 export function observationFromCandidates(
   candidates: ResponseCandidate[],

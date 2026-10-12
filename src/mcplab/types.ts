@@ -10,6 +10,7 @@ export interface BrowserProviderProfile {
   schemaVersion: 1;
   id: string;
   name: string;
+  source?: 'builtin' | 'workspace';
   match: { origins: string[] };
   composer: { locator: ShadowLocator; inputMode: 'input' | 'textarea' | 'contenteditable' };
   submit: { action: 'click' | 'enter'; locator?: ShadowLocator };
@@ -25,7 +26,7 @@ export interface BrowserProviderProfile {
     locator?: ShadowLocator;
     locators?: ShadowLocator[];
     url?: string;
-    /** New profiles require meaningful context evidence after a click. Absent on saved legacy profiles. */
+    /** New profiles verify conversation state after a click or navigation. Absent on saved legacy profiles. */
     confirmation?: 'context-change';
   };
   learned: {

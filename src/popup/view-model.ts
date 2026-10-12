@@ -1,7 +1,11 @@
 import type { CheckCounts, LiveTestCatalogItem } from '../mcplab/types';
 import type { BrowserProviderProfile } from '../mcplab/types';
 import type { DebugSnapshot } from '../contracts';
-import { isCompletedQueueItemStatus, type RoverQueueItem } from '../queue/state';
+import {
+  getQueueHistoryForProvider,
+  isCompletedQueueItemStatus,
+  type RoverQueueItem
+} from '../queue/state';
 
 export type PopupMode = 'manual' | 'queue' | 'learn' | 'debug';
 
@@ -11,7 +15,7 @@ export const managedPhaseLabels: Record<string, string> = {
   running: 'Running in agent',
   finalizing: 'Finalizing in MCPLab',
   waiting_ack: 'Waiting for MCPLab acknowledgement',
-  terminal: 'Stopped'
+  terminal: 'Ready for next evaluation'
 };
 
 export function managedPhaseLabel(phase: string | undefined): string | undefined {
@@ -189,8 +193,7 @@ export function projectQueueForProvider(
   const split = splitQueueItems(queue.items, queue.evaluationRunId);
   return {
     active: matchesCurrentAssignment || split.managed ? split.active : [],
-    completed:
-      queue.recentHistory?.[provider ?? ''] ?? (matchesCurrentAssignment ? split.completed : []),
+    completed: getQueueHistoryForProvider(queue, provider ?? ''),
     managed: split.managed,
     matchesCurrentAssignment
   };

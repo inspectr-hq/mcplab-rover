@@ -42,6 +42,8 @@ export interface RoverQueueItem extends QueueCatalogItem, QueueItemResult {
   completedAt?: string;
   error?: string;
   cancelRequestedAt?: string;
+  /** Local history visibility; keep the outcome for assignment bookkeeping. */
+  hiddenFromHistory?: boolean;
 }
 
 export interface QueueFailure {
@@ -82,6 +84,8 @@ export interface RoverQueueState {
   sourceConfigName?: string;
   sourceAgentName?: string;
   recentHistory?: Record<string, RoverQueueItem[]>;
+  /** Names removed by MCPLab takeover, displayed separately from assignment progress. */
+  droppedLocalItemNames?: string[];
   leaseId?: string;
   leaseExpiresAt?: string;
   leaseState?: QueueLeaseState;
@@ -131,20 +135,72 @@ export function createQueue(
   };
 }
 
-export function addQueueItem(queue: RoverQueueState, catalog: QueueCatalogItem): RoverQueueState {
-  if (queue.status !== 'draft') throw new Error('Queue can only be edited before it starts.');
+export function isManagedQueue(queue: RoverQueueState): boolean {
+  return Boolean(
+    queue.evaluationRunId || queue.leaseId || (queue.managedPhase && queue.managedPhase !== 'idle')
+  );
+}
+
+function hasPendingQueueLease(queue: RoverQueueState): boolean {
+  return Boolean(
+    queue.leaseId ||
+    queue.pendingLeaseActions?.length ||
+    queue.managedPhase === 'finalizing' ||
+    queue.managedPhase === 'waiting_ack'
+  );
+}
+
+export function canAcceptQueueAssignment(queue: RoverQueueState): boolean {
+  // MCPLab takes priority over waiting local items; running and paused queues must finish
+  // or be stopped first. Lease cleanup must settle before accepting another assignment.
+  // ponytail: local queues are small and overlap is rare. Report dropped names instead of
+  // maintaining a second queue; add defer-and-restore only if that workflow becomes common.
+  return !hasPendingQueueLease(queue) && queue.status !== 'running' && queue.status !== 'paused';
+}
+
+export function isQueueSettled(queue: RoverQueueState): boolean {
+  return (
+    (queue.status === 'completed' || queue.status === 'stopped') && !hasPendingQueueLease(queue)
+  );
+}
+
+export function addQueueItem(
+  queue: RoverQueueState,
+  catalog: QueueCatalogItem,
+  tabId = queue.tabId,
+  provider = queue.provider
+): RoverQueueState {
+  if (isQueueSettled(queue)) {
+    queue = {
+      ...createQueue(
+        queue.origin,
+        provider,
+        queue.newConversationBetweenItems,
+        new Date().toISOString()
+      ),
+      tabId,
+      items: isManagedQueue(queue) ? [] : queue.items.filter((item) => item.status === 'queued'),
+      recentHistory: archiveCompletedQueueItems(queue).recentHistory
+    };
+  }
+  if (provider !== queue.provider)
+    throw new Error(`Open a supported chat page for ${queue.provider} before adding evaluations.`);
+  if (queue.evaluationRunId || queue.leaseId || queue.pendingLeaseActions?.length)
+    throw new Error('Wait for the MCPLab assignment to finish before adding evaluations.');
+  if (queue.status !== 'draft')
+    throw new Error('Finish or stop the current queue before adding evaluations.');
   const item: RoverQueueItem = {
     ...clone(catalog),
     testCaseId: catalog.id,
     queueItemId: crypto.randomUUID(),
     status: 'queued'
   };
-  return updated(queue, { items: [...queue.items, item] });
+  return updated(queue, { tabId, items: [...queue.items, item] });
 }
 
 export function archiveCompletedQueueItems(queue: RoverQueueState, maxItems = 5): RoverQueueState {
   const completed = queue.items
-    .filter((item) => completedStatuses.has(item.status))
+    .filter((item) => completedStatuses.has(item.status) && !item.hiddenFromHistory)
     .sort(
       (a, b) => (Date.parse(b.completedAt ?? '') || 0) - (Date.parse(a.completedAt ?? '') || 0)
     );
@@ -157,6 +213,47 @@ export function archiveCompletedQueueItems(queue: RoverQueueState, maxItems = 5)
     )
     .slice(0, maxItems);
   return updated(queue, { recentHistory: { ...queue.recentHistory, [queue.provider]: merged } });
+}
+
+export function getQueueHistoryForProvider(
+  queue: Pick<RoverQueueState, 'provider' | 'items' | 'recentHistory'>,
+  provider: ProviderId
+): RoverQueueItem[] {
+  return (
+    queue.recentHistory?.[provider] ??
+    (queue.provider === provider
+      ? queue.items.filter((item) => isCompletedQueueItemStatus(item.status))
+      : [])
+  ).filter((item) => !item.hiddenFromHistory);
+}
+
+export function dismissQueueHistoryItem(
+  queue: RoverQueueState,
+  provider: ProviderId,
+  queueItemId: string
+): RoverQueueState {
+  const currentItem =
+    queue.provider === provider
+      ? queue.items.find((item) => item.queueItemId === queueItemId)
+      : undefined;
+  const history = getQueueHistoryForProvider(queue, provider);
+  const item = currentItem ?? history.find((candidate) => candidate.queueItemId === queueItemId);
+  if (!item) return queue;
+  if (!isCompletedQueueItemStatus(item.status))
+    throw new Error('Only finished evaluations can be removed from history.');
+  return updated(queue, {
+    items: currentItem
+      ? queue.items.map((candidate) =>
+          candidate.queueItemId === queueItemId
+            ? { ...candidate, hiddenFromHistory: true }
+            : candidate
+        )
+      : queue.items,
+    recentHistory: {
+      ...queue.recentHistory,
+      [provider]: history.filter((candidate) => candidate.queueItemId !== queueItemId)
+    }
+  });
 }
 
 export function moveQueueItem(
@@ -185,6 +282,15 @@ export function removeQueueItem(queue: RoverQueueState, queueItemId: string): Ro
 }
 
 export function startQueue(queue: RoverQueueState, now: string): RoverQueueState {
+  if (
+    isManagedQueue(queue) &&
+    (!queue.leaseId ||
+      queue.status === 'completed' ||
+      queue.status === 'stopped' ||
+      queue.managedPhase === 'terminal' ||
+      queue.pendingLeaseActions?.length)
+  )
+    throw new Error('This MCPLab assignment is closed. Queue a new evaluation in MCPLab.');
   if (queue.status === 'running') return queue;
   const restart = queue.status === 'completed' || queue.status === 'stopped';
   const candidates = restart
@@ -196,6 +302,7 @@ export function startQueue(queue: RoverQueueState, now: string): RoverQueueState
         startedAt: undefined,
         completedAt: undefined,
         cancelRequestedAt: undefined,
+        hiddenFromHistory: undefined,
         runId: undefined,
         resultUrl: undefined,
         checkCounts: undefined,

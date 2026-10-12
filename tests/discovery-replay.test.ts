@@ -147,16 +147,76 @@ const copilotWorkingTrace = {
 };
 
 describe('provider discovery replay', () => {
-  it('does not validate a learned click New Chat action before context change is observed', () => {
-    const result = replayProviderProfile({
+  it('warns without blocking a learned click New Chat action before confirmation', () => {
+    const result = replayProviderProfile(
+      {
+        ...profile,
+        newConversation: {
+          action: 'click',
+          locator: { segments: ['button[title="New chat"]'] },
+          confirmation: 'context-change'
+        }
+      },
+      trace
+    );
+    expect(result.passed).toBe(true);
+    expect(result.reasons).toEqual([]);
+    expect(result.issues).toContainEqual({
+      code: 'new-chat-unconfirmed',
+      blocking: false,
+      message: 'New Chat context change was not observed during Learning.'
+    });
+  });
+
+  it('revalidates the remaining lifecycle when unconfirmed New Chat support is omitted', () => {
+    const candidate = {
       ...profile,
       newConversation: {
-        action: 'click',
+        action: 'click' as const,
         locator: { segments: ['button[title="New chat"]'] },
-        confirmation: 'context-change'
+        confirmation: 'context-change' as const
       }
-    }, trace);
-    expect(result.reasons).toContain('New Chat context change was not observed during Learning.');
+    };
+    expect(replayProviderProfile(candidate, trace).passed).toBe(true);
+    const { newConversation, ...withoutNewChat } = candidate;
+    expect(newConversation).toBeDefined();
+    expect(replayProviderProfile(withoutNewChat, trace).passed).toBe(true);
+    expect(
+      replayProviderProfile(
+        {
+          ...withoutNewChat,
+          assistantMessages: { locator: { segments: ['.unobserved-response'] } }
+        },
+        trace
+      ).passed
+    ).toBe(false);
+  });
+
+  it('ignores New Chat click evidence when support is omitted from the saved profile', () => {
+    const { newConversation: _omitted, ...withoutNewChat } = {
+      ...profile,
+      newConversation: {
+        action: 'click' as const,
+        locator: { segments: ['button[title="New chat"]'] },
+        confirmation: 'context-change' as const
+      }
+    };
+
+    expect(
+      replayProviderProfile(withoutNewChat, {
+        ...trace,
+        newConversationEvidence: {
+          controlLocator: { segments: ['tm-icon-button'] },
+          controlSelectors: ['[data-test="ai-agent_chat_new-chat"]'],
+          signal: 'assistant-count-reduced',
+          beforeAssistantCount: 1,
+          afterAssistantCount: 0,
+          composerEmpty: true,
+          emptyChatStableMs: 500,
+          elapsedMs: 1000
+        }
+      }).passed
+    ).toBe(true);
   });
 
   it('rejects a New Chat proposal that does not identify the confirmed control', () => {
@@ -172,11 +232,170 @@ describe('provider discovery replay', () => {
           controlSelectors: ['[aria-label="New chat"]', 'button'],
           signal: 'assistant-count-reduced',
           beforeAssistantCount: 1,
-          afterAssistantCount: 0
+          afterAssistantCount: 0,
+          composerEmpty: true,
+          emptyChatStableMs: 500,
+          elapsedMs: 1000
         }
       }
     );
-    expect(result.reasons).toContain('New Chat selector does not identify the confirmed control.');
+    expect(result.passed).toBe(true);
+    expect(result.issues).toContainEqual({
+      code: 'new-chat-control-mismatch',
+      blocking: false,
+      message: 'New Chat selector does not identify the confirmed control.'
+    });
+  });
+
+  it('warns when the New Chat shadow path differs from the clicked control', () => {
+    const result = replayProviderProfile(
+      {
+        ...profile,
+        newConversation: {
+          action: 'click',
+          locator: {
+            segments: ['[data-app-shell="chat"]', '[data-test="ai-agent_chat_new-chat"]']
+          },
+          confirmation: 'context-change'
+        }
+      },
+      {
+        ...trace,
+        newConversationEvidence: {
+          controlLocator: { segments: ['[data-test="ai-agent_chat_new-chat"]'] },
+          controlSelectors: [
+            '[data-test="ai-agent_chat_new-chat"]',
+            '[trackingtest="ai-agent_chat_new-chat"]',
+            'tm-icon-button'
+          ],
+          signal: 'assistant-count-reduced',
+          beforeAssistantCount: 1,
+          afterAssistantCount: 0,
+          composerEmpty: true,
+          emptyChatStableMs: 500,
+          elapsedMs: 1000
+        }
+      }
+    );
+
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ code: 'new-chat-control-mismatch', blocking: false })
+    );
+  });
+
+  it('does not equate unrelated controls merely because both labels mention New Chat', () => {
+    const result = replayProviderProfile(
+      {
+        ...profile,
+        newConversation: {
+          action: 'click',
+          locator: { segments: ['[title="New chat"]'] },
+          confirmation: 'context-change'
+        }
+      },
+      {
+        ...trace,
+        newConversationEvidence: {
+          controlLocator: { segments: ['tm-icon-button'] },
+          controlSelectors: ['[data-test="ai-agent_chat_new-chat"]', 'tm-icon-button'],
+          signal: 'assistant-count-reduced',
+          beforeAssistantCount: 1,
+          afterAssistantCount: 0,
+          composerEmpty: true,
+          emptyChatStableMs: 500,
+          elapsedMs: 1000
+        }
+      }
+    );
+
+    expect(result.issues).toEqual([expect.objectContaining({ code: 'new-chat-control-mismatch' })]);
+  });
+
+  it('warns on navigate proposals that lack New Chat evidence', () => {
+    const result = replayProviderProfile(
+      { ...profile, newConversation: { action: 'navigate', url: 'https://provider.test/new' } },
+      trace
+    );
+    expect(result.passed).toBe(true);
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ code: 'new-chat-unconfirmed', blocking: false })
+    );
+  });
+
+  it('does not let a changed navigation destination reuse click confirmation', () => {
+    const result = replayProviderProfile(
+      { ...profile, newConversation: { action: 'navigate', url: 'https://provider.test/old' } },
+      {
+        ...trace,
+        newConversationEvidence: {
+          controlLocator: { segments: ['[title="New chat"]'] },
+          controlSelectors: ['[title="New chat"]'],
+          signal: 'url-changed',
+          beforeAssistantCount: 1,
+          afterAssistantCount: 0,
+          composerEmpty: true,
+          emptyChatStableMs: 500,
+          elapsedMs: 1000,
+          destinationUrl: 'https://provider.test/new'
+        }
+      }
+    );
+    expect(result.passed).toBe(true);
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ code: 'new-chat-navigation-mismatch', blocking: false })
+    );
+  });
+
+  it('treats legacy URL-only New Chat evidence as unconfirmed', () => {
+    const result = replayProviderProfile(
+      {
+        ...profile,
+        newConversation: {
+          action: 'click',
+          locator: { segments: ['[title="New chat"]'] },
+          confirmation: 'context-change'
+        }
+      },
+      {
+        ...trace,
+        newConversationEvidence: {
+          controlLocator: { segments: ['[title="New chat"]'] },
+          controlSelectors: ['[title="New chat"]'],
+          signal: 'url-changed',
+          beforeAssistantCount: 1,
+          afterAssistantCount: 1
+        }
+      }
+    );
+    expect(result.passed).toBe(true);
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ code: 'new-chat-unconfirmed', blocking: false })
+    );
+  });
+
+  it('keeps core validation blocking when New Chat is only a warning', () => {
+    const result = replayProviderProfile(
+      {
+        ...profile,
+        composer: { ...profile.composer, locator: { segments: ['.unobserved-composer'] } },
+        newConversation: {
+          action: 'click',
+          locator: { segments: ['[title="New chat"]'] },
+          confirmation: 'context-change'
+        }
+      },
+      trace
+    );
+    expect(result.passed).toBe(false);
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ code: 'composer-unobserved', blocking: true })
+    );
+    expect(result.issues).toContainEqual(
+      expect.objectContaining({ code: 'new-chat-unconfirmed', blocking: false })
+    );
+    expect(result.reasons).not.toContain(
+      'New Chat context change was not observed during Learning.'
+    );
   });
 
   it('rejects generation evidence that predates the submitted request', () => {
@@ -200,7 +419,9 @@ describe('provider discovery replay', () => {
           : event
       )
     });
-    expect(result.reasons).toContain('Generation signal was not observed after submission and before final.');
+    expect(result.reasons).toContain(
+      'Generation signal was not observed after submission and before final.'
+    );
   });
 
   it('does not combine a matching response with a different changed response', () => {
@@ -238,12 +459,16 @@ describe('provider discovery replay', () => {
         return event;
       })
     });
-    expect(result.reasons).toContain('Selected assistant response was not observed changing after submission.');
+    expect(result.reasons).toContain(
+      'Selected assistant response was not observed changing after submission.'
+    );
   });
 
   it('does not fall back to snapshot presence when a new trace lacks selected evidence', () => {
     const result = replayProviderProfile(profile, { ...trace, evidenceVersion: 1 });
-    expect(result.reasons).toContain('Selected assistant evidence is missing from the Learning trace.');
+    expect(result.reasons).toContain(
+      'Selected assistant evidence is missing from the Learning trace.'
+    );
   });
 
   it('rejects a broad assistant selector that also matched non-assistant elements', () => {
@@ -327,7 +552,7 @@ describe('provider discovery replay', () => {
       },
       trace
     );
-    expect(result).toEqual({ passed: true, reasons: [] });
+    expect(result).toEqual({ passed: true, reasons: [], issues: [] });
   });
 
   it('accepts a transient compound working selector observed in the trace', () => {
@@ -341,7 +566,7 @@ describe('provider discovery replay', () => {
       },
       copilotWorkingTrace
     );
-    expect(result).toEqual({ passed: true, reasons: [] });
+    expect(result).toEqual({ passed: true, reasons: [], issues: [] });
   });
 
   it('rejects a persistent response container as the working selector', () => {
@@ -355,8 +580,6 @@ describe('provider discovery replay', () => {
       },
       copilotWorkingTrace
     );
-    expect(result.reasons).toContain(
-      'Working selector remains active in the final state.'
-    );
+    expect(result.reasons).toContain('Working selector remains active in the final state.');
   });
 });

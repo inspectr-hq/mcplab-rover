@@ -4,10 +4,7 @@ import {
   type ProviderObservation
 } from '../src/runtime/provider-state-engine';
 
-function observation(
-  at: number,
-  options: Partial<ProviderObservation> = {}
-): ProviderObservation {
+function observation(at: number, options: Partial<ProviderObservation> = {}): ProviderObservation {
   return {
     observedAt: at,
     response: null,
@@ -18,12 +15,15 @@ function observation(
 
 describe('ProviderStateEngine', () => {
   it('keeps a submitted request waiting until a response is associated with it', () => {
-    const engine = new ProviderStateEngine({
-      quietPeriodMs: 20,
-      minResponseAgeMs: 0,
-      timeoutMs: 1_000,
-      requireGenerationSignal: false
-    }, 0);
+    const engine = new ProviderStateEngine(
+      {
+        quietPeriodMs: 20,
+        minResponseAgeMs: 0,
+        timeoutMs: 1_000,
+        requireGenerationSignal: false
+      },
+      0
+    );
 
     expect(engine.markSubmitted(0).state).toBe('submitted');
     expect(engine.update(observation(10)).state).toBe('waiting');
@@ -38,12 +38,15 @@ describe('ProviderStateEngine', () => {
   });
 
   it('keeps response activity active until the quiet period expires', () => {
-    const engine = new ProviderStateEngine({
-      quietPeriodMs: 20,
-      minResponseAgeMs: 0,
-      timeoutMs: 1_000,
-      requireGenerationSignal: false
-    }, 0);
+    const engine = new ProviderStateEngine(
+      {
+        quietPeriodMs: 20,
+        minResponseAgeMs: 0,
+        timeoutMs: 1_000,
+        requireGenerationSignal: false
+      },
+      0
+    );
     engine.markSubmitted(0);
 
     expect(
@@ -73,12 +76,15 @@ describe('ProviderStateEngine', () => {
   });
 
   it('records historical latch evidence once instead of once per poll', () => {
-    const engine = new ProviderStateEngine({
-      quietPeriodMs: 20,
-      minResponseAgeMs: 0,
-      timeoutMs: 1_000,
-      requireGenerationSignal: false
-    }, 0);
+    const engine = new ProviderStateEngine(
+      {
+        quietPeriodMs: 20,
+        minResponseAgeMs: 0,
+        timeoutMs: 1_000,
+        requireGenerationSignal: false
+      },
+      0
+    );
     engine.markSubmitted(0);
 
     engine.update(observation(10, { signals: { generation_active: true } }));
@@ -91,12 +97,15 @@ describe('ProviderStateEngine', () => {
   });
 
   it('uses unknown only when a response exists without safe readiness evidence', () => {
-    const engine = new ProviderStateEngine({
-      quietPeriodMs: 0,
-      minResponseAgeMs: 0,
-      timeoutMs: 1_000,
-      requireGenerationSignal: false
-    }, 0);
+    const engine = new ProviderStateEngine(
+      {
+        quietPeriodMs: 0,
+        minResponseAgeMs: 0,
+        timeoutMs: 1_000,
+        requireGenerationSignal: false
+      },
+      0
+    );
     engine.markSubmitted(0);
 
     expect(
@@ -110,12 +119,15 @@ describe('ProviderStateEngine', () => {
   });
 
   it('keeps finished terminal when a later observation reports activity', () => {
-    const engine = new ProviderStateEngine({
-      quietPeriodMs: 0,
-      minResponseAgeMs: 0,
-      timeoutMs: 1_000,
-      requireGenerationSignal: false
-    }, 0);
+    const engine = new ProviderStateEngine(
+      {
+        quietPeriodMs: 0,
+        minResponseAgeMs: 0,
+        timeoutMs: 1_000,
+        requireGenerationSignal: false
+      },
+      0
+    );
     engine.markSubmitted(0);
     const finished = engine.update(
       observation(10, {
@@ -138,12 +150,15 @@ describe('ProviderStateEngine', () => {
   });
 
   it('requires a response associated with the current request before finishing', () => {
-    const engine = new ProviderStateEngine({
-      quietPeriodMs: 0,
-      minResponseAgeMs: 0,
-      timeoutMs: 1_000,
-      requireGenerationSignal: false
-    }, 0);
+    const engine = new ProviderStateEngine(
+      {
+        quietPeriodMs: 0,
+        minResponseAgeMs: 0,
+        timeoutMs: 1_000,
+        requireGenerationSignal: false
+      },
+      0
+    );
     engine.markSubmitted(0);
 
     expect(
@@ -157,13 +172,16 @@ describe('ProviderStateEngine', () => {
   });
 
   it('enforces a configured minimum state duration', () => {
-    const engine = new ProviderStateEngine({
-      quietPeriodMs: 0,
-      minResponseAgeMs: 0,
-      timeoutMs: 1_000,
-      requireGenerationSignal: false,
-      minimumStateDurationMs: { submitted: 20 }
-    }, 0);
+    const engine = new ProviderStateEngine(
+      {
+        quietPeriodMs: 0,
+        minResponseAgeMs: 0,
+        timeoutMs: 1_000,
+        requireGenerationSignal: false,
+        minimumStateDurationMs: { submitted: 20 }
+      },
+      0
+    );
     engine.markSubmitted(0);
 
     expect(

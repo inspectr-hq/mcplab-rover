@@ -10,6 +10,9 @@ import { replayProviderProfile } from './providers/discovery-replay';
 import { roverResultMessage } from './content-result';
 import { debugLog, initializeDebugLogging } from './content-debug-logging';
 import { sendRuntimeMessage } from './content-runtime';
+import { isEmptyConversation, visibleResponseCount } from './providers/adapter-helpers';
+import { enablePanelPlacement } from './panel-placement';
+import { enableBadgeTheme } from './badge-theme';
 
 initializeDebugLogging();
 
@@ -71,24 +74,19 @@ function togglePanel(expand = false): boolean {
     button span { position: absolute; right: 1px; top: 1px; width: 8px; height: 8px; border-radius: 50%; background: #77736e; box-shadow: 0 0 0 2px #101010; }
     button[data-connected="true"] span { background: #42d392; box-shadow: 0 0 8px rgba(66,211,146,.8), 0 0 0 2px #101010; animation: pulse 1.8s ease-in-out infinite; }
     iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: 20px 8px 20px 20px; background: transparent; box-shadow: 0 16px 48px rgba(0,0,0,.24); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
-    :host(.expanded) button { top: 18px; left: auto; right: 8px; width: 24px; height: 24px; background: rgba(0,0,0,.35); box-shadow: none; }
+    :host(.expanded) button { top: 28px; left: auto; right: 8px; width: 24px; height: 24px; background: rgba(0,0,0,.35); box-shadow: none; }
     :host(.expanded) button img { display: none; }
     :host(.expanded) button span { display: none; }
-    :host(.expanded) button::before { content: '›'; color: white; font: 22px/1 system-ui; transform: rotate(180deg); }
+    :host(.expanded) button::before { content: ''; width: 16px; height: 16px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M10 4 6 8 10 12' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat; }
     :host(.expanded) iframe { opacity: 1; pointer-events: auto; }
     @keyframes pulse { 0%,100% { transform: scale(.85); opacity: .55; } 50% { transform: scale(1); opacity: 1; } }
   `;
   const frame = document.createElement('iframe');
   frame.title = 'MCPLab Rover';
   frame.src = chrome.runtime.getURL('rover.html');
+  const disablePlacement = enablePanelPlacement(host, notch, style);
+  const disableBadgeTheme = enableBadgeTheme(host, notch, style);
   notch.addEventListener('click', () => {
-    const expanding = !host.classList.contains('expanded');
-    if (expanding) {
-      host.style.left = '';
-      host.style.top = '';
-      host.style.right = '';
-      host.style.transform = '';
-    }
     host.classList.toggle('expanded');
     reportPanelState(host.classList.contains('expanded'));
     notch.title = host.classList.contains('expanded')
@@ -107,7 +105,11 @@ function togglePanel(expand = false): boolean {
     }
   };
   window.addEventListener('message', onMessage);
-  panelCleanup.set(host, () => window.removeEventListener('message', onMessage));
+  panelCleanup.set(host, () => {
+    window.removeEventListener('message', onMessage);
+    disablePlacement();
+    disableBadgeTheme();
+  });
   shadow.append(style, notch, frame);
   document.documentElement.append(host);
   if (expand) {
@@ -158,6 +160,7 @@ if (runtime.__mcplabRoverInstalled) {
       discoverySession?.stop();
       discoverySession = startProviderDiscovery(
         (draft) => {
+          debugLog('learning result sending', { readyToSave: draft.readyToSave });
           void sendRuntimeMessage({
             type: 'ROVER_LEARN_RESULT',
             draft: {
@@ -170,11 +173,16 @@ if (runtime.__mcplabRoverInstalled) {
           });
         },
         (progress) => {
-          void chrome.runtime
-            .sendMessage({ type: 'ROVER_LEARN_PROGRESS', progress })
-            .catch((error) => {
-              console.warn('[Rover] provider discovery progress delivery failed', error);
-            });
+          debugLog('learning progress sending', {
+            composerDetected: progress.composerDetected,
+            submitDetected: progress.submitDetected,
+            assistantDetected: progress.assistantDetected,
+            generatingObserved: progress.generatingObserved,
+            idleObserved: progress.idleObserved
+          });
+          void sendRuntimeMessage({ type: 'ROVER_LEARN_PROGRESS', progress }).catch((error) => {
+            console.warn('[Rover] provider discovery progress delivery failed', error);
+          });
         }
       );
       sendResponse({ ok: true });
@@ -246,11 +254,31 @@ if (runtime.__mcplabRoverInstalled) {
       sendResponse({ ok: true });
       return true;
     }
+    if (message.type === 'ROVER_NEW_CHAT_READY') {
+      const adapter = findAdapter();
+      sendResponse({
+        ok: true,
+        provider: adapter?.id,
+        ready: Boolean(
+          adapter &&
+          isEmptyConversation({
+            findComposer: () => adapter.findComposer(),
+            messageCount: () => visibleResponseCount(adapter.getAssistantCandidates())
+          })
+        )
+      });
+      return true;
+    }
     if (message.type === 'ROVER_NEW_CHAT') {
       void (async () => {
         const adapter = findAdapter();
         if (!adapter?.startNewConversation)
           throw new Error('New conversations are not supported on this page');
+        const navigationUrl = adapter.getNewConversationUrl?.();
+        if (navigationUrl) {
+          sendResponse({ ok: true, navigationUrl });
+          return;
+        }
         await adapter.startNewConversation();
         sendResponse({ ok: true });
       })().catch((error) =>

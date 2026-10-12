@@ -13,9 +13,7 @@ describe('safe content runtime messaging', () => {
   });
 
   it('turns rejected context invalidation into a quiet no-op and stops later sends', async () => {
-    const sendMessage = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('Extension context invalidated.'));
+    const sendMessage = vi.fn().mockRejectedValueOnce(new Error('Extension context invalidated.'));
     const send = createSafeRuntimeMessageSender(sendMessage);
 
     await expect(send({ type: 'ROVER_DEBUG_CHANGED' })).resolves.toBeUndefined();

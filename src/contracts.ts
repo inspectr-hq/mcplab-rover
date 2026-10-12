@@ -1,6 +1,46 @@
 import type { CheckCounts, RunOutcome } from './mcplab/types';
 
 export type ProviderId = string;
+export type BrowserProviderDiscoveryValidationIssueCode =
+  | 'trace-missing'
+  | 'composer-selector-mismatch'
+  | 'composer-evidence-missing'
+  | 'composer-unobserved'
+  | 'submit-selector-mismatch'
+  | 'submit-evidence-missing'
+  | 'submit-unobserved'
+  | 'assistant-selector-mismatch'
+  | 'assistant-selector-too-broad'
+  | 'assistant-change-unobserved'
+  | 'assistant-turn-unconfirmed'
+  | 'assistant-evidence-missing'
+  | 'assistant-unobserved'
+  | 'completion-unobserved'
+  | 'generation-out-of-order'
+  | 'generation-selector-mismatch'
+  | 'generation-evidence-missing'
+  | 'generation-unobserved'
+  | 'generation-still-active'
+  | 'working-out-of-order'
+  | 'working-selector-mismatch'
+  | 'working-still-active'
+  | 'idle-selector-mismatch'
+  | 'idle-evidence-missing'
+  | 'idle-unobserved'
+  | 'new-chat-unconfirmed'
+  | 'new-chat-navigation-mismatch'
+  | 'new-chat-control-mismatch';
+export interface BrowserProviderDiscoveryValidationIssue {
+  code: BrowserProviderDiscoveryValidationIssueCode;
+  blocking: boolean;
+  message: string;
+}
+export interface DiscoveryReplayResult {
+  passed: boolean;
+  /** Blocking messages, retained for callers that predate structured issues. */
+  reasons: string[];
+  issues: BrowserProviderDiscoveryValidationIssue[];
+}
 export interface BrowserProviderDiscoveryDraft {
   profile: import('./mcplab/types').BrowserProviderProfile;
   targetProviderId?: string;
@@ -9,6 +49,7 @@ export interface BrowserProviderDiscoveryDraft {
   capturedProfile?: import('./mcplab/types').BrowserProviderProfile;
   readyToSave?: boolean;
   validationReasons?: string[];
+  validationIssues?: BrowserProviderDiscoveryValidationIssue[];
   proposalDiagnostics?: { rationale: string[]; warnings: string[] };
   capabilities: Array<{
     id: string;
@@ -71,6 +112,10 @@ export interface BrowserProviderDiscoveryTrace {
     signal: 'url-changed' | 'assistant-count-reduced';
     beforeAssistantCount: number;
     afterAssistantCount: number;
+    composerEmpty?: boolean;
+    emptyChatStableMs?: number;
+    elapsedMs?: number;
+    destinationUrl?: string;
   };
   observedGeneration: boolean;
   selectorValidation: {
@@ -87,6 +132,7 @@ export interface BrowserProviderDiscoveryProgress {
   assistantPreview?: string;
   generatingObserved: boolean;
   idleObserved: boolean;
+  newConversationClicked?: boolean;
 }
 export type RoverStage =
   'prompt_sent' | 'waiting_for_response' | 'response_captured' | 'evaluating' | 'persisted';
@@ -165,6 +211,7 @@ export type ExtensionMessage =
   | { type: 'ROVER_GET_STATE' }
   | { type: 'ROVER_GET_ACTIVE_PROVIDER' }
   | { type: 'ROVER_START_NEW_CONVERSATION' }
+  | { type: 'ROVER_NEW_CHAT_READY' }
   | { type: 'ROVER_QUEUE_GET' }
   | { type: 'ROVER_QUEUE_WAITING' }
   | { type: 'ROVER_QUEUE_CLEAR' }
@@ -175,6 +222,7 @@ export type ExtensionMessage =
     }
   | { type: 'ROVER_QUEUE_SET_NEW_CHAT'; enabled: boolean }
   | { type: 'ROVER_QUEUE_REMOVE'; queueItemId: string }
+  | { type: 'ROVER_QUEUE_DISMISS_HISTORY'; provider: ProviderId; queueItemId: string }
   | { type: 'ROVER_QUEUE_MOVE'; queueItemId: string; direction: 'up' | 'down' }
   | { type: 'ROVER_QUEUE_START' }
   | { type: 'ROVER_QUEUE_STOP' }

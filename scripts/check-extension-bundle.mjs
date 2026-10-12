@@ -1,6 +1,7 @@
-import { readdir } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
+import { Script } from 'node:vm';
 
 async function javascriptFiles(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -23,4 +24,11 @@ for (const path of await javascriptFiles('dist')) {
     const syntaxError = detail.match(/SyntaxError: [^\n]+/)?.[0] ?? detail.slice(-500);
     throw new Error(`${path}: ${syntaxError}`);
   }
+}
+
+const contentScript = await readFile('dist/content.js', 'utf8');
+try {
+  new Script(contentScript, { filename: 'dist/content.js' });
+} catch (error) {
+  throw new Error(`dist/content.js must be a classic script: ${error.message}`);
 }

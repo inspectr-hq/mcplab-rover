@@ -116,5 +116,5 @@ export const claudeAdapter: ChatProviderAdapter = {
       text: textFrom(element),
       visible: isVisible(element)
     }));
-  },
+  }
 };

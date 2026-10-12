@@ -16,14 +16,18 @@ const candidate = (
 
 describe('selectResponseCandidate', () => {
   it('does not mistake an identical rerendered anonymous turn for a new response', () => {
-    const baseline = [candidate('Previous answer', { key: 'anonymous:1', ephemeralIdentity: true })];
+    const baseline = [
+      candidate('Previous answer', { key: 'anonymous:1', ephemeralIdentity: true })
+    ];
     const current = [candidate('Previous answer', { key: 'anonymous:2', ephemeralIdentity: true })];
     expect(selectResponseCandidate(baseline, current)).toBeNull();
   });
 
   it('does not treat a changed same-count anonymous rerender as a new assistant turn', () => {
     const baseline = [candidate('Old answer', { key: 'anonymous:1', ephemeralIdentity: true })];
-    const current = [candidate('Old answer, rerendered', { key: 'anonymous:2', ephemeralIdentity: true })];
+    const current = [
+      candidate('Old answer, rerendered', { key: 'anonymous:2', ephemeralIdentity: true })
+    ];
     expect(selectResponseCandidate(baseline, current)).toBeNull();
   });
 

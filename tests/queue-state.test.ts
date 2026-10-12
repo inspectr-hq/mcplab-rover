@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   addQueueItem,
   archiveCompletedQueueItems,
+  canAcceptQueueAssignment,
+  dismissQueueHistoryItem,
   createQueue,
   moveQueueItem,
   removeQueueItem,
@@ -17,6 +19,71 @@ const alpha: QueueCatalogItem = { id: 'alpha', name: 'Alpha', prompt: 'A', asser
 const beta: QueueCatalogItem = { id: 'beta', name: 'Beta', prompt: 'B', assertionCount: 2 };
 
 describe('queue state', () => {
+  it('keeps pending local evaluations when adding to a stopped queue', () => {
+    const running = startQueue(
+      addQueueItem(
+        addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), alpha),
+        beta
+      ),
+      'now'
+    );
+    const stopped = stopQueue(running, 'now');
+    const next = addQueueItem(stopped, {
+      id: 'gamma',
+      name: 'Gamma',
+      prompt: 'G',
+      assertionCount: 0
+    });
+    expect(next.status).toBe('draft');
+    expect(next.items.map((item) => item.testCaseId)).toEqual(['beta', 'gamma']);
+    expect(next.items[0]).toEqual(stopped.items[1]);
+    expect(next.recentHistory?.claude[0]?.testCaseId).toBe('alpha');
+    expect(startQueue(next, 'now').items.map((item) => item.status)).toEqual(['running', 'queued']);
+  });
+
+  it.each(['stopped', 'completed'] as const)('cannot restart a %s MCPLab assignment', (status) => {
+    const running = startQueue(
+      addQueueItem(
+        addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), alpha),
+        beta
+      ),
+      'now'
+    );
+    const closed = {
+      ...stopQueue(running, 'now'),
+      status,
+      evaluationRunId: 'closed-run',
+      managedPhase: 'terminal' as const
+    };
+    expect(() => startQueue(closed, 'now')).toThrow('MCPLab');
+  });
+
+  it('accepts a new assignment after a legacy managed queue has settled', () => {
+    const queue = {
+      ...createQueue('http://localhost:8787', 'claude', false, 'now'),
+      status: 'stopped' as const,
+      managedPhase: 'terminal' as const,
+      items: [{ ...beta, testCaseId: beta.id, queueItemId: 'pending', status: 'queued' as const }]
+    };
+    expect(canAcceptQueueAssignment(queue)).toBe(true);
+    const draft = addQueueItem(queue, alpha);
+    expect(draft.items.map((item) => item.testCaseId)).toEqual(['alpha']);
+  });
+
+  it.each([
+    { leaseId: 'lease' },
+    { pendingLeaseActions: [{ type: 'release' as const, leaseId: 'lease' }] },
+    { managedPhase: 'finalizing' as const },
+    { managedPhase: 'waiting_ack' as const }
+  ])('waits for outstanding lease work before accepting another assignment: %o', (lease) => {
+    const queue = {
+      ...createQueue('http://localhost:8787', 'claude', false, 'now'),
+      status: 'completed' as const,
+      ...lease
+    };
+    expect(canAcceptQueueAssignment(queue)).toBe(false);
+  });
+
   it('archives completed items by provider and caps history at five', () => {
     const queue = createQueue('http://127.0.0.1:8787', 'claude', true, '2026-09-11T00:00:00.000Z');
     const items = Array.from({ length: 7 }, (_, index) => ({
@@ -66,6 +133,88 @@ describe('queue state', () => {
     );
     expect(completed.recentHistory?.claude[0]?.testCaseId).toBe('alpha');
   });
+  it('dismisses history without changing assignment results or restoring it on archive', () => {
+    let queue = addQueueItem(
+      addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), alpha),
+      beta
+    );
+    queue = startQueue(queue, '2026-10-01T10:00:00Z');
+    const finishedId = queue.activeItemId!;
+    queue = recordQueueItemOutcome(
+      queue,
+      finishedId,
+      'passed',
+      { runId: 'saved-result' },
+      '2026-10-01T10:01:00Z'
+    );
+    queue.recentHistory!['chatgpt-com'] = [{ ...queue.items[0]!, queueItemId: 'other-provider' }];
+    const dismissed = dismissQueueHistoryItem(queue, 'claude', finishedId);
+    expect(dismissed.recentHistory?.claude).toEqual([]);
+    expect(dismissed.recentHistory?.['chatgpt-com']).toEqual(queue.recentHistory?.['chatgpt-com']);
+    expect(dismissed.items).toHaveLength(2);
+    expect(dismissed.items[0]).toMatchObject({ status: 'passed', runId: 'saved-result' });
+    expect(dismissed.activeItemId).toBe(queue.activeItemId);
+    expect(queue.recentHistory?.claude).toHaveLength(1);
+    const completed = recordQueueItemOutcome(
+      dismissed,
+      dismissed.activeItemId!,
+      'failed',
+      {},
+      '2026-10-01T10:02:00Z'
+    );
+    expect(completed.recentHistory?.claude.map((item) => item.queueItemId)).toEqual([
+      queue.activeItemId
+    ]);
+    expect(completed.items.map((item) => item.status)).toEqual(['passed', 'failed']);
+    const restarted = startQueue(completed, '2026-10-01T10:03:00Z');
+    const rerun = recordQueueItemOutcome(
+      restarted,
+      finishedId,
+      'passed',
+      {},
+      '2026-10-01T10:04:00Z'
+    );
+    expect(rerun.recentHistory?.claude.some((item) => item.queueItemId === finishedId)).toBe(true);
+  });
+
+  it('keeps other finished entries visible when older queues have no archived history', () => {
+    let queue = startQueue(
+      addQueueItem(
+        addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), alpha),
+        beta
+      ),
+      'now'
+    );
+    queue = recordQueueItemOutcome(queue, queue.activeItemId!, 'passed', {}, 'now');
+    queue = recordQueueItemOutcome(queue, queue.activeItemId!, 'failed', {}, 'now');
+    delete queue.recentHistory;
+    const dismissed = dismissQueueHistoryItem(queue, 'claude', queue.items[0]!.queueItemId);
+    expect(dismissed.recentHistory?.claude.map((item) => item.queueItemId)).toEqual([
+      queue.items[1]!.queueItemId
+    ]);
+  });
+
+  it('dismisses another provider history without touching the current assignment', () => {
+    const queue = startQueue(
+      addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), alpha),
+      'now'
+    );
+    const archived = { ...queue.items[0]!, status: 'passed' as const };
+    queue.recentHistory = { 'chatgpt-com': [archived] };
+    const dismissed = dismissQueueHistoryItem(queue, 'chatgpt-com', archived.queueItemId);
+    expect(dismissed.recentHistory?.['chatgpt-com']).toEqual([]);
+    expect(dismissed.items).toEqual(queue.items);
+    expect(dismissed.activeItemId).toBe(queue.activeItemId);
+  });
+
+  it('refuses to dismiss unfinished items and tolerates an already removed entry', () => {
+    const queue = addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), alpha);
+    expect(() => dismissQueueHistoryItem(queue, 'claude', queue.items[0]!.queueItemId)).toThrow(
+      'Only finished'
+    );
+    expect(dismissQueueHistoryItem(queue, 'claude', 'missing')).toBe(queue);
+  });
+
   it('supports duplicate evaluations and explicit ordering', () => {
     let queue = createQueue('http://127.0.0.1:8787', 'claude', false, '2026-09-09T10:00:00.000Z');
     queue = addQueueItem(queue, alpha);
@@ -77,12 +226,7 @@ describe('queue state', () => {
   });
 
   it('advances after evaluated outcomes and completes after the final item', () => {
-    let queue = createQueue(
-      'http://127.0.0.1:8787',
-      'trendminer',
-      true,
-      '2026-09-09T10:00:00.000Z'
-    );
+    let queue = createQueue('http://127.0.0.1:8787', 'polo', true, '2026-09-09T10:00:00.000Z');
     queue = addQueueItem(addQueueItem(queue, alpha), beta);
     queue = startQueue(queue, '2026-09-09T10:01:00.000Z');
     const first = queue.items[0]!.queueItemId;
@@ -273,5 +417,139 @@ describe('queue state', () => {
     const stopped = stopQueue(queue, '2026-09-09T10:02:00.000Z');
     expect(stopped).toMatchObject({ leaseId: 'lease-1', leaseState: 'running' });
     expect(stopped.items[0]?.status).toBe('stopped');
+  });
+});
+
+describe('adding after a settled assignment', () => {
+  it.each(['completed', 'stopped'] as const)(
+    'switches provider after %s while archiving history under the original provider',
+    (status) => {
+      const running = startQueue(
+        addQueueItem(createQueue('http://localhost:8787', 'chatgpt-com', true, 'now'), alpha),
+        'now'
+      );
+      const previous = {
+        ...recordQueueItemOutcome(
+          running,
+          running.activeItemId!,
+          'passed',
+          { runId: 'saved' },
+          'now'
+        ),
+        status,
+        tabId: 11,
+        recentHistory: {
+          claude: [{ ...running.items[0], status: 'passed' as const, runId: 'older' }]
+        }
+      };
+      const next = addQueueItem(previous, beta, 22, 'claude');
+      expect(next.queueId).not.toBe(previous.queueId);
+      expect(next).toMatchObject({
+        status: 'draft',
+        origin: previous.origin,
+        provider: 'claude',
+        tabId: 22,
+        newConversationBetweenItems: true,
+        items: [expect.objectContaining({ testCaseId: 'beta', status: 'queued' })],
+        recentHistory: {
+          'chatgpt-com': [expect.objectContaining({ testCaseId: 'alpha', runId: 'saved' })],
+          claude: [expect.objectContaining({ runId: 'older' })]
+        }
+      });
+      expect(previous.provider).toBe('chatgpt-com');
+      expect(previous.tabId).toBe(11);
+    }
+  );
+
+  it.each(['draft', 'running', 'paused'] as const)(
+    'does not switch provider for a %s queue',
+    (status) => {
+      const queue = {
+        ...createQueue('http://localhost:8787', 'chatgpt-com', false, 'now'),
+        status
+      };
+      expect(() => addQueueItem(queue, beta, 22, 'claude')).toThrow();
+    }
+  );
+
+  it('does not switch provider while completed lease cleanup is pending', () => {
+    const queue = {
+      ...createQueue('http://localhost:8787', 'chatgpt-com', false, 'now'),
+      status: 'completed' as const,
+      pendingLeaseActions: [
+        { type: 'release' as const, leaseId: 'lease', reason: 'stopped' as const }
+      ]
+    };
+    expect(() => addQueueItem(queue, beta, 22, 'claude')).toThrow();
+  });
+
+  it.each(['completed', 'stopped'] as const)(
+    'creates a local draft after %s and preserves history',
+    (status) => {
+      const running = startQueue(
+        addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), alpha),
+        'now'
+      );
+      const completed = recordQueueItemOutcome(
+        running,
+        running.activeItemId!,
+        'passed',
+        { runId: 'saved' },
+        'now'
+      );
+      const previous = {
+        ...completed,
+        status,
+        evaluationRunId: 'mcplab-run',
+        sourceConfigPath: '/eval.yaml',
+        sourceConfigName: 'Evaluation',
+        sourceAgentName: 'Agent',
+        tabId: 42,
+        managedPhase: 'terminal' as const,
+        newConversationBeforeStart: true
+      };
+      const added = addQueueItem(previous, beta);
+      expect(added.queueId).not.toBe(previous.queueId);
+      expect(added).toMatchObject({
+        status: 'draft',
+        provider: 'claude',
+        tabId: 42,
+        newConversationBetweenItems: false
+      });
+      expect(added.items).toHaveLength(1);
+      expect(added.items[0]).toMatchObject({ testCaseId: 'beta', status: 'queued' });
+      expect(added.recentHistory?.claude[0]).toMatchObject({ testCaseId: 'alpha', runId: 'saved' });
+      for (const key of [
+        'evaluationRunId',
+        'sourceConfigPath',
+        'sourceConfigName',
+        'sourceAgentName',
+        'managedPhase',
+        'newConversationBeforeStart'
+      ])
+        expect(added).not.toHaveProperty(key);
+      expect(previous.items).toHaveLength(1);
+      expect(previous.evaluationRunId).toBe('mcplab-run');
+    }
+  );
+
+  it('does not replace an assignment while a lease or acknowledgement is outstanding', () => {
+    const queue = {
+      ...createQueue('http://localhost:8787', 'claude', false, 'now'),
+      status: 'completed' as const,
+      evaluationRunId: 'run'
+    };
+    for (const busy of [
+      { ...queue, leaseId: 'lease' },
+      {
+        ...queue,
+        pendingLeaseActions: [
+          { type: 'release' as const, leaseId: 'lease', reason: 'completed' as const }
+        ]
+      },
+      { ...queue, managedPhase: 'waiting_ack' as const },
+      { ...queue, status: 'running' as const }
+    ])
+      expect(() => addQueueItem(busy, beta)).toThrow();
   });
 });

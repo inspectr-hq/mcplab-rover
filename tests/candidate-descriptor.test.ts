@@ -22,7 +22,7 @@ describe('generic chat candidate scoring', () => {
     expect(selected?.testId).toBe('markdown-reply');
   });
 
-  it('recognizes Claude and TrendMiner response semantics without provider IDs', () => {
+  it('recognizes Claude and Polo response semantics without provider IDs', () => {
     expect(
       scoreAssistantCandidate(candidate({ className: 'font-claude-response' }))
     ).toBeGreaterThan(0);

@@ -1,9 +1,14 @@
 import type { BrowserProviderProfile, ShadowLocator } from '../mcplab/types';
 import type { ChatProviderAdapter } from './types';
-import { isVisible, setTextValue, textFrom } from './dom';
-import { pageAlertText } from './adapter-helpers';
+import { composerValue, isVisible, setTextValue, textFrom } from './dom';
+import { pageAlertText, visibleResponseCount, waitForNewConversation } from './adapter-helpers';
 import { controlLabel, isGenerationControlLabel } from './control-labels';
 import { stableTurnIdentity } from './turn-identity';
+import { queryShadowLocator } from './shadow-locator';
+import {
+  resolveNewConversationLocator,
+  newConversationTargetUrl
+} from './new-conversation-control';
 import { observationFromCandidates } from '../runtime/provider-signals';
 import type { ProviderSignalEvaluator } from '../runtime/provider-state-engine';
 
@@ -27,32 +32,9 @@ function findStopControl(): HTMLElement | null {
   );
 }
 
-function composerValue(element: HTMLElement): string {
-  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement)
-    return element.value;
-  return element.textContent ?? '';
-}
-
-function rootsFor(root: Document | ShadowRoot): Array<Document | ShadowRoot> {
-  const result: Array<Document | ShadowRoot> = [root];
-  for (const element of Array.from(root.querySelectorAll<HTMLElement>('*'))) {
-    if (element.shadowRoot) result.push(element.shadowRoot);
-  }
-  return result;
-}
-
 function findPath(locator: ShadowLocator, all = false): Element[] {
-  let roots: Array<Document | ShadowRoot> = [document];
-  for (const [index, selector] of locator.segments.entries()) {
-    const matches = roots.flatMap((root) => Array.from(root.querySelectorAll(selector)));
-    if (index === locator.segments.length - 1) return all ? matches : matches.slice(0, 1);
-    roots = matches.flatMap((match) =>
-      match instanceof HTMLElement && match.shadowRoot
-        ? [match.shadowRoot]
-        : rootsFor(match.ownerDocument)
-    );
-  }
-  return [];
+  const matches = queryShadowLocator(locator);
+  return all ? matches : matches.slice(0, 1);
 }
 
 function findTextWithin(candidate: Element, locator: ShadowLocator): Element | null {
@@ -60,7 +42,7 @@ function findTextWithin(candidate: Element, locator: ShadowLocator): Element | n
   for (const [index, selector] of locator.segments.entries()) {
     const matches = roots.flatMap((root) => Array.from(root.querySelectorAll(selector)));
     if (index === locator.segments.length - 1) return matches[0] ?? null;
-    roots = matches.flatMap((match) => match.shadowRoot ? [match.shadowRoot] : []);
+    roots = matches.flatMap((match) => (match.shadowRoot ? [match.shadowRoot] : []));
   }
   return null;
 }
@@ -78,17 +60,6 @@ function newConversationLocators(profile: BrowserProviderProfile): ShadowLocator
   );
 }
 
-function clickableTarget(element: HTMLElement): HTMLElement {
-  if (
-    element instanceof HTMLButtonElement ||
-    element instanceof HTMLAnchorElement ||
-    element.getAttribute('role') === 'button'
-  )
-    return element;
-  const controls = Array.from(element.querySelectorAll<HTMLElement>('button,a,[role="button"]'));
-  return controls.find(isVisible) ?? controls[0] ?? element;
-}
-
 export function createMcplabAdapter(profile: BrowserProviderProfile): ChatProviderAdapter {
   const anonymousTurnKeys = new WeakMap<Element, string>();
   let nextAnonymousTurnKey = 0;
@@ -103,6 +74,10 @@ export function createMcplabAdapter(profile: BrowserProviderProfile): ChatProvid
     | undefined;
   const findComposer = () =>
     (findPath(profile.composer.locator)[0] as HTMLElement | undefined) ?? null;
+  const findNewConversationControl = () =>
+    newConversationLocators(profile)
+      .map(resolveNewConversationLocator)
+      .find((element): element is HTMLElement => Boolean(element));
   const turnIdentity = (element: Element) => {
     const stable = stableTurnIdentity(element);
     if (stable) return { key: `${profile.id}:${stable}`, ephemeralIdentity: false };
@@ -136,7 +111,9 @@ export function createMcplabAdapter(profile: BrowserProviderProfile): ChatProvid
         : undefined;
       const generating =
         configuredGenerating ??
-        Boolean(stopControl || (submitControl instanceof HTMLButtonElement && submitControl.disabled));
+        Boolean(
+          stopControl || (submitControl instanceof HTMLButtonElement && submitControl.disabled)
+        );
       const stopVisible = configuredGenerating ?? Boolean(stopControl);
       const idle = profile.completion.idleLocator
         ? findPath(profile.completion.idleLocator, true).some((element) =>
@@ -232,43 +209,24 @@ export function createMcplabAdapter(profile: BrowserProviderProfile): ChatProvid
           }
           const initialComposer = findComposer();
           const beforeComposer = initialComposer ? composerValue(initialComposer) : '';
-          const beforeMessageCount = candidates().length;
+          const beforeMessageCount = visibleResponseCount(candidates());
           if (initialComposer && !beforeComposer.trim() && beforeMessageCount === 0) return;
-          const button = newConversationLocators(profile)
-            .flatMap((locator) => findPath(locator, true) as HTMLElement[])
-            .filter((element) => isVisible(element))
-            .find((element) => {
-              const target = clickableTarget(element);
-              const label = `${controlLabel(element)} ${controlLabel(target)} ${element.getAttribute('data-test') ?? ''} ${element.getAttribute('data-testid') ?? ''} ${element.getAttribute('trackingtest') ?? ''}`;
-              return /new[\s_-]*(chat|conversation)|new[\s_-]*thread|start[\s_-]*(a[\s_-]*)?new/.test(label);
-            });
+          const button = findNewConversationControl();
           if (!button) throw new Error(`${profile.name} new conversation control was not found`);
-          const composerStartedWithText = Boolean(beforeComposer.trim());
-          const beforeUrl = location.href;
-          clickableTarget(button).click();
-          const deadline = Date.now() + 15_000;
-          while (Date.now() < deadline) {
-            const composer = findComposer();
-            const messageCount = candidates().length;
-            const changedConversation =
-              (composerStartedWithText && Boolean(composer && !composerValue(composer).trim())) ||
-              messageCount < beforeMessageCount ||
-              location.href !== beforeUrl;
-            const meaningfulContextChange =
-              messageCount < beforeMessageCount || location.href !== beforeUrl;
-            if (
-              composer &&
-              !composerValue(composer).trim() &&
-              (profile.newConversation?.confirmation === 'context-change'
-                ? meaningfulContextChange
-                : changedConversation)
-            )
-              return;
-            await new Promise((resolve) => setTimeout(resolve, 50));
-          }
-          throw new Error(`${profile.name} new conversation did not become ready`);
+          await waitForNewConversation({
+            findComposer,
+            messageCount: () => visibleResponseCount(candidates()),
+            start: () => button.click(),
+            providerName: profile.name,
+            confirmation: profile.newConversation?.confirmation
+          });
         }
       : undefined,
+    getNewConversationUrl: () => {
+      if (profile.newConversation?.action === 'navigate') return profile.newConversation.url;
+      const control = findNewConversationControl();
+      return control ? newConversationTargetUrl(control) : undefined;
+    },
     getAssistantCandidates: candidates,
     getDebugChecks: () => [
       {

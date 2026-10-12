@@ -1,6 +1,7 @@
 import type { ExtensionMessage } from '../contracts';
 import {
   addQueueItem,
+  dismissQueueHistoryItem,
   moveQueueItem,
   removeQueueItem,
   skipQueueItem,
@@ -37,6 +38,17 @@ export function handleQueueMessage(
     sendResponse(waitingForMatching());
     return true;
   }
+  if (message.type === 'ROVER_QUEUE_DISMISS_HISTORY') {
+    return respond(sendResponse, () =>
+      serializeQueueOperation(async () => {
+        const queue = await getQueue();
+        if (!queue) throw new Error('No queue history is available.');
+        const next = dismissQueueHistoryItem(queue, message.provider, message.queueItemId);
+        await saveQueue(next);
+        return { ok: true, queue: next };
+      })
+    );
+  }
   if (message.type === 'ROVER_QUEUE_CLEAR') {
     return respond(sendResponse, async () => {
       const queue = await getQueue();
@@ -54,57 +66,76 @@ export function handleQueueMessage(
     });
   }
   if (message.type === 'ROVER_QUEUE_CREATE') {
-    return respond(sendResponse, async () => {
-      const liveState = await getState();
-      if (liveState && ['ready', 'running', 'manual', 'evaluating'].includes(liveState.status))
-        throw new Error('Finish or stop the active Live Test before starting a queue.');
-      const origin = await resolveOrigin(message.origin);
-      const tab = await activeTab();
-      const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
-      if (!provider || typeof tab?.id !== 'number')
-        throw new Error('Queue mode requires a supported or learned browser provider page.');
-      const previous = await getQueue();
-      const queue = {
-        ...createQueueForMessage(origin, provider, message.newConversationBetweenItems),
-        recentHistory: previous?.recentHistory,
-        tabId: tab.id
-      };
-      await saveQueue(queue);
-      await chrome.storage.session.remove(STATE_KEY);
-      return { ok: true, queue };
-    });
+    return respond(sendResponse, () =>
+      serializeQueueOperation(async () => {
+        const liveState = await getState();
+        if (liveState && ['ready', 'running', 'manual', 'evaluating'].includes(liveState.status))
+          throw new Error('Finish or stop the active Live Test before starting a queue.');
+        const origin = await resolveOrigin(message.origin);
+        const tab = await activeTab();
+        const provider = typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
+        if (!provider || typeof tab?.id !== 'number')
+          throw new Error('Queue mode requires a supported or learned browser provider page.');
+        const previous = await getQueue();
+        const queue = {
+          ...createQueueForMessage(origin, provider, message.newConversationBetweenItems),
+          recentHistory: previous?.recentHistory,
+          tabId: tab.id
+        };
+        await saveQueue(queue);
+        await chrome.storage.session.remove(STATE_KEY);
+        return { ok: true, queue };
+      })
+    );
   }
   if (message.type === 'ROVER_QUEUE_SET_NEW_CHAT') {
-    return respond(sendResponse, async () => {
-      const queue = await getQueue();
-      if (!queue || queue.status !== 'draft')
-        throw new Error('Conversation setting can only change before the queue starts.');
-      const next = {
-        ...queue,
-        newConversationBetweenItems: message.enabled,
-        updatedAt: new Date().toISOString()
-      };
-      await saveQueue(next);
-      return { ok: true, queue: next };
-    });
+    return respond(sendResponse, () =>
+      serializeQueueOperation(async () => {
+        const queue = await getQueue();
+        if (!queue || queue.status !== 'draft')
+          throw new Error('Conversation setting can only change before the queue starts.');
+        const next = {
+          ...queue,
+          newConversationBetweenItems: message.enabled,
+          updatedAt: new Date().toISOString()
+        };
+        await saveQueue(next);
+        return { ok: true, queue: next };
+      })
+    );
   }
   if (
     message.type === 'ROVER_QUEUE_ADD' ||
     message.type === 'ROVER_QUEUE_REMOVE' ||
     message.type === 'ROVER_QUEUE_MOVE'
   ) {
-    return respond(sendResponse, async () => {
-      const queue = await getQueue();
-      if (!queue) throw new Error('No queue has been created.');
-      const next =
-        message.type === 'ROVER_QUEUE_ADD'
-          ? addQueueItem(queue, message.item)
-          : message.type === 'ROVER_QUEUE_REMOVE'
-            ? removeQueueItem(queue, message.queueItemId)
-            : moveQueueItem(queue, message.queueItemId, message.direction);
-      await saveQueue(next);
-      return { ok: true, queue: next };
-    });
+    return respond(sendResponse, () =>
+      serializeQueueOperation(async () => {
+        const queue = await getQueue();
+        if (!queue) throw new Error('No queue has been created.');
+        let tabId: number | undefined;
+        let provider = queue.provider;
+        if (message.type === 'ROVER_QUEUE_ADD') {
+          const tab = await activeTab();
+          const detectedProvider =
+            typeof tab?.id === 'number' ? await detectProvider(tab.id) : undefined;
+          if (!detectedProvider || typeof tab?.id !== 'number')
+            throw new Error(
+              `Open a supported chat page for ${queue.provider} before adding evaluations.`
+            );
+          tabId = tab.id;
+          provider = detectedProvider;
+        }
+        const next =
+          message.type === 'ROVER_QUEUE_ADD'
+            ? addQueueItem(queue, message.item, tabId, provider)
+            : message.type === 'ROVER_QUEUE_REMOVE'
+              ? removeQueueItem(queue, message.queueItemId)
+              : moveQueueItem(queue, message.queueItemId, message.direction);
+        await saveQueue(next);
+        return { ok: true, queue: next };
+      })
+    );
   }
   if (message.type === 'ROVER_QUEUE_START') {
     void serializeQueueOperation(async () => {

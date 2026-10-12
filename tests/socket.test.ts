@@ -62,8 +62,15 @@ class FakeWebSocket {
   }
 }
 
-import { connectToMcplab, disableRoverConnection, enableRoverConnection, startLeaseRenewal, updateRoverRegistration } from '../src/background/socket';
-import { createQueue } from '../src/queue/state';
+import {
+  connectToMcplab,
+  disableRoverConnection,
+  enableRoverConnection,
+  loadedProvider,
+  startLeaseRenewal,
+  updateRoverRegistration
+} from '../src/background/socket';
+import { createQueue, addQueueItem } from '../src/queue/state';
 import { serializeQueueOperation } from '../src/queue/operations';
 
 const assignment = {
@@ -86,7 +93,10 @@ describe('socket assignment lifecycle', () => {
       FakeWebSocket as unknown as typeof WebSocket;
     (globalThis as typeof globalThis & { chrome: unknown }).chrome = {
       runtime: { getManifest: () => ({ version: '1.0.0' }) },
-      tabs: { get: vi.fn(async () => ({ id: 7, url: 'https://claude.ai/chat/1' })) },
+      tabs: {
+        get: vi.fn(async () => ({ id: 7, url: 'https://claude.ai/chat/1' })),
+        sendMessage: vi.fn(async () => undefined)
+      },
       storage: { session: { remove: vi.fn() } }
     } as unknown as typeof chrome;
     mocks.resolveOrigin.mockResolvedValue('http://127.0.0.1:8787');
@@ -100,9 +110,12 @@ describe('socket assignment lifecycle', () => {
 
   it('does not create a socket after the toolbar disables a pending connection', async () => {
     let releaseTab!: (tab: { id: number; url: string }) => void;
-    mocks.activeTab.mockImplementation(() => new Promise((resolve) => {
-      releaseTab = resolve;
-    }));
+    mocks.activeTab.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseTab = resolve;
+        })
+    );
     enableRoverConnection();
     await vi.waitFor(() => expect(mocks.activeTab).toHaveBeenCalled());
     await disableRoverConnection();
@@ -113,9 +126,12 @@ describe('socket assignment lifecycle', () => {
 
   it('does not continue tab registration after the toolbar disables Rover', async () => {
     let releaseOrigin!: (origin: string) => void;
-    mocks.resolveOrigin.mockImplementation(() => new Promise((resolve) => {
-      releaseOrigin = resolve;
-    }));
+    mocks.resolveOrigin.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releaseOrigin = resolve;
+        })
+    );
     enableRoverConnection();
     const pending = updateRoverRegistration(7);
     await vi.waitFor(() => expect(mocks.resolveOrigin).toHaveBeenCalled());
@@ -123,6 +139,54 @@ describe('socket assignment lifecycle', () => {
     releaseOrigin('http://127.0.0.1:8787');
     await pending;
     expect(mocks.detectProvider).not.toHaveBeenCalled();
+  });
+
+  it('ignores built-in provider updates in background state', async () => {
+    const socket = await connectedSocket();
+    const workspaceProfile = {
+      id: 'claude',
+      schemaVersion: 1,
+      name: 'Workspace Claude',
+      source: 'workspace',
+      match: { origins: ['https://claude.ai'] },
+      composer: { locator: { segments: ['textarea'] }, inputMode: 'textarea' },
+      submit: { action: 'enter' },
+      assistantMessages: { locator: { segments: ['.assistant'] } },
+      completion: { stabilityMs: 2500 },
+      learned: {
+        sourceOrigin: 'https://claude.ai',
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-01T00:00:00.000Z',
+        confidence: {}
+      }
+    };
+    socket.message({ type: 'provider_updated', provider: workspaceProfile });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(loadedProvider('claude')?.name).toBe('Workspace Claude');
+
+    socket.message({
+      type: 'provider_updated',
+      provider: {
+        id: 'claude',
+        schemaVersion: 1,
+        name: 'MCP Lab Claude',
+        source: 'builtin',
+        match: { origins: ['https://claude.ai'] },
+        composer: { locator: { segments: ['textarea'] }, inputMode: 'textarea' },
+        submit: { action: 'enter' },
+        assistantMessages: { locator: { segments: ['.assistant'] } },
+        completion: { stabilityMs: 2500 },
+        learned: {
+          sourceOrigin: 'https://claude.ai',
+          createdAt: '2026-10-01T00:00:00.000Z',
+          updatedAt: '2026-10-01T00:00:00.000Z',
+          confidence: {}
+        }
+      }
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(loadedProvider('claude')?.name).toBe('Workspace Claude');
   });
 
   it('stops and releases an active leased queue when Rover is disabled', async () => {
@@ -148,12 +212,18 @@ describe('socket assignment lifecycle', () => {
     const socket = await connectedSocket();
     mocks.getQueue.mockResolvedValue({
       ...createQueue('http://127.0.0.1:8787', 'claude', true, new Date().toISOString()),
-      queueId: 'job-1', status: 'running', leaseId: 'lease-1', activeItemId: 'item-1'
+      queueId: 'job-1',
+      status: 'running',
+      leaseId: 'lease-1',
+      activeItemId: 'item-1'
     });
     let finishCancellation!: () => void;
-    mocks.cancelActiveQueueItem.mockImplementation(() => new Promise<void>((resolve) => {
-      finishCancellation = resolve;
-    }));
+    mocks.cancelActiveQueueItem.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishCancellation = resolve;
+        })
+    );
     const closing = disableRoverConnection();
     await vi.waitFor(() => expect(mocks.cancelActiveQueueItem).toHaveBeenCalledOnce());
     expect(mocks.saveQueue).not.toHaveBeenCalled();
@@ -177,15 +247,20 @@ describe('socket assignment lifecycle', () => {
     };
     mocks.getQueue.mockResolvedValue(queue);
     let release!: () => void;
-    const blocked = serializeQueueOperation(() => new Promise<void>((resolve) => {
-      release = resolve;
-    }));
+    const blocked = serializeQueueOperation(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        })
+    );
     await vi.waitFor(() => expect(release).toBeTypeOf('function'));
     vi.useFakeTimers();
     try {
       await startLeaseRenewal(queue);
       await vi.advanceTimersByTimeAsync(31_000);
-      expect(socket.sent.filter((value) => JSON.parse(value).type === 'lease_renew')).toHaveLength(2);
+      expect(socket.sent.filter((value) => JSON.parse(value).type === 'lease_renew')).toHaveLength(
+        2
+      );
     } finally {
       release();
       await blocked;
@@ -198,7 +273,10 @@ describe('socket assignment lifecycle', () => {
     const socket = await connectedSocket();
     mocks.getQueue.mockResolvedValue({
       ...createQueue('http://127.0.0.1:8787', 'claude', true, new Date().toISOString()),
-      queueId: 'job-1', status: 'running', leaseId: 'lease-1', activeItemId: 'item-1'
+      queueId: 'job-1',
+      status: 'running',
+      leaseId: 'lease-1',
+      activeItemId: 'item-1'
     });
     mocks.cancelActiveQueueItem.mockRejectedValue(new Error('Tab disappeared'));
     await disableRoverConnection();
@@ -222,21 +300,56 @@ describe('socket assignment lifecycle', () => {
     return socket;
   }
 
-  it('rejects an assignment while an existing queue is busy', async () => {
-    mocks.getQueue.mockResolvedValue({
-      ...createQueue('http://127.0.0.1:8787', 'claude', true, new Date().toISOString()),
-      status: 'running'
-    });
+  it.each(['draft', 'stopped'] as const)(
+    'accepts a %s local queue and records dropped names',
+    async (status) => {
+      const socket = await connectedSocket();
+      const local = addQueueItem(
+        addQueueItem(createQueue('http://localhost:8787', 'claude', false, 'now'), {
+          id: 'first',
+          name: 'First',
+          prompt: '',
+          assertionCount: 0
+        }),
+        { id: 'second', name: 'Second', prompt: '', assertionCount: 0 }
+      );
+      mocks.getQueue.mockResolvedValue({ ...local, status });
+      socket.message(assignment);
+      await vi.waitFor(() => expect(mocks.runQueueItem).toHaveBeenCalled());
+      expect(mocks.runQueueItem.mock.calls[0][0]).toMatchObject({
+        droppedLocalItemNames: ['First', 'Second']
+      });
+      expect(socket.sent.map((value) => JSON.parse(value).type)).toContain('assignment_accept');
+    }
+  );
+
+  it('accepts an assignment into an empty local draft', async () => {
     const socket = await connectedSocket();
+    mocks.getQueue.mockResolvedValue(createQueue('http://localhost:8787', 'claude', false, 'now'));
     socket.message(assignment);
-    await vi.waitFor(() =>
-      expect(socket.sent.map((value) => JSON.parse(value).type)).toContain('assignment_reject')
-    );
-    expect(
-      JSON.parse(socket.sent.find((value) => JSON.parse(value).type === 'assignment_reject')!)
-        .reason
-    ).toBe('busy');
+    await vi.waitFor(() => expect(mocks.runQueueItem).toHaveBeenCalled());
+    expect(socket.sent.map((value) => JSON.parse(value).type)).toContain('assignment_accept');
+    expect(socket.sent.map((value) => JSON.parse(value).type)).not.toContain('assignment_reject');
   });
+
+  it.each(['running', 'paused'] as const)(
+    'rejects an assignment while a local queue is %s',
+    async (status) => {
+      mocks.getQueue.mockResolvedValue({
+        ...createQueue('http://127.0.0.1:8787', 'claude', true, new Date().toISOString()),
+        status
+      });
+      const socket = await connectedSocket();
+      socket.message(assignment);
+      await vi.waitFor(() =>
+        expect(socket.sent.map((value) => JSON.parse(value).type)).toContain('assignment_reject')
+      );
+      expect(
+        JSON.parse(socket.sent.find((value) => JSON.parse(value).type === 'assignment_reject')!)
+          .reason
+      ).toBe('busy');
+    }
+  );
 
   it('accepts a compatible assignment and starts its queue', async () => {
     mocks.getQueue.mockResolvedValue(null);
@@ -268,9 +381,77 @@ describe('socket assignment lifecycle', () => {
     expect(messages.some((message) => message.type === 'assignment_accept')).toBe(false);
     expect(messages.find((message) => message.type === 'assignment_reject')).toMatchObject({
       reason: 'provider_unavailable',
-      retryable: true
+      retryable: true,
+      message: 'tm-pipeline new conversation did not become ready'
     });
   });
+
+  it('reports unsupported New Chat as non-retryable with an actionable explanation', async () => {
+    const explanation =
+      'Polo has no New Chat support. Choose Continue the same conversation or learn a New Chat action.';
+    mocks.startQueueConversation.mockRejectedValue(
+      Object.assign(new Error(explanation), {
+        code: 'new_conversation_unsupported'
+      })
+    );
+    const socket = await connectedSocket();
+    socket.message(assignment);
+    await vi.waitFor(() =>
+      expect(socket.sent.map((value) => JSON.parse(value).type)).toContain('assignment_reject')
+    );
+    const messages = socket.sent.map((value) => JSON.parse(value));
+    expect(messages.find((message) => message.type === 'assignment_reject')).toMatchObject({
+      reason: 'new_conversation_unsupported',
+      retryable: false,
+      message: explanation
+    });
+    expect(messages.some((message) => message.type === 'assignment_accept')).toBe(false);
+    expect(messages.some((message) => message.type === 'lease_release')).toBe(false);
+    expect(mocks.runQueueItem).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { count: 2, between: true, rejected: true },
+    { count: 1, between: true, rejected: false },
+    { count: 2, between: false, rejected: false }
+  ])(
+    'checks learned New Chat support between scenarios (%j)',
+    async ({ count, between, rejected }) => {
+      const socket = await connectedSocket();
+      socket.message({
+        type: 'provider_updated',
+        provider: { id: 'polo', name: 'Polo', source: 'workspace', learned: { updatedAt: 'now' } }
+      });
+      mocks.detectProvider.mockResolvedValue('polo');
+      socket.message({
+        ...assignment,
+        agent: { provider: 'polo' },
+        newConversationBeforeStart: false,
+        newConversationBetweenScenarios: between,
+        scenarios: Array.from({ length: count }, (_, i) => ({ id: `s${i}`, prompt: 'hello' }))
+      });
+      await vi.waitFor(() =>
+        expect(socket.sent.map((value) => JSON.parse(value).type)).toContain(
+          rejected ? 'assignment_reject' : 'assignment_accept'
+        )
+      );
+      if (rejected) {
+        expect(
+          socket.sent
+            .map((value) => JSON.parse(value))
+            .find((message) => message.type === 'assignment_reject')
+        ).toMatchObject({
+          reason: 'new_conversation_unsupported',
+          retryable: false,
+          message:
+            'Polo has no New Chat support. Choose Continue the same conversation or learn a New Chat action.'
+        });
+        expect(mocks.runQueueItem).not.toHaveBeenCalled();
+        expect(mocks.saveQueue).not.toHaveBeenCalled();
+      } else expect(mocks.runQueueItem).toHaveBeenCalledOnce();
+      expect(mocks.startQueueConversation).not.toHaveBeenCalled();
+    }
+  );
 
   it('ignores a duplicate delivery of the same leased assignment', async () => {
     let storedQueue: any = null;

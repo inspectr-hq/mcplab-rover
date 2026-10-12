@@ -6,7 +6,7 @@ import {
   type RoverQueueState
 } from '../queue/state';
 import { activeTab, detectProvider } from './browser';
-import { errorMessage } from './errors';
+import { errorCode, errorMessage, unsupportedNewConversationError } from './errors';
 import { getQueue, saveQueue } from './store';
 import { clearLease, currentSocket, persistLeaseRelease } from './lease-transport';
 import { scenarioStatusForItem, type ScenarioStatusEvent } from '../mcplab/rover-protocol';
@@ -16,12 +16,7 @@ import { enqueueLeaseActions } from '../queue/lease-outbox';
 import { isBuiltInProvider } from '../providers/catalog';
 import { sendStage } from './queue-message-helpers';
 import { debugLog } from './debug-logging';
-
-function errorCode(error: unknown): string | undefined {
-  return error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
-    ? error.code
-    : undefined;
-}
+import { NEW_CONVERSATION_STABILITY_MS } from '../providers/new-conversation-evidence';
 
 function isIncompleteError(error: unknown): boolean {
   return errorCode(error) === 'incomplete';
@@ -393,20 +388,28 @@ export async function runQueueItem(queue: RoverQueueState): Promise<void> {
 }
 
 export async function waitForTabComplete(tabId: number): Promise<void> {
-  const current = await chrome.tabs.get(tabId);
-  if (current.status === 'complete') return;
   await new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(listener);
-      reject(new Error('New conversation did not finish loading.'));
-    }, 30_000);
-    const listener = (updatedTabId: number, changeInfo: { status?: string }) => {
-      if (updatedTabId !== tabId || changeInfo.status !== 'complete') return;
+    let settled = false;
+    const finish = (error?: unknown) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timeout);
       chrome.tabs.onUpdated.removeListener(listener);
-      resolve();
+      if (error) reject(error);
+      else resolve();
     };
+    const listener = (updatedTabId: number, changeInfo: { status?: string }) => {
+      if (updatedTabId === tabId && changeInfo.status === 'complete') finish();
+    };
+    const timeout = setTimeout(
+      () => finish(new Error('New conversation did not finish loading.')),
+      30_000
+    );
+    // Subscribe first so a completion during tabs.get cannot be lost.
     chrome.tabs.onUpdated.addListener(listener);
+    void chrome.tabs.get(tabId).then((current) => {
+      if (current.status === 'complete') finish();
+    }, finish);
   });
 }
 
@@ -435,14 +438,22 @@ export async function startQueueConversation(queue: RoverQueueState): Promise<vo
     });
     if (!response?.ok)
       throw new Error(response?.error ?? 'Could not start a new ChatGPT conversation.');
+    if (response.navigationUrl)
+      await navigateQueueConversation(queue, response.navigationUrl, 'ChatGPT');
     return;
   }
   if (queue.provider !== 'claude') {
     const profile = (await new McplabClient(queue.origin).listBrowserProviders()).find(
       (candidate) => candidate.id === queue.provider
     );
-    if (!profile?.newConversation)
-      throw new Error(`${queue.provider} does not have a learned new-conversation action.`);
+    if (!profile) throw new Error(`Provider profile '${queue.provider}' is unavailable.`);
+    if (!profile.newConversation) throw unsupportedNewConversationError(profile.name);
+    if (profile.newConversation.action === 'navigate') {
+      if (!profile.newConversation.url)
+        throw new Error(`${profile.name} new conversation URL is missing`);
+      await navigateQueueConversation(queue, profile.newConversation.url, profile.name);
+      return;
+    }
     const response = await chrome.tabs.sendMessage(queue.tabId, {
       type: 'ROVER_NEW_CHAT',
       requestId: crypto.randomUUID(),
@@ -450,13 +461,42 @@ export async function startQueueConversation(queue: RoverQueueState): Promise<vo
     });
     if (!response?.ok)
       throw new Error(response?.error ?? `Could not start a new ${profile.name} conversation.`);
-    if (profile.newConversation.action === 'navigate') {
-      await waitForTabComplete(queue.tabId);
-      await waitForProviderReady(queue.tabId);
-    }
+    if (response.navigationUrl)
+      await navigateQueueConversation(queue, response.navigationUrl, profile.name);
     return;
   }
   await chrome.tabs.update(queue.tabId, { url: 'https://claude.ai/new' });
   await waitForTabComplete(queue.tabId);
   await waitForProviderReady(queue.tabId);
+}
+
+async function navigateQueueConversation(
+  queue: RoverQueueState,
+  destination: string,
+  providerName: string
+): Promise<void> {
+  const tabId = queue.tabId!;
+  const current = await chrome.tabs.get(tabId);
+  const url = new URL(destination, current.url);
+  if (!['http:', 'https:'].includes(url.protocol))
+    throw new Error(`${providerName} new conversation URL is invalid`);
+  await chrome.tabs.update(tabId, { url: url.href });
+  await waitForTabComplete(tabId);
+  await waitForProviderReady(tabId, queue.provider);
+  const deadline = Date.now() + 15_000;
+  let readySince: number | null = null;
+  while (Date.now() < deadline) {
+    try {
+      const response = await chrome.tabs.sendMessage(tabId, { type: 'ROVER_NEW_CHAT_READY' });
+      if (response?.ok && response.provider === queue.provider && response.ready === true) {
+        readySince ??= Date.now();
+        if (Date.now() - readySince >= NEW_CONVERSATION_STABILITY_MS) return;
+      } else readySince = null;
+    } catch {
+      // Retry only readiness, never the navigation, while the replacement content script starts.
+      readySince = null;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`${providerName} new conversation did not become ready`);
 }

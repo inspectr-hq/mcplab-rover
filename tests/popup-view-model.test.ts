@@ -40,13 +40,13 @@ describe('popup view model', () => {
 
     const saved = buildLearnedProviderSave(
       profile,
-      'TrendMiner Agent Lumen',
+      'Polo Agent Lumen',
       'copilot-cloud-microsoft-lumen',
       'https://copilot.cloud.microsoft/chat/agent/lumen'
     );
 
     expect(saved.profile.id).toBe('copilot-cloud-microsoft-lumen');
-    expect(saved.profile.name).toBe('TrendMiner Agent Lumen');
+    expect(saved.profile.name).toBe('Polo Agent Lumen');
     expect(saved.agent.url).toBe('https://copilot.cloud.microsoft/chat/agent/lumen');
   });
 
@@ -76,16 +76,20 @@ describe('popup view model', () => {
   });
 
   it('guides the next Learning action when New Chat has not been confirmed', () => {
-    expect(learnResultStatus({
-      readyToSave: true,
-      hasNewConversation: true,
-      newConversationContextObserved: false
-    })).toContain('click New Chat');
-    expect(learnResultStatus({
-      readyToSave: true,
-      hasNewConversation: true,
-      newConversationContextObserved: true
-    })).toContain('New Chat context change observed');
+    expect(
+      learnResultStatus({
+        readyToSave: true,
+        hasNewConversation: true,
+        newConversationContextObserved: false
+      })
+    ).toContain('click New Chat');
+    expect(
+      learnResultStatus({
+        readyToSave: true,
+        hasNewConversation: true,
+        newConversationContextObserved: true
+      })
+    ).toContain('New Chat context change observed');
   });
 
   it('labels diagnostic timestamps as checked time', () => {
@@ -133,6 +137,7 @@ describe('popup view model', () => {
   it('labels managed lease phases for the popup', () => {
     expect(managedPhaseLabel('running')).toBe('Running in agent');
     expect(managedPhaseLabel('waiting_ack')).toBe('Waiting for MCPLab acknowledgement');
+    expect(managedPhaseLabel('terminal')).toBe('Ready for next evaluation');
     expect(managedPhaseLabel('idle')).toBeUndefined();
   });
 

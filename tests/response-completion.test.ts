@@ -1,17 +1,22 @@
 import { describe, expect, it, vi } from 'vitest';
 import { IncompleteResponseError, waitForCompletedResponse } from '../src/runtime/response-tracker';
-import type { ProviderObservation, ProviderRawSignalName } from '../src/runtime/provider-state-engine';
+import type {
+  ProviderObservation,
+  ProviderRawSignalName
+} from '../src/runtime/provider-state-engine';
 
-function observation(options: {
-  text?: string;
-  identity?: string;
-  generating?: boolean;
-  idle?: boolean;
-  working?: boolean;
-  responseObserved?: boolean;
-  error?: string;
-  signals?: Partial<Record<ProviderRawSignalName, boolean>>;
-} = {}): ProviderObservation {
+function observation(
+  options: {
+    text?: string;
+    identity?: string;
+    generating?: boolean;
+    idle?: boolean;
+    working?: boolean;
+    responseObserved?: boolean;
+    error?: string;
+    signals?: Partial<Record<ProviderRawSignalName, boolean>>;
+  } = {}
+): ProviderObservation {
   const text = options.text ?? '';
   return {
     observedAt: Date.now(),
@@ -40,15 +45,18 @@ describe('waitForCompletedResponse', () => {
       const startedAt = Date.now();
       let completed = false;
       const pending = waitForCompletedResponse({
-        readObservation: () => observation({
-          text: 'unchanged answer',
-          generating: Date.now() - startedAt >= 20 && Date.now() - startedAt < 40,
-          idle: !(Date.now() - startedAt >= 20 && Date.now() - startedAt < 40)
-        }),
+        readObservation: () =>
+          observation({
+            text: 'unchanged answer',
+            generating: Date.now() - startedAt >= 20 && Date.now() - startedAt < 40,
+            idle: !(Date.now() - startedAt >= 20 && Date.now() - startedAt < 40)
+          }),
         pollMs: 10,
         stabilityMs: 30,
         timeoutMs: 200
-      }).then(() => { completed = true; });
+      }).then(() => {
+        completed = true;
+      });
       await vi.advanceTimersByTimeAsync(60);
       expect(completed).toBe(false);
       await vi.advanceTimersByTimeAsync(20);
@@ -65,16 +73,19 @@ describe('waitForCompletedResponse', () => {
       const startedAt = Date.now();
       let completed = false;
       const pending = waitForCompletedResponse({
-        readObservation: () => observation({
-          text: 'unchanged answer',
-          generating: false,
-          idle: true,
-          working: Date.now() - startedAt >= 20 && Date.now() - startedAt < 40
-        }),
+        readObservation: () =>
+          observation({
+            text: 'unchanged answer',
+            generating: false,
+            idle: true,
+            working: Date.now() - startedAt >= 20 && Date.now() - startedAt < 40
+          }),
         pollMs: 10,
         stabilityMs: 30,
         timeoutMs: 200
-      }).then(() => { completed = true; });
+      }).then(() => {
+        completed = true;
+      });
       await vi.advanceTimersByTimeAsync(60);
       expect(completed).toBe(false);
       await vi.advanceTimersByTimeAsync(20);
@@ -91,16 +102,19 @@ describe('waitForCompletedResponse', () => {
       const startedAt = Date.now();
       let completed = false;
       const pending = waitForCompletedResponse({
-        readObservation: () => observation({
-          text: 'same answer',
-          identity: Date.now() - startedAt < 20 ? 'turn-a' : 'turn-b',
-          generating: false,
-          idle: true
-        }),
+        readObservation: () =>
+          observation({
+            text: 'same answer',
+            identity: Date.now() - startedAt < 20 ? 'turn-a' : 'turn-b',
+            generating: false,
+            idle: true
+          }),
         pollMs: 10,
         stabilityMs: 30,
         timeoutMs: 200
-      }).then(() => { completed = true; });
+      }).then(() => {
+        completed = true;
+      });
       await vi.advanceTimersByTimeAsync(30);
       expect(completed).toBe(false);
       await vi.advanceTimersByTimeAsync(30);
@@ -133,12 +147,13 @@ describe('waitForCompletedResponse', () => {
   it('rejects when the provider reports an error', async () => {
     await expect(
       waitForCompletedResponse({
-        readObservation: () => observation({
-          text: 'partial',
-          generating: true,
-          idle: false,
-          error: 'Something went wrong'
-        }),
+        readObservation: () =>
+          observation({
+            text: 'partial',
+            generating: true,
+            idle: false,
+            error: 'Something went wrong'
+          }),
         pollMs: 1,
         stabilityMs: 3,
         timeoutMs: 100
@@ -210,12 +225,13 @@ describe('waitForCompletedResponse', () => {
   it('rejects stable text when a required generation signal was never observed', async () => {
     await expect(
       waitForCompletedResponse({
-        readObservation: () => observation({
-          text: 'stable text',
-          responseObserved: false,
-          generating: false,
-          idle: true
-        }),
+        readObservation: () =>
+          observation({
+            text: 'stable text',
+            responseObserved: false,
+            generating: false,
+            idle: true
+          }),
         pollMs: 1,
         stabilityMs: 3,
         timeoutMs: 100,
@@ -254,12 +270,13 @@ describe('waitForCompletedResponse', () => {
     let reads = 0;
     await expect(
       waitForCompletedResponse({
-        readObservation: () => observation({
-          text: 'final text',
-          generating: false,
-          idle: true,
-          responseObserved: reads++ > 0
-        }),
+        readObservation: () =>
+          observation({
+            text: 'final text',
+            generating: false,
+            idle: true,
+            responseObserved: reads++ > 0
+          }),
         pollMs: 1,
         stabilityMs: 3,
         timeoutMs: 100,
@@ -272,13 +289,14 @@ describe('waitForCompletedResponse', () => {
     vi.useFakeTimers();
     try {
       const promise = waitForCompletedResponse({
-        readObservation: () => observation({
-          text: 'tool result',
-          generating: false,
-          working: false,
-          idle: true,
-          signals: { working_visible: true }
-        }),
+        readObservation: () =>
+          observation({
+            text: 'tool result',
+            generating: false,
+            working: false,
+            idle: true,
+            signals: { working_visible: true }
+          }),
         pollMs: 10,
         stabilityMs: 20,
         timeoutMs: 50

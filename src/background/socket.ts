@@ -3,7 +3,9 @@ import type { WaitingEvaluation } from '../contracts';
 import { McplabClient } from '../mcplab/api-client';
 import {
   archiveCompletedQueueItems,
+  canAcceptQueueAssignment,
   createQueue,
+  isManagedQueue,
   isCompletedQueueItemStatus,
   startQueue,
   stopQueue,
@@ -30,6 +32,8 @@ import { serializeQueueOperation } from '../queue/operations';
 import { configureLeaseTransport, persistLeaseRelease } from './lease-transport';
 import type { RoverLeaseReleaseReason } from '../mcplab/rover-protocol';
 import { debugLog } from './debug-logging';
+import { errorCode, errorMessage, unsupportedNewConversationError } from './errors';
+import { isBuiltInProvider, isBuiltInProviderProfile } from '../providers/catalog';
 
 let roverSocket: WebSocket | null = null;
 let registeredSocket: WebSocket | null = null;
@@ -99,7 +103,9 @@ export async function startLeaseRenewal(queue: RoverQueueState): Promise<void> {
       await serializeQueueOperation(async () => {
         const current = await getQueue();
         if (current?.queueId !== jobId || current.leaseId !== leaseId) return;
-        await saveQueue(transitionManagedLease(current, { type: 'renewed', leaseId, leaseExpiresAt }));
+        await saveQueue(
+          transitionManagedLease(current, { type: 'renewed', leaseId, leaseExpiresAt })
+        );
       });
     })().catch((error) =>
       debugLog('lease renewal failed', {
@@ -256,10 +262,11 @@ export async function loadProfilesIntoTab(tabId: number, origin: string): Promis
   } catch {
     return;
   }
+  const activeProfiles = profiles.filter((profile) => !isBuiltInProviderProfile(profile));
   loadedProviders.clear();
-  for (const profile of profiles) loadedProviders.set(profile.id, profile);
+  for (const profile of activeProfiles) loadedProviders.set(profile.id, profile);
   await chrome.tabs
-    .sendMessage(tabId, { type: 'ROVER_SET_PROFILES', profiles })
+    .sendMessage(tabId, { type: 'ROVER_SET_PROFILES', profiles: activeProfiles })
     .catch(() => undefined);
 }
 
@@ -447,6 +454,7 @@ export async function connectToMcplab(): Promise<void> {
         return;
       }
       if (message.type === 'provider_updated' && message.provider) {
+        if (isBuiltInProviderProfile(message.provider)) return;
         loadedProviders.set(message.provider.id, message.provider);
         void activeTab().then((tab) =>
           typeof tab?.id === 'number'
@@ -595,8 +603,12 @@ export async function connectToMcplab(): Promise<void> {
         return;
       }
       const leaseId = message.leaseId;
-      const rejectAssignment = (reason: string) => {
-        lastAssignmentDecision = { decision: 'rejected', reason, at: new Date().toISOString() };
+      const rejectAssignment = (reason: string, detail?: string, retryable = true) => {
+        lastAssignmentDecision = {
+          decision: 'rejected',
+          reason: detail ? `${reason}: ${detail}` : reason,
+          at: new Date().toISOString()
+        };
         if (socket.readyState === WebSocket.OPEN) {
           socket.send(
             JSON.stringify({
@@ -604,7 +616,8 @@ export async function connectToMcplab(): Promise<void> {
               jobId: message.jobId,
               leaseId,
               reason,
-              retryable: true
+              retryable,
+              ...(detail ? { message: detail } : {})
             })
           );
         }
@@ -643,6 +656,15 @@ export async function connectToMcplab(): Promise<void> {
             return;
           }
         }
+        const profile = loadedProviders.get(message.agent!.provider!);
+        const needsNewChat =
+          message.newConversationBeforeStart === true ||
+          (message.scenarios!.length > 1 && message.newConversationBetweenScenarios !== false);
+        // Check learned transitions before sending a prompt or replacing a local queue.
+        // Built-in providers use their native New Chat actions regardless of saved profiles.
+        if (needsNewChat && profile && !isBuiltInProvider(profile.id) && !profile.newConversation) {
+          throw unsupportedNewConversationError(profile.name);
+        }
         const scenarioIds = message.scenarios!.map((scenario) => scenario.id);
         if (new Set(scenarioIds).size !== scenarioIds.length) {
           rejectAssignment('invalid_assignment');
@@ -664,13 +686,7 @@ export async function connectToMcplab(): Promise<void> {
           newConversationBeforeStart: message.newConversationBeforeStart === true,
           newConversationBetweenScenarios: message.newConversationBetweenScenarios !== false
         });
-        if (
-          previous &&
-          (['running', 'paused'].includes(previous.status) ||
-            previous.pendingLeaseActions?.length ||
-            previous.managedPhase === 'finalizing' ||
-            previous.managedPhase === 'waiting_ack')
-        ) {
+        if (previous && !canAcceptQueueAssignment(previous)) {
           rejectAssignment('busy');
           return;
         }
@@ -684,6 +700,12 @@ export async function connectToMcplab(): Promise<void> {
         const assignedBase = {
           ...queue,
           recentHistory: history,
+          // Preserve the notice across consecutive MCPLab assignments so a quick handoff
+          // cannot hide which local items the user needs to re-add.
+          droppedLocalItemNames:
+            previous && !isManagedQueue(previous)
+              ? previous.items.filter((item) => item.status === 'queued').map((item) => item.name)
+              : previous?.droppedLocalItemNames,
           queueId: message.jobId!,
           evaluationRunId: message.evaluationRunId,
           sourceConfigPath: message.configPath,
@@ -734,9 +756,16 @@ export async function connectToMcplab(): Promise<void> {
         await runQueueItem(started);
       }).catch(async (error) => {
         if (!accepted && socket.readyState === WebSocket.OPEN) {
-          rejectAssignment('provider_unavailable');
+          // Missing capabilities require a changed profile or conversation setting.
+          // Retrying the same assignment cannot make them available.
+          const unsupported = errorCode(error) === 'new_conversation_unsupported';
+          rejectAssignment(
+            unsupported ? 'new_conversation_unsupported' : 'provider_unavailable',
+            errorMessage(error),
+            !unsupported
+          );
         } else {
-          reportAssignmentError(error instanceof Error ? error.message : String(error));
+          reportAssignmentError(errorMessage(error));
         }
         try {
           // Before acceptance, assignment_reject is the protocol-owned cleanup.
@@ -837,8 +866,7 @@ export function disableRoverConnection(): Promise<void> {
       roverSocket = null;
       registeredSocket = null;
       registeredTabId = undefined;
-      if (socket && socket.readyState !== WebSocket.CLOSED)
-        socket.close(1000, 'Rover disabled');
+      if (socket && socket.readyState !== WebSocket.CLOSED) socket.close(1000, 'Rover disabled');
     }
   })().finally(() => {
     roverDisablePromise = null;

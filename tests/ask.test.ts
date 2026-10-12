@@ -22,9 +22,12 @@ describe('ask cancellation', () => {
         id: 'learned-provider',
         completionStabilityMs: 20,
         signalEvaluator: { evaluate },
-        getAssistantCandidates: () => response ? [{ key: 'turn-1', text: response, visible: true }] : [],
+        getAssistantCandidates: () =>
+          response ? [{ key: 'turn-1', text: response, visible: true }] : [],
         setComposerText: vi.fn(async () => undefined),
-        submit: vi.fn(async () => { response = 'Final answer'; })
+        submit: vi.fn(async () => {
+          response = 'Final answer';
+        })
       } as unknown as ChatProviderAdapter;
 
       const pending = ask(adapter, 'hello');
@@ -44,12 +47,21 @@ describe('ask cancellation', () => {
       const adapter = {
         id: 'learned-provider',
         completionStabilityMs: 20,
-        getAssistantCandidates: () => response ? [{ key: 'turn-1', text: response, visible: true }] : [],
+        getAssistantCandidates: () =>
+          response ? [{ key: 'turn-1', text: response, visible: true }] : [],
         setComposerText: vi.fn(async () => undefined),
-        submit: vi.fn(async () => { response = 'Final answer'; }),
+        submit: vi.fn(async () => {
+          response = 'Final answer';
+        }),
         signalEvaluator: {
           evaluate: (items: ResponseCandidate[], observedAt: number) =>
-            observationFromCandidates(items, { idle_visible: true, input_enabled: true }, null, undefined, observedAt)
+            observationFromCandidates(
+              items,
+              { idle_visible: true, input_enabled: true },
+              null,
+              undefined,
+              observedAt
+            )
         }
       } as unknown as ChatProviderAdapter;
       let resolved = false;
@@ -75,9 +87,15 @@ describe('ask cancellation', () => {
         setTimeout(() => controller.abort(), 10);
       }),
       submit,
-        signalEvaluator: {
-          evaluate: (items: ResponseCandidate[], observedAt: number) =>
-          observationFromCandidates(items, { idle_visible: true, input_enabled: true }, null, undefined, observedAt)
+      signalEvaluator: {
+        evaluate: (items: ResponseCandidate[], observedAt: number) =>
+          observationFromCandidates(
+            items,
+            { idle_visible: true, input_enabled: true },
+            null,
+            undefined,
+            observedAt
+          )
       }
     } as unknown as ChatProviderAdapter;
 
@@ -100,17 +118,16 @@ describe('ask cancellation', () => {
         response = true;
       }),
       signalEvaluator: {
-        evaluate: (items: ResponseCandidate[], observedAt: number) =>
-          ({
-            ...observationFromCandidates(
-              items,
-              { idle_visible: true, input_enabled: true },
-              null,
-              undefined,
-              observedAt
-            ),
-            responseObserved: false
-          })
+        evaluate: (items: ResponseCandidate[], observedAt: number) => ({
+          ...observationFromCandidates(
+            items,
+            { idle_visible: true, input_enabled: true },
+            null,
+            undefined,
+            observedAt
+          ),
+          responseObserved: false
+        })
       }
     } as unknown as ChatProviderAdapter;
 
@@ -135,7 +152,13 @@ describe('ask cancellation', () => {
       }),
       signalEvaluator: {
         evaluate: (items: ResponseCandidate[], observedAt: number) =>
-          observationFromCandidates(items, { idle_visible: true, input_enabled: true }, null, undefined, observedAt)
+          observationFromCandidates(
+            items,
+            { idle_visible: true, input_enabled: true },
+            null,
+            undefined,
+            observedAt
+          )
       }
     } as unknown as ChatProviderAdapter;
 
